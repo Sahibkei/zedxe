@@ -2,7 +2,6 @@ import mongoose from 'mongoose';
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
-
 declare global {
     var mongooseCache: {
         conn: typeof mongoose | null;
@@ -28,9 +27,11 @@ export const connectToDatabase = async () => {
     try {
         cached.conn = await cached.promise;
     } catch (err) {
-        cached.promise = null
+        cached.promise = null;
         throw err;
     }
 
-    console.log(`Connected to Database ${process.env.NODE_ENV} ${MONGODB_URI}`);
+    console.log(`Connected to database ${process.env.NODE_ENV} - ${MONGODB_URI}`);
+
+    return cached.conn;
 }
