@@ -1,10 +1,11 @@
 import {inngest} from "@/lib/inngest/client";
-import {NEWS_SUMMARY_EMAIL_PROMPT, PERSONALIZED_WELCOME_EMAIL_PROMPT} from "@/lib/inngest/prompts";
+import {NEWS_SUMMARY_EMAIL_PROMPT, PERSONALIZED_WELCOME_EMAIL_PROMPT, WATCHLIST_SUMMARY_EMAIL_PROMPT} from "@/lib/inngest/prompts";
 import {sendNewsSummaryEmail, sendWelcomeEmail} from "@/lib/nodemailer";
 import {getAllUsersForNewsEmail} from "@/lib/actions/user.actions";
-import { getWatchlistSymbolsByEmail } from "@/lib/actions/watchlist.actions";
-import { getNews } from "@/lib/actions/finnhub.actions";
+import { getWatchlistSymbolsByEmail, getWatchlistItemsByUserId } from "@/lib/actions/watchlist.actions";
+import { getNews, getSnapshotsForSymbols } from "@/lib/actions/finnhub.actions";
 import { getFormattedTodayDate } from "@/lib/utils";
+import { getAlertsByUser, markAlertTriggered } from "@/lib/actions/alert.actions";
 
 export const sendSignUpEmail = inngest.createFunction(
     { id: 'sign-up-email' },
@@ -52,69 +53,164 @@ export const sendDailyNewsSummary = inngest.createFunction(
     { id: 'daily-news-summary' },
     [ { event: 'app/send.daily.news' }, { cron: '0 12 * * *' } ],
     async ({ step }) => {
-        // Step #1: Get all users for news delivery
-        const users = await step.run('get-all-users', getAllUsersForNewsEmail)
+        const today = new Date();
+        const users = await step.run('get-all-users', getAllUsersForNewsEmail);
+        if (!users || users.length === 0) return { success: false, message: 'No users found for news email' };
 
-        if(!users || users.length === 0) return { success: false, message: 'No users found for news email' };
+        type BasicAlert = {
+            condition: AlertCondition;
+            thresholdValue: number;
+            isActive: boolean;
+            frequency: AlertFrequency;
+            lastTriggeredAt?: Date | null;
+            symbol: string;
+            id?: string;
+            _id?: unknown;
+            name?: string;
+        };
 
-        // Step #2: For each user, get watchlist symbols -> fetch news (fallback to general)
-        const results = await step.run('fetch-user-news', async () => {
-            const preUser: Array<{ user: UserForNewsEmail; articles: MarketNewsArticle[] }> =[];
-            for (const user of users as UserForNewsEmail) {
-                try {
-                    const symbols = await getWatchlistSymbolsByEmail(user.email);
-                    let articles = await getNews(symbols);
-                    // Enforce max 6 articles per user
-                    articles = (articles || []).slice(0, 6);
-                    // If still empty, fallback to general
-                    if (!articles || articles.length === 0) {
-                        articles = await getNews();
-                        articles = (articles || []).slice(0, 6);
+        const isSameDay = (a?: Date | string | null, b?: Date) => {
+            if (!a || !b) return false;
+            const d1 = new Date(a);
+            return d1.getUTCFullYear() === b.getUTCFullYear() && d1.getUTCMonth() === b.getUTCMonth() && d1.getUTCDate() === b.getUTCDate();
+        };
+
+        const evaluateAlert = (alert: BasicAlert, price?: number) => {
+            if (price === undefined || price === null) return { triggered: false, near: false };
+            let conditionMet = false;
+            switch (alert.condition) {
+            case 'greater_than':
+                conditionMet = price > alert.thresholdValue;
+                break;
+            case 'less_than':
+                conditionMet = price < alert.thresholdValue;
+                break;
+            case 'greater_or_equal':
+                conditionMet = price >= alert.thresholdValue;
+                break;
+            case 'less_or_equal':
+                conditionMet = price <= alert.thresholdValue;
+                break;
+            case 'crosses_above':
+                conditionMet = price > alert.thresholdValue;
+                break;
+            case 'crosses_below':
+                conditionMet = price < alert.thresholdValue;
+                break;
+            default:
+                conditionMet = false;
+            }
+
+            const near = !conditionMet && Math.abs(price - alert.thresholdValue) / Math.max(alert.thresholdValue, 1) <= 0.02;
+            return { triggered: conditionMet, near };
+        };
+
+        const buildWatchlistSection = async (user: UserForNewsEmail) => {
+            const watchlist = await getWatchlistItemsByUserId(user.id);
+            if (!watchlist || watchlist.length === 0) return '';
+
+            const symbols = watchlist.map((item) => item.symbol);
+            let snapshots: Record<string, Awaited<ReturnType<typeof getSymbolSnapshot>>> = {};
+            try {
+                snapshots = await getSnapshotsForSymbols(symbols);
+            } catch (err) {
+                console.error('watchlist summary: snapshot error', user.email, err);
+                snapshots = {};
+            }
+            const alerts = await getAlertsByUser(user.id);
+
+            const triggeredAlerts: { symbol: string; thresholdValue: number; condition: AlertCondition }[] = [];
+            const nearAlerts: { symbol: string; thresholdValue: number; condition: AlertCondition }[] = [];
+
+            for (const alert of alerts) {
+                const price = snapshots[alert.symbol]?.currentPrice;
+                const { triggered, near } = evaluateAlert(alert, price);
+                const alreadyTriggered = alert.frequency === 'once' ? !!alert.lastTriggeredAt : isSameDay(alert.lastTriggeredAt, today);
+
+                if (alert.isActive && triggered && !alreadyTriggered) {
+                    const alertId = alert._id || alert.id;
+                    triggeredAlerts.push({ symbol: alert.symbol, thresholdValue: alert.thresholdValue, condition: alert.condition });
+                    if (alertId) {
+                        await markAlertTriggered(String(alertId), alert.frequency === 'once');
                     }
-                    preUser.push({ user, articles });
-                } catch (e) {
-                    console.error('daily-news: error preparing user news', user.email, e);
-                    preUser.push({ user, articles: [] });
+                } else if (near) {
+                    nearAlerts.push({ symbol: alert.symbol, thresholdValue: alert.thresholdValue, condition: alert.condition });
                 }
             }
-            return preUser;
-        });
 
-        // Step #3: (placeholder) Summarize news via AI
-        const userNewsSummaries: { user: UserForNewsEmail; newsContent: string | null }[] = [];
+            const payload = {
+                items: watchlist.map((item) => ({
+                    symbol: item.symbol,
+                    company: item.company,
+                    price: snapshots[item.symbol]?.currentPrice,
+                    changePercent: snapshots[item.symbol]?.changePercent,
+                    marketCap: snapshots[item.symbol]?.marketCap,
+                    alerts: alerts
+                        .filter((alert) => alert.symbol === item.symbol)
+                        .map((alert) => ({
+                            name: alert.name,
+                            condition: alert.condition,
+                            thresholdValue: alert.thresholdValue,
+                            isActive: alert.isActive,
+                        })),
+                })),
+                triggeredAlerts,
+                nearAlerts,
+            };
 
-        for (const { user, articles } of results) {
+            const prompt = WATCHLIST_SUMMARY_EMAIL_PROMPT.replace('{{watchlistData}}', JSON.stringify(payload, null, 2));
+            const response = await step.ai.infer(`watchlist-summary-${user.email}`, {
+                model: step.ai.models.gemini({ model: 'gemini-2.5-flash-lite' }),
+                body: { contents: [{ role: 'user', parts: [{ text: prompt }] }] },
+            });
+            const part = response.candidates?.[0]?.content?.parts?.[0];
+            const summary = (part && 'text' in part ? part.text : null) || '';
+
+            const alertsHtml = triggeredAlerts.length
+                ? `<div style="margin-top:16px;">` +
+                `<h3 style="color:#FDD458; margin:0 0 8px 0; font-size:16px;">Alerts</h3>` +
+                `<ul style="margin:0; padding-left:18px; color:#CCDADC; font-size:14px;">` +
+                triggeredAlerts
+                    .map((a) => `<li>${a.symbol} crossed ${a.condition.replace('_', ' ')} ${a.thresholdValue}</li>`)
+                    .join('') +
+                `</ul>` +
+                `</div>`
+                : '';
+
+            return summary ? `<div style="margin-top:32px;">${summary}${alertsHtml}</div>` : '';
+        };
+
+        for (const user of users as UserForNewsEmail[]) {
             try {
-                const prompt = NEWS_SUMMARY_EMAIL_PROMPT.replace('{{newsData}}', JSON.stringify(articles, null, 2));
+                const symbols = await getWatchlistSymbolsByEmail(user.email);
+                let articles = await getNews(symbols);
+                articles = (articles || []).slice(0, 6);
+                if (!articles || articles.length === 0) {
+                    articles = await getNews();
+                    articles = (articles || []).slice(0, 6);
+                }
 
+                const prompt = NEWS_SUMMARY_EMAIL_PROMPT.replace('{{newsData}}', JSON.stringify(articles, null, 2));
                 const response = await step.ai.infer(`summarize-news-${user.email}`, {
                     model: step.ai.models.gemini({ model: 'gemini-2.5-flash-lite' }),
-                    body: {
-                        contents: [{ role: 'user', parts: [{ text:prompt }]}]
-                    }
+                    body: { contents: [{ role: 'user', parts: [{ text: prompt }] }] },
                 });
 
                 const part = response.candidates?.[0]?.content?.parts?.[0];
-                const newsContent = (part && 'text' in part ? part.text : null) || 'No market news.'
+                const newsContent = (part && 'text' in part ? part.text : null) || 'No market news.';
+                const watchlistContent = await buildWatchlistSection(user);
 
-                userNewsSummaries.push({ user, newsContent });
+                await sendNewsSummaryEmail({
+                    email: user.email,
+                    date: getFormattedTodayDate(),
+                    newsContent,
+                    watchlistContent,
+                });
             } catch (e) {
-                console.error('Failed to summarize news for : ', user.email);
-                userNewsSummaries.push({ user, newsContent: null });
+                console.error('daily-news: failed for user', user.email, e);
             }
         }
 
-        // Step #4: (placeholder) Send the emails
-        await step.run('send-news-emails', async () => {
-            await Promise.all(
-                userNewsSummaries.map(async ({ user, newsContent}) => {
-                    if(!newsContent) return false;
-
-                    return await sendNewsSummaryEmail({ email: user.email, date: getFormattedTodayDate(), newsContent })
-                })
-            )
-        })
-
-        return { success: true, message: 'Daily news summary emails sent successfully' }
+        return { success: true, message: 'Daily news summary emails sent successfully' };
     }
 )

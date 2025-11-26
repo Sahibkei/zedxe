@@ -1,7 +1,7 @@
 export const NAV_ITEMS = [
     { href: '/', label: 'Dashboard' },
     { href: '/search', label: 'Search' },
-    // { href: '/watchlist', label: 'Watchlist' },
+    { href: '/watchlist', label: 'Watchlist' },
 ];
 
 // Sign-up form select options
@@ -32,8 +32,17 @@ export const ALERT_TYPE_OPTIONS = [
 ];
 
 export const CONDITION_OPTIONS = [
-    { value: 'greater', label: 'Greater than (>)' },
-    { value: 'less', label: 'Less than (<)' },
+    { value: 'greater_than', label: 'Greater than (>)' },
+    { value: 'less_than', label: 'Less than (<)' },
+    { value: 'greater_or_equal', label: 'Greater or equal (>=)' },
+    { value: 'less_or_equal', label: 'Less or equal (<=)' },
+    { value: 'crosses_above', label: 'Crosses above' },
+    { value: 'crosses_below', label: 'Crosses below' },
+];
+
+export const ALERT_FREQUENCY_OPTIONS = [
+    { value: 'once', label: 'Once' },
+    { value: 'once_per_day', label: 'Once per day' },
 ];
 
 // TradingView Charts

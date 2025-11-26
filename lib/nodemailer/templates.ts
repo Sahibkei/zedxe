@@ -280,6 +280,9 @@ export const NEWS_SUMMARY_EMAIL_TEMPLATE = `<!DOCTYPE html>
                             
                             <!-- News Summary -->
                             {{newsContent}}
+
+                            <!-- Watchlist Summary -->
+                            {{watchlistContent}}
                             
                             <!-- Footer Text -->
                             <div style="text-align: center; margin: 40px 0 0 0;">
