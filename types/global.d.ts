@@ -84,6 +84,16 @@ declare global {
         isInWatchlist: boolean;
     };
 
+    type AlertCondition =
+        | 'greater_than'
+        | 'less_than'
+        | 'greater_or_equal'
+        | 'less_or_equal'
+        | 'crosses_above'
+        | 'crosses_below';
+
+    type AlertFrequency = 'once' | 'once_per_day';
+
     type FinnhubSearchResult = {
         symbol: string;
         description: string;
@@ -131,25 +141,21 @@ declare global {
         currentPrice?: number;
     };
 
-    type WatchlistTableProps = {
-        watchlist: StockWithData[];
-    };
-
-    type StockWithData = {
+    type WatchlistStockWithData = {
+        id: string;
         userId: string;
         symbol: string;
         company: string;
         addedAt: Date;
+        createdAt: Date;
         currentPrice?: number;
         changePercent?: number;
-        priceFormatted?: string;
-        changeFormatted?: string;
-        marketCap?: string;
-        peRatio?: string;
+        marketCap?: number;
+        hasAlert?: boolean;
     };
 
     type AlertsListProps = {
-        alertData: Alert[] | undefined;
+        alertData: AlertDisplay[] | undefined;
     };
 
     type MarketNewsArticle = {
@@ -168,29 +174,21 @@ declare global {
         news?: MarketNewsArticle[];
     };
 
-    type SearchCommandProps = {
-        open?: boolean;
-        setOpen?: (open: boolean) => void;
-        renderAs?: 'button' | 'text';
-        buttonLabel?: string;
-        buttonVariant?: 'primary' | 'secondary';
-        className?: string;
-    };
-
-    type AlertData = {
+    type AlertFormState = {
+        alertId?: string;
         symbol: string;
         company: string;
-        alertName: string;
-        alertType: 'upper' | 'lower';
-        threshold: string;
+        name?: string;
+        condition: AlertCondition;
+        thresholdValue: number | '';
+        frequency: AlertFrequency;
     };
 
     type AlertModalProps = {
-        alertId?: string;
-        alertData?: AlertData;
-        action?: string;
         open: boolean;
-        setOpen: (open: boolean) => void;
+        onClose: () => void;
+        initialState: AlertFormState;
+        onSave?: (alert: AlertDisplay) => void;
     };
 
     type RawNewsArticle = {
@@ -205,15 +203,22 @@ declare global {
         related?: string;
     };
 
-    type Alert = {
+    type AlertDisplay = {
         id: string;
+        userId: string;
         symbol: string;
-        company: string;
-        alertName: string;
-        currentPrice: number;
-        alertType: 'upper' | 'lower';
-        threshold: number;
-        changePercent?: number;
+        name?: string;
+        condition: AlertCondition;
+        thresholdValue: number;
+        frequency: AlertFrequency;
+        isActive: boolean;
+        lastTriggeredAt?: Date | null;
+    };
+
+    type UserForNewsEmail = {
+        id: string;
+        email: string;
+        name?: string;
     };
 }
 

@@ -1,9 +1,7 @@
 "use client";
 import React, { useMemo, useState } from "react";
-
-// Minimal WatchlistButton implementation to satisfy page requirements.
-// This component focuses on UI contract only. It toggles local state and
-// calls onWatchlistChange if provided. Styling hooks match globals.css.
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 const WatchlistButton = ({
                              symbol,
@@ -13,17 +11,53 @@ const WatchlistButton = ({
                              type = "button",
                              onWatchlistChange,
                          }: WatchlistButtonProps) => {
+    const router = useRouter();
     const [added, setAdded] = useState<boolean>(!!isInWatchlist);
+    const [pending, setPending] = useState(false);
 
     const label = useMemo(() => {
-        if (type === "icon") return added ? "" : "";
+        if (type === "icon") return "";
         return added ? "Remove from Watchlist" : "Add to Watchlist";
     }, [added, type]);
 
-    const handleClick = () => {
-        const next = !added;
-        setAdded(next);
-        onWatchlistChange?.(symbol, next);
+    const handleClick = async () => {
+        if (pending) return;
+        setPending(true);
+
+        const redirectToSignIn = () => {
+            const currentPath = typeof window !== 'undefined' ? window.location.pathname : '/sign-in';
+            router.push(`/sign-in?redirect=${encodeURIComponent(currentPath)}`);
+        };
+
+        try {
+            if (!added) {
+                const res = await fetch('/api/watchlist', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol, company }),
+                });
+
+                if (res.status === 401) return redirectToSignIn();
+                if (!res.ok) throw new Error('Failed to add to watchlist');
+
+                setAdded(true);
+                toast.success(`${symbol} added to your watchlist`);
+                onWatchlistChange?.(symbol, true);
+            } else {
+                const res = await fetch(`/api/watchlist/${symbol}`, { method: 'DELETE' });
+                if (res.status === 401) return redirectToSignIn();
+                if (!res.ok) throw new Error('Failed to remove from watchlist');
+
+                setAdded(false);
+                toast.success(`${symbol} removed from your watchlist`);
+                onWatchlistChange?.(symbol, false);
+            }
+        } catch (error) {
+            console.error('WatchlistButton error', error);
+            toast.error('Could not update watchlist. Please try again.');
+        } finally {
+            setPending(false);
+        }
     };
 
     if (type === "icon") {
@@ -33,6 +67,7 @@ const WatchlistButton = ({
                 aria-label={added ? `Remove ${symbol} from watchlist` : `Add ${symbol} to watchlist`}
                 className={`watchlist-icon-btn ${added ? "watchlist-icon-added" : ""}`}
                 onClick={handleClick}
+                disabled={pending}
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -53,7 +88,7 @@ const WatchlistButton = ({
     }
 
     return (
-        <button className={`watchlist-btn ${added ? "watchlist-remove" : ""}`} onClick={handleClick}>
+        <button className={`watchlist-btn ${added ? "watchlist-remove" : ""}`} onClick={handleClick} disabled={pending}>
             {showTrashIcon && added ? (
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
