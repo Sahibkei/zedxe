@@ -1,4 +1,3 @@
-import React from 'react'
 import {Label} from "@/components/ui/label";
 import {Controller} from "react-hook-form";
 import {
@@ -9,8 +8,7 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 
-
-const SelectField = ({ name, label, placeholder, options, control, error, required = false}: SelectFieldProps ) => {
+const SelectField = ({ name, label, placeholder, options, control, error, required = false }: SelectFieldProps) => {
     return (
         <div className="space-y-2">
             <Label htmlFor={name} className="form-label">{label}</Label>
@@ -34,7 +32,7 @@ const SelectField = ({ name, label, placeholder, options, control, error, requir
                             ))}
                         </SelectContent>
                         {error && <p className="text-sm text-red-500">{error.message}</p>}
-                    </ Select>
+                    </Select>
                 )}
             />
         </div>

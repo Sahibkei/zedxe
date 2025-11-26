@@ -6,7 +6,7 @@ import {redirect} from "next/navigation";
 const Layout = async ({ children }: { children : React.ReactNode }) => {
     const session = await auth.api.getSession({ headers: await headers() });
 
-    if (!session?.user) redirect('/sign-in');
+    if(!session?.user) redirect('/sign-in');
 
     const user = {
         id: session.user.id,
