@@ -1,9 +1,23 @@
 import TradingViewWidget from "@/components/TradingViewWidget";
-import WatchlistButton from "@/components/ui/WatchlistButton";
 import {SYMBOL_INFO_WIDGET_CONFIG, CANDLE_CHART_WIDGET_CONFIG, BASELINE_WIDGET_CONFIG, TECHNICAL_ANALYSIS_WIDGET_CONFIG, COMPANY_PROFILE_WIDGET_CONFIG, COMPANY_FINANCIALS_WIDGET_CONFIG,} from "@/lib/constants";
+import { headers } from "next/headers";
+import { auth } from "@/lib/better-auth/auth";
+import { getSymbolSnapshot } from "@/lib/actions/finnhub.actions";
+import { isSymbolInWatchlist } from "@/lib/actions/watchlist.actions";
+import { getAlertsByUser } from "@/lib/actions/alert.actions";
+import StockActionBar from "./StockActionBar";
 
 export default async function StockDetails({ params }: StockDetailsPageProps) {
     const { symbol } = await params;
+    const session = await auth.api.getSession({ headers: await headers() });
+    const symbolUpper = symbol.toUpperCase();
+    const [snapshot, inWatchlist, alerts] = await Promise.all([
+        getSymbolSnapshot(symbolUpper).catch(() => ({ symbol: symbolUpper })),
+        session?.user ? isSymbolInWatchlist(session.user.id, symbolUpper) : Promise.resolve(false),
+        session?.user ? getAlertsByUser(session.user.id) : Promise.resolve([]),
+    ]);
+
+    const symbolAlert = alerts.find((alert) => alert.symbol === symbolUpper);
     const scriptUrl = `https://s3.tradingview.com/external-embedding/embed-widget-`;
 
     return (
@@ -35,7 +49,12 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                 {/* Right column */}
                 <div className="flex flex-col gap-6">
                     <div className="flex items-center justify-between">
-                        <WatchlistButton symbol={symbol.toUpperCase()} company={symbol.toUpperCase()} isInWatchlist={false} />
+                        <StockActionBar
+                            symbol={symbolUpper}
+                            company={snapshot.company || symbolUpper}
+                            isInWatchlist={inWatchlist}
+                            initialAlert={symbolAlert ? { ...symbolAlert, id: String(symbolAlert._id) } : undefined}
+                        />
                     </div>
 
                     <TradingViewWidget

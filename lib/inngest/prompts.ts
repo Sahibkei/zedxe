@@ -198,6 +198,23 @@ Apple Stock Jumped After Great Earnings Report
 </div>
 </div>`
 
+export const WATCHLIST_SUMMARY_EMAIL_PROMPT = `You are creating a short HTML section titled "Your Watchlist Update".
+
+Input data:
+{{watchlistData}}
+
+Guidelines:
+- Keep to 120-150 words total.
+- Highlight the biggest movers first and mention % change in plain language.
+- If any alert is near or met, call it out.
+- Tone: concise, friendly, confident.
+- Use two short paragraphs at most and bullet points for 2-3 key tickers.
+- Do NOT use markdown or code fences, only clean HTML snippets.
+- Wrap ticker mentions with <strong style="color: #FDD458;">SYMBOL</strong>.
+- Use <p class="mobile-text dark-text-secondary" style="margin: 0 0 16px 0; font-size: 16px; line-height: 1.6; color: #CCDADC;"> for paragraphs.
+- Use <ul style="margin: 0 0 16px 20px; padding: 0; color: #CCDADC;"> and <li style="margin-bottom: 6px;"> for bullets.
+- Close with one sentence that encourages the user to check their dashboard.`;
+
 export const TRADINGVIEW_SYMBOL_MAPPING_PROMPT = `You are an expert in financial markets and trading platforms. Your task is to find the correct TradingView symbol that corresponds to a given Finnhub stock symbol.
 
 Stock information from Finnhub:
