@@ -18,7 +18,9 @@ export const metadata: Metadata = {
     description: "Track real-time stock prices, get personalized alerts and explore detailed company insights.",
 };
 
-export default function RootLayout({children,}: Readonly<{
+export default function RootLayout({
+                                       children,
+                                   }: Readonly<{
     children: React.ReactNode;
 }>) {
     return (
