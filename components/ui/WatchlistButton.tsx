@@ -35,6 +35,7 @@ const WatchlistButton = ({
                 const res = await fetch('/api/watchlist', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
                     body: JSON.stringify({ symbol, company }),
                 });
 
@@ -45,7 +46,10 @@ const WatchlistButton = ({
                 toast.success(`${symbol} added to your watchlist`);
                 onWatchlistChange?.(symbol, true);
             } else {
-                const res = await fetch(`/api/watchlist/${symbol}`, { method: 'DELETE' });
+                const res = await fetch(`/api/watchlist/${encodeURIComponent(symbol)}`, {
+                    method: 'DELETE',
+                    credentials: 'include',
+                });
                 if (res.status === 401) return redirectToSignIn();
                 if (!res.ok) throw new Error('Failed to remove from watchlist');
 
@@ -92,7 +96,9 @@ const WatchlistButton = ({
         <Button
             onClick={handleClick}
             disabled={pending}
-            className={`bg-yellow-500 text-black hover:bg-yellow-400 ${added ? 'bg-[#111] text-yellow-300 border border-yellow-400 hover:bg-gray-900' : ''}`}
+            className={`bg-yellow-500 text-black hover:bg-yellow-400 ${
+                added ? 'bg-[#111] text-yellow-300 border border-yellow-400 hover:bg-gray-900' : ''
+            }`}
         >
             {showTrashIcon && added ? (
                 <svg

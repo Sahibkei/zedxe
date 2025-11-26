@@ -57,7 +57,10 @@ const WatchlistClient = ({ initialWatchlist, initialAlerts }: { initialWatchlist
     const handleRemove = async (symbol: string) => {
         setLoadingSymbol(symbol);
         try {
-            const res = await fetch(`/api/watchlist/${symbol}`, { method: 'DELETE' });
+            const res = await fetch(`/api/watchlist/${encodeURIComponent(symbol)}`, {
+                method: 'DELETE',
+                credentials: 'include',
+            });
             if (!res.ok) throw new Error('Failed to remove');
             setWatchlist((prev) => prev.filter((item) => item.symbol !== symbol));
             setAlerts((prev) => prev.filter((alert) => alert.symbol !== symbol));
@@ -82,7 +85,10 @@ const WatchlistClient = ({ initialWatchlist, initialAlerts }: { initialWatchlist
         const prevAlerts = alerts;
         setAlerts((prev) => prev.filter((a) => a.id !== alertId));
         try {
-            const res = await fetch(`/api/alerts/${alertId}`, { method: 'DELETE' });
+            const res = await fetch(`/api/alerts/${alertId}`, {
+                method: 'DELETE',
+                credentials: 'include',
+            });
             if (!res.ok) throw new Error('Failed to delete alert');
             toast.success('Alert removed');
             setWatchlist((prev) => prev.map((item) => (item.symbol === symbol ? { ...item, hasAlert: false } : item)));
@@ -99,6 +105,7 @@ const WatchlistClient = ({ initialWatchlist, initialAlerts }: { initialWatchlist
             const res = await fetch(`/api/alerts/${alert.id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ isActive }),
             });
             if (!res.ok) throw new Error('Failed to toggle');
@@ -133,7 +140,7 @@ const WatchlistClient = ({ initialWatchlist, initialAlerts }: { initialWatchlist
                             <th className="py-3 pr-4">Change %</th>
                             <th className="py-3 pr-4">Market Cap</th>
                             <th className="py-3 pr-4">Alert?</th>
-                            <th className="py-3 pr-4 text-right">Actions</th>
+                            <th className="py-3 pr-4 text-center">Actions</th>
                         </tr>
                         </thead>
                         <tbody>
@@ -163,7 +170,7 @@ const WatchlistClient = ({ initialWatchlist, initialAlerts }: { initialWatchlist
                                         <td className="py-3 pr-4 text-gray-100">{item.marketCap ? formatMarketCapValue(item.marketCap) : '—'}</td>
                                         <td className="py-3 pr-4 text-gray-100">{alertForSymbol ? 'Yes' : 'No'}</td>
                                         <td className="py-3 pr-4">
-                                            <div className="flex items-center justify-end gap-2">
+                                            <div className="flex items-center justify-center gap-2">
                                                 <Button
                                                     asChild
                                                     size="sm"
