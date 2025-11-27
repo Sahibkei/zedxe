@@ -1,63 +1,70 @@
 'use server';
 
 import { connectToDatabase } from '@/database/mongoose';
-import { Alert, type AlertDocument } from '@/database/models/alert.model';
+import { Alert, type AlertItem } from '@/database/models/alert.model';
+
+export type AlertDocument = AlertItem & { _id: string };
+
+type AlertConditionValue = AlertItem['condition'];
+type AlertFrequencyValue = AlertItem['frequency'];
 
 export async function getAlertsByUser(userId: string): Promise<AlertDocument[]> {
-    if (!userId) return [];
+    if (!userId) return [] as AlertDocument[];
     await connectToDatabase();
-    return await Alert.find({ userId }).lean();
+    const docs = await Alert.find({ userId }).sort({ createdAt: -1 }).lean<AlertDocument[]>();
+    return docs;
 }
 
 export async function getAlertById(userId: string, alertId: string): Promise<AlertDocument | null> {
     if (!userId || !alertId) return null;
     await connectToDatabase();
-    return await Alert.findOne({ _id: alertId, userId }).lean();
+    return await Alert.findOne({ _id: alertId, userId }).lean<AlertDocument | null>();
 }
 
 export async function upsertAlert(params: {
     alertId?: string;
     userId: string;
     symbol: string;
-    name?: string;
-    condition: AlertDocument['condition'];
+    alertName: string;
+    condition: AlertConditionValue;
     thresholdValue: number;
-    frequency: AlertDocument['frequency'];
+    frequency: AlertFrequencyValue;
     isActive?: boolean;
-}) {
-    const { alertId, userId, symbol, name, condition, thresholdValue, frequency, isActive = true } = params;
-    if (!userId || !symbol || !condition || thresholdValue === undefined || thresholdValue === null) {
+}): Promise<AlertDocument | null> {
+    const { alertId, userId, symbol, alertName, condition, thresholdValue, frequency, isActive = true } = params;
+    if (!userId || !symbol || !alertName || !condition || thresholdValue === undefined || thresholdValue === null) {
         throw new Error('Missing required alert fields');
     }
 
     await connectToDatabase();
-    const cleanSymbol = symbol.toUpperCase();
+    const cleanSymbol = symbol.trim().toUpperCase();
 
     if (alertId) {
         return await Alert.findOneAndUpdate(
             { _id: alertId, userId },
-            { name, condition, thresholdValue, frequency, isActive },
+            { alertName, condition, thresholdValue, frequency, isActive, symbol: cleanSymbol },
             { new: true }
-        ).lean();
+        ).lean<AlertDocument | null>();
     }
 
-    return await Alert.findOneAndUpdate(
-        { userId, symbol: cleanSymbol, condition, thresholdValue },
-        {
-            name,
-            frequency,
-            isActive,
-            lastTriggeredAt: null,
-            symbol: cleanSymbol,
-        },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-    ).lean();
+    const created = await Alert.create({
+        userId,
+        symbol: cleanSymbol,
+        alertName: alertName.trim(),
+        condition,
+        thresholdValue,
+        frequency,
+        isActive,
+        createdAt: new Date(),
+    });
+
+    return created.toObject() as AlertDocument;
 }
 
 export async function toggleAlertActive(userId: string, alertId: string, isActive: boolean) {
     if (!userId || !alertId) throw new Error('Missing required fields');
     await connectToDatabase();
-    return await Alert.findOneAndUpdate({ _id: alertId, userId }, { isActive }, { new: true }).lean();
+    return await Alert.findOneAndUpdate({ _id: alertId, userId }, { isActive }, { new: true }).lean<AlertDocument | null>();
 }
 
 export async function deleteAlert(userId: string, alertId: string) {
@@ -68,9 +75,14 @@ export async function deleteAlert(userId: string, alertId: string) {
 
 export async function markAlertTriggered(alertId: string, deactivate: boolean) {
     await connectToDatabase();
-    const update: Partial<AlertDocument> = { lastTriggeredAt: new Date() };
+    const update: Partial<AlertItem> = { lastTriggeredAt: new Date() };
     if (deactivate) {
         update.isActive = false;
     }
     await Alert.findByIdAndUpdate(alertId, update);
+}
+
+export async function getActiveAlerts(): Promise<AlertDocument[]> {
+    await connectToDatabase();
+    return Alert.find({ isActive: true }).lean<AlertDocument[]>();
 }

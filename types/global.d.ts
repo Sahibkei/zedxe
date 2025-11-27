@@ -58,7 +58,7 @@ declare global {
     type SearchCommandProps = {
         renderAs?: 'button' | 'text';
         label?: string;
-        initialStocks: StockWithWatchlistStatus[];
+        initialStocks?: StockWithWatchlistStatus[];
     };
 
     type WelcomeEmailData = {
@@ -84,15 +84,9 @@ declare global {
         isInWatchlist: boolean;
     };
 
-    type AlertCondition =
-        | 'greater_than'
-        | 'less_than'
-        | 'greater_or_equal'
-        | 'less_or_equal'
-        | 'crosses_above'
-        | 'crosses_below';
+    type AlertCondition = 'greater_than' | 'less_than' | 'crosses_above' | 'crosses_below';
 
-    type AlertFrequency = 'once' | 'once_per_day';
+    type AlertFrequency = 'once' | 'once_per_day' | 'once_per_hour';
 
     type FinnhubSearchResult = {
         symbol: string;
@@ -141,17 +135,15 @@ declare global {
         currentPrice?: number;
     };
 
-    type WatchlistStockWithData = {
-        id: string;
-        userId: string;
+    type WatchlistEntryWithData = {
         symbol: string;
         company: string;
-        addedAt: Date;
-        createdAt: Date;
         currentPrice?: number;
+        priceFormatted?: string;
+        changeFormatted?: string;
         changePercent?: number;
         marketCap?: number;
-        hasAlert?: boolean;
+        peRatio?: number;
     };
 
     type AlertsListProps = {
@@ -178,7 +170,7 @@ declare global {
         alertId?: string;
         symbol: string;
         company: string;
-        name?: string;
+        alertName?: string;
         condition: AlertCondition;
         thresholdValue: number | '';
         frequency: AlertFrequency;
@@ -207,7 +199,7 @@ declare global {
         id: string;
         userId: string;
         symbol: string;
-        name?: string;
+        alertName?: string;
         condition: AlertCondition;
         thresholdValue: number;
         frequency: AlertFrequency;

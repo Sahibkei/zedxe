@@ -23,3 +23,28 @@ export const getAllUsersForNewsEmail = async () => {
         return []
     }
 }
+
+export const getUserById = async (userId: string) => {
+    if (!userId) return null;
+
+    try {
+        const mongoose = await connectToDatabase();
+        const db = mongoose.connection.db;
+        if (!db) throw new Error('Mongoose connection not connected');
+
+        const user = await db.collection('user').findOne<{ id?: string; _id?: unknown; email?: string; name?: string }>({
+            $or: [{ id: userId }, { _id: userId }],
+        });
+
+        if (!user) return null;
+
+        return {
+            id: user.id || String(user._id),
+            email: user.email || '',
+            name: user.name || '',
+        };
+    } catch (error) {
+        console.error('Error fetching user by id:', error);
+        return null;
+    }
+};

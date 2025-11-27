@@ -8,8 +8,8 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     try {
         const body = await request.json();
-        const { symbol, name, condition, thresholdValue, frequency, isActive = true } = body ?? {};
-        if (!symbol || !condition || typeof thresholdValue !== 'number') {
+        const { symbol, alertName, condition, thresholdValue, frequency, isActive = true } = body ?? {};
+        if (!symbol || !alertName || !condition || typeof thresholdValue !== 'number') {
             return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
         }
 
@@ -17,7 +17,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
             alertId: params.id,
             userId: session.user.id,
             symbol,
-            name,
+            alertName,
             condition,
             thresholdValue,
             frequency: frequency ?? 'once_per_day',

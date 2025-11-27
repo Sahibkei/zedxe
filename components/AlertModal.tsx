@@ -16,7 +16,7 @@ const mapAlertFromApi = (alert: ApiAlert): AlertDisplay => ({
     id: String(alert._id || alert.id),
     userId: String(alert.userId),
     symbol: alert.symbol || '',
-    name: alert.name,
+    alertName: alert.alertName || alert.name,
     condition: alert.condition as AlertCondition,
     thresholdValue: Number(alert.thresholdValue),
     frequency: (alert.frequency as AlertFrequency) || 'once_per_day',
@@ -46,13 +46,13 @@ const AlertModal = ({ open, onClose, initialState, onSave }: AlertModalProps) =>
             const res = await fetch('/api/alerts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id: formState.alertId,
-                    symbol: formState.symbol,
-                    name: formState.name,
-                    condition: formState.condition,
-                    thresholdValue: Number(formState.thresholdValue),
-                    frequency: formState.frequency,
+                    body: JSON.stringify({
+                        id: formState.alertId,
+                        symbol: formState.symbol,
+                        alertName: formState.alertName,
+                        condition: formState.condition,
+                        thresholdValue: Number(formState.thresholdValue),
+                        frequency: formState.frequency,
                 }),
             });
 
@@ -92,8 +92,8 @@ const AlertModal = ({ open, onClose, initialState, onSave }: AlertModalProps) =>
                     <div>
                         <Label className="text-gray-300">Alert Name</Label>
                         <Input
-                            value={formState.name || ''}
-                            onChange={(e) => handleChange('name', e.target.value)}
+                            value={formState.alertName || ''}
+                            onChange={(e) => handleChange('alertName', e.target.value)}
                             placeholder={`Alert for ${formState.symbol}`}
                             className="bg-[#111] border-gray-700 text-gray-100"
                         />

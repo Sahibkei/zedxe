@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import WatchlistButton from "@/components/ui/WatchlistButton";
+import WatchlistButton from "@/components/WatchlistButton";
 import { Button } from "@/components/ui/button";
 import AlertModal from "@/components/AlertModal";
 
@@ -13,10 +13,10 @@ const StockActionBar = ({ symbol, company, isInWatchlist, initialAlert }: { symb
         alertId: alert?.id,
         symbol,
         company,
-        name: alert?.name || `${symbol} price alert`,
+        alertName: alert?.alertName || `${symbol} price alert`,
         condition: alert?.condition || 'greater_than',
         thresholdValue: alert?.thresholdValue ?? '',
-        frequency: alert?.frequency || 'once_per_day',
+        frequency: alert?.frequency || 'once',
     };
 
     const handleSave = (saved: AlertDisplay) => {

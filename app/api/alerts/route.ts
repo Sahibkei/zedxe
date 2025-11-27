@@ -16,9 +16,9 @@ export async function POST(request: NextRequest) {
 
     try {
         const body = await request.json();
-        const { id, symbol, name, condition, thresholdValue, frequency, isActive = true } = body ?? {};
+        const { id, symbol, alertName, condition, thresholdValue, frequency, isActive = true } = body ?? {};
 
-        if (!symbol || !condition || typeof thresholdValue !== 'number') {
+        if (!symbol || !alertName || !condition || typeof thresholdValue !== 'number') {
             return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
         }
 
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
             alertId: id,
             userId: session.user.id,
             symbol,
-            name,
+            alertName,
             condition,
             thresholdValue,
             frequency: frequency ?? 'once_per_day',

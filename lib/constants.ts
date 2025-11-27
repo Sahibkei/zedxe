@@ -34,8 +34,6 @@ export const ALERT_TYPE_OPTIONS = [
 export const CONDITION_OPTIONS = [
     { value: 'greater_than', label: 'Greater than (>)' },
     { value: 'less_than', label: 'Less than (<)' },
-    { value: 'greater_or_equal', label: 'Greater or equal (>=)' },
-    { value: 'less_or_equal', label: 'Less or equal (<=)' },
     { value: 'crosses_above', label: 'Crosses above' },
     { value: 'crosses_below', label: 'Crosses below' },
 ];
@@ -43,6 +41,7 @@ export const CONDITION_OPTIONS = [
 export const ALERT_FREQUENCY_OPTIONS = [
     { value: 'once', label: 'Once' },
     { value: 'once_per_day', label: 'Once per day' },
+    { value: 'once_per_hour', label: 'Once per hour' },
 ];
 
 // TradingView Charts

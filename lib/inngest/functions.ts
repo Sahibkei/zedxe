@@ -1,11 +1,11 @@
 import {inngest} from "@/lib/inngest/client";
 import {NEWS_SUMMARY_EMAIL_PROMPT, PERSONALIZED_WELCOME_EMAIL_PROMPT, WATCHLIST_SUMMARY_EMAIL_PROMPT} from "@/lib/inngest/prompts";
-import {sendNewsSummaryEmail, sendWelcomeEmail} from "@/lib/nodemailer";
-import {getAllUsersForNewsEmail} from "@/lib/actions/user.actions";
+import {sendNewsSummaryEmail, sendPriceAlertEmail, sendWelcomeEmail} from "@/lib/nodemailer";
+import {getAllUsersForNewsEmail, getUserById} from "@/lib/actions/user.actions";
 import { getWatchlistSymbolsByEmail, getWatchlistItemsByUserId } from "@/lib/actions/watchlist.actions";
-import { getNews, getSnapshotsForSymbols } from "@/lib/actions/finnhub.actions";
+import { getNews, getSnapshotsForSymbols, getSymbolSnapshot } from "@/lib/actions/finnhub.actions";
 import { getFormattedTodayDate } from "@/lib/utils";
-import { getAlertsByUser, markAlertTriggered } from "@/lib/actions/alert.actions";
+import { getActiveAlerts, getAlertsByUser, markAlertTriggered } from "@/lib/actions/alert.actions";
 
 export const sendSignUpEmail = inngest.createFunction(
     { id: 'sign-up-email' },
@@ -66,13 +66,24 @@ export const sendDailyNewsSummary = inngest.createFunction(
             symbol: string;
             id?: string;
             _id?: unknown;
-            name?: string;
+            alertName?: string;
         };
 
         const isSameDay = (a?: Date | string | null, b?: Date) => {
             if (!a || !b) return false;
             const d1 = new Date(a);
             return d1.getUTCFullYear() === b.getUTCFullYear() && d1.getUTCMonth() === b.getUTCMonth() && d1.getUTCDate() === b.getUTCDate();
+        };
+
+        const isSameHour = (a?: Date | string | null, b?: Date) => {
+            if (!a || !b) return false;
+            const d1 = new Date(a);
+            return (
+                d1.getUTCFullYear() === b.getUTCFullYear() &&
+                d1.getUTCMonth() === b.getUTCMonth() &&
+                d1.getUTCDate() === b.getUTCDate() &&
+                d1.getUTCHours() === b.getUTCHours()
+            );
         };
 
         const evaluateAlert = (alert: BasicAlert, price?: number) => {
@@ -84,12 +95,6 @@ export const sendDailyNewsSummary = inngest.createFunction(
                 break;
             case 'less_than':
                 conditionMet = price < alert.thresholdValue;
-                break;
-            case 'greater_or_equal':
-                conditionMet = price >= alert.thresholdValue;
-                break;
-            case 'less_or_equal':
-                conditionMet = price <= alert.thresholdValue;
                 break;
             case 'crosses_above':
                 conditionMet = price > alert.thresholdValue;
@@ -125,7 +130,11 @@ export const sendDailyNewsSummary = inngest.createFunction(
             for (const alert of alerts) {
                 const price = snapshots[alert.symbol]?.currentPrice;
                 const { triggered, near } = evaluateAlert(alert, price);
-                const alreadyTriggered = alert.frequency === 'once' ? !!alert.lastTriggeredAt : isSameDay(alert.lastTriggeredAt, today);
+                const alreadyTriggered = alert.frequency === 'once'
+                    ? !!alert.lastTriggeredAt
+                    : alert.frequency === 'once_per_hour'
+                        ? isSameHour(alert.lastTriggeredAt, today)
+                        : isSameDay(alert.lastTriggeredAt, today);
 
                 if (alert.isActive && triggered && !alreadyTriggered) {
                     const alertId = alert._id || alert.id;
@@ -148,7 +157,7 @@ export const sendDailyNewsSummary = inngest.createFunction(
                     alerts: alerts
                         .filter((alert) => alert.symbol === item.symbol)
                         .map((alert) => ({
-                            name: alert.name,
+                            name: (alert as { alertName?: string; name?: string }).alertName || (alert as { name?: string }).name,
                             condition: alert.condition,
                             thresholdValue: alert.thresholdValue,
                             isActive: alert.isActive,
@@ -214,3 +223,95 @@ export const sendDailyNewsSummary = inngest.createFunction(
         return { success: true, message: 'Daily news summary emails sent successfully' };
     }
 )
+export const processPriceAlerts = inngest.createFunction(
+    { id: 'process-price-alerts' },
+    [{ event: 'app/alerts.check' }, { cron: '0 * * * *' }],
+    async ({ step }) => {
+        const alerts = await step.run('get-active-alerts', getActiveAlerts);
+        if (!alerts || alerts.length === 0) return { processed: 0, sent: 0 };
+
+        const activeAlerts = alerts.filter((alert) => alert.isActive && alert.symbol);
+        const symbols = Array.from(new Set(activeAlerts.map((a) => a.symbol.toUpperCase())));
+        const snapshots = await step.run('load-alert-snapshots', () => getSnapshotsForSymbols(symbols));
+
+        const isSameDay = (last?: Date | string | null) => {
+            if (!last) return false;
+            const d1 = new Date(last);
+            const now = new Date();
+            return d1.getUTCFullYear() === now.getUTCFullYear() && d1.getUTCMonth() === now.getUTCMonth() && d1.getUTCDate() === now.getUTCDate();
+        };
+
+        const isSameHour = (last?: Date | string | null) => {
+            if (!last) return false;
+            const d1 = new Date(last);
+            const now = new Date();
+            return (
+                d1.getUTCFullYear() === now.getUTCFullYear() &&
+                d1.getUTCMonth() === now.getUTCMonth() &&
+                d1.getUTCDate() === now.getUTCDate() &&
+                d1.getUTCHours() === now.getUTCHours()
+            );
+        };
+
+        const shouldThrottle = (alert: Awaited<typeof activeAlerts[number]>) => {
+            if (!alert.lastTriggeredAt) return false;
+            switch (alert.frequency) {
+            case 'once':
+                return true;
+            case 'once_per_day':
+                return isSameDay(alert.lastTriggeredAt);
+            case 'once_per_hour':
+                return isSameHour(alert.lastTriggeredAt);
+            default:
+                return false;
+            }
+        };
+
+        const conditionMet = (alert: Awaited<typeof activeAlerts[number]>, price?: number) => {
+            if (price === undefined || price === null) return false;
+            switch (alert.condition) {
+            case 'greater_than':
+                return price > alert.thresholdValue;
+            case 'less_than':
+                return price < alert.thresholdValue;
+            case 'crosses_above':
+                return price > alert.thresholdValue;
+            case 'crosses_below':
+                return price < alert.thresholdValue;
+            default:
+                return false;
+            }
+        };
+
+        let sent = 0;
+
+        for (const alert of activeAlerts) {
+            const symbol = alert.symbol.toUpperCase();
+            const snapshot = snapshots?.[symbol] || (await step.run(`fallback-snapshot-${symbol}`, () => getSymbolSnapshot(symbol).catch(() => null)));
+            const price = snapshot?.currentPrice;
+
+            if (!conditionMet(alert, price) || shouldThrottle(alert)) continue;
+
+            const user = await step.run(`user-${alert.userId}`, () => getUserById(alert.userId));
+            if (!user?.email) continue;
+
+            await step.run(`send-alert-email-${alert._id}`, () =>
+                sendPriceAlertEmail({
+                    email: user.email,
+                    name: user.name,
+                    symbol,
+                    company: snapshot?.company || symbol,
+                    currentPrice: price as number,
+                    targetPrice: alert.thresholdValue,
+                    condition: alert.condition,
+                    alertName: alert.alertName,
+                })
+            );
+
+            await step.run(`mark-alert-${alert._id}`, () => markAlertTriggered(String(alert._id), alert.frequency === 'once'));
+            sent += 1;
+        }
+
+        return { processed: activeAlerts.length, sent };
+    }
+);
