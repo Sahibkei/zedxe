@@ -1,32 +1,38 @@
-import WatchlistClient from "./WatchlistClient";
-import { auth } from "@/lib/better-auth/auth";
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { Star } from "lucide-react";
+
+import SearchCommand from "@/components/SearchCommand";
+import WatchlistTable from "@/components/WatchlistTable";
+import { searchStocks } from "@/lib/actions/finnhub.actions";
 import { getWatchlistWithData } from "@/lib/actions/watchlist.actions";
-import { getAlertsByUser } from "@/lib/actions/alert.actions";
 
 const WatchlistPage = async () => {
-    const session = await auth.api.getSession({ headers: await headers() });
-    if (!session?.user) redirect('/sign-in');
+    const watchlist = await getWatchlistWithData();
+    const initialStocks = await searchStocks();
 
-    const [watchlist, alerts] = await Promise.all([
-        getWatchlistWithData(session.user.id),
-        getAlertsByUser(session.user.id),
-    ]);
+    if (watchlist.length === 0) {
+        return (
+            <section className="watchlist-empty-container">
+                <div className="watchlist-empty">
+                    <Star className="watchlist-star" />
+                    <h2 className="empty-title">Your watchlist is empty</h2>
+                    <p className="empty-description">
+                        Start building your watchlist by searching for stocks and clicking the star icon to add them.
+                    </p>
+                </div>
+                <SearchCommand initialStocks={initialStocks} />
+            </section>
+        );
+    }
 
-    const formattedAlerts: AlertDisplay[] = alerts.map((alert) => ({
-        id: String(alert._id),
-        userId: alert.userId,
-        symbol: alert.symbol,
-        name: alert.name,
-        condition: alert.condition,
-        thresholdValue: alert.thresholdValue,
-        frequency: alert.frequency,
-        isActive: alert.isActive,
-        lastTriggeredAt: alert.lastTriggeredAt || null,
-    }));
-
-    return <WatchlistClient initialWatchlist={watchlist} initialAlerts={formattedAlerts} />;
+    return (
+        <section className="watchlist">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <h2 className="watchlist-title">Watchlist</h2>
+                <SearchCommand initialStocks={initialStocks} />
+            </div>
+            <WatchlistTable watchlist={watchlist} />
+        </section>
+    );
 };
 
 export default WatchlistPage;
