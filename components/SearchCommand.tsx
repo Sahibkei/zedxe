@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { CommandDialog, CommandEmpty, CommandInput, CommandList } from "@/components/ui/command";
 import { Loader2, Search, TrendingUp, X } from "lucide-react";
 
@@ -12,7 +12,8 @@ import { useDebounce } from "@/hooks/useDebounce";
 
 export default function SearchCommand({ renderAs = "button", label = "Add stock", initialStocks = [] }: SearchCommandProps) {
     const router = useRouter();
-    const [open, setOpen] = useState(false);
+    const pathname = usePathname();
+    const [open, setOpen] = useState(pathname === "/search");
     const [searchTerm, setSearchTerm] = useState("");
     const [loading, setLoading] = useState(false);
     const [stocks, setStocks] = useState<StockWithWatchlistStatus[]>(initialStocks || []);
@@ -23,6 +24,12 @@ export default function SearchCommand({ renderAs = "button", label = "Add stock"
     useEffect(() => {
         setStocks(initialStocks || []);
     }, [initialStocks]);
+
+    useEffect(() => {
+        if (pathname === "/search") {
+            setOpen(true);
+        }
+    }, [pathname]);
 
     const displayStocks = useMemo(
         () => (isSearchMode ? stocks : (stocks || []).slice(0, 10)),
@@ -97,7 +104,7 @@ export default function SearchCommand({ renderAs = "button", label = "Add stock"
         <>
             {renderTrigger()}
             <CommandDialog open={open} onOpenChange={setOpen} className="search-dialog">
-                <div className="max-w-3xl mx-auto mt-24 rounded-2xl bg-[#171a23]/95 backdrop-blur-lg shadow-2xl border border-white/5 overflow-hidden">
+                <div className="mx-auto mt-24 max-w-3xl rounded-2xl bg-[#12141b]/95 backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden">
                     <div className="flex items-center gap-3 px-4 py-3 border-b border-white/5">
                         <Search className="h-5 w-5 text-gray-400" />
                         <CommandInput
@@ -117,14 +124,14 @@ export default function SearchCommand({ renderAs = "button", label = "Add stock"
                         </button>
                     </div>
 
-                    <CommandList className="max-h-[440px] overflow-y-auto py-2">
+                    <CommandList className="max-h-[460px] overflow-y-auto py-3 bg-transparent">
                         {loading ? (
                             <CommandEmpty className="py-10 text-center text-gray-400">Loading stocks...</CommandEmpty>
                         ) : displayStocks?.length === 0 ? (
                             <div className="py-10 text-center text-gray-400">{isSearchMode ? "No results found" : "No stocks available"}</div>
                         ) : (
                             <div className="space-y-2">
-                                <div className="px-4 text-xs uppercase tracking-[0.2em] text-gray-500">
+                                <div className="px-4 text-xs uppercase tracking-[0.18em] text-gray-500">
                                     {isSearchMode ? "Results" : "Popular Stocks"} ({displayStocks?.length || 0})
                                 </div>
                                 <div className="divide-y divide-white/5">
@@ -140,12 +147,12 @@ export default function SearchCommand({ renderAs = "button", label = "Add stock"
                                             className="flex items-center justify-between px-4 py-3 hover:bg-white/5 cursor-pointer transition-colors"
                                         >
                                             <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-gray-400">
+                                                <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-gray-300">
                                                     <TrendingUp className="h-5 w-5" />
                                                 </div>
-                                                <div>
+                                                <div className="space-y-0.5">
                                                     <div className="font-medium text-white">{stock.name}</div>
-                                                    <div className="text-sm text-gray-400">
+                                                    <div className="text-xs text-muted-foreground">
                                                         {stock.symbol} · {stock.exchange} · {stock.type}
                                                     </div>
                                                 </div>

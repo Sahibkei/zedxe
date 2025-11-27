@@ -1,12 +1,38 @@
 'use server';
 
-import { connectToDatabase } from '@/database/mongoose';
+import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
+
 import { Alert, type AlertItem } from '@/database/models/alert.model';
+import { connectToDatabase } from '@/database/mongoose';
+import { auth } from '@/lib/better-auth/auth';
 
 export type AlertDocument = AlertItem & { _id: string };
 
 type AlertConditionValue = AlertItem['condition'];
 type AlertFrequencyValue = AlertItem['frequency'];
+
+export async function getUserAlerts(): Promise<AlertDisplay[]> {
+    const session = await auth.api.getSession({ headers: await headers() });
+    if (!session?.user) {
+        return redirect('/sign-in');
+    }
+
+    await connectToDatabase();
+    const docs = await Alert.find({ userId: session.user.id }).sort({ createdAt: -1 }).lean<AlertDocument[]>();
+
+    return docs.map((alert) => ({
+        id: String(alert._id),
+        userId: alert.userId,
+        symbol: alert.symbol,
+        alertName: alert.alertName,
+        condition: alert.condition as AlertCondition,
+        thresholdValue: alert.thresholdValue,
+        frequency: alert.frequency as AlertFrequency,
+        isActive: alert.isActive,
+        lastTriggeredAt: alert.lastTriggeredAt ?? null,
+    }));
+}
 
 export async function getAlertsByUser(userId: string): Promise<AlertDocument[]> {
     if (!userId) return [] as AlertDocument[];
