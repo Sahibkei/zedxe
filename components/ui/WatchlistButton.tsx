@@ -2,7 +2,6 @@
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 
 const WatchlistButton = ({
                              symbol,
@@ -35,7 +34,6 @@ const WatchlistButton = ({
                 const res = await fetch('/api/watchlist', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
                     body: JSON.stringify({ symbol, company }),
                 });
 
@@ -46,10 +44,7 @@ const WatchlistButton = ({
                 toast.success(`${symbol} added to your watchlist`);
                 onWatchlistChange?.(symbol, true);
             } else {
-                const res = await fetch(`/api/watchlist/${encodeURIComponent(symbol)}`, {
-                    method: 'DELETE',
-                    credentials: 'include',
-                });
+                const res = await fetch(`/api/watchlist/${symbol}`, { method: 'DELETE' });
                 if (res.status === 401) return redirectToSignIn();
                 if (!res.ok) throw new Error('Failed to remove from watchlist');
 
@@ -93,13 +88,7 @@ const WatchlistButton = ({
     }
 
     return (
-        <Button
-            onClick={handleClick}
-            disabled={pending}
-            className={`bg-yellow-500 text-black hover:bg-yellow-400 ${
-                added ? 'bg-[#111] text-yellow-300 border border-yellow-400 hover:bg-gray-900' : ''
-            }`}
-        >
+        <button className={`watchlist-btn ${added ? "watchlist-remove" : ""}`} onClick={handleClick} disabled={pending}>
             {showTrashIcon && added ? (
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
