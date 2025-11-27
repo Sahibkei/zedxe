@@ -141,17 +141,15 @@ declare global {
         currentPrice?: number;
     };
 
-    type WatchlistStockWithData = {
-        id: string;
-        userId: string;
+    type WatchlistEntryWithData = {
         symbol: string;
         company: string;
-        addedAt: Date;
-        createdAt: Date;
         currentPrice?: number;
+        priceFormatted?: string;
+        changeFormatted?: string;
         changePercent?: number;
         marketCap?: number;
-        hasAlert?: boolean;
+        peRatio?: number;
     };
 
     type AlertsListProps = {

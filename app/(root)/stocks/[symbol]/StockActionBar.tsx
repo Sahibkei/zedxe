@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import WatchlistButton from "@/components/ui/WatchlistButton";
+import WatchlistButton from "@/components/WatchlistButton";
 import { Button } from "@/components/ui/button";
 import AlertModal from "@/components/AlertModal";
 

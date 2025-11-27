@@ -1,6 +1,6 @@
 'use server';
 
-import { getDateRange, validateArticle, formatArticle } from '@/lib/utils';
+import { formatPrice, getDateRange, validateArticle, formatArticle } from '@/lib/utils';
 import { POPULAR_STOCK_SYMBOLS } from '@/lib/constants';
 import { cache } from 'react';
 
@@ -225,3 +225,51 @@ export const searchStocks = cache(async (query?: string): Promise<StockWithWatch
         return [];
     }
 });
+
+export async function getStocksDetails(symbol: string) {
+    const token = process.env.FINNHUB_API_KEY ?? NEXT_PUBLIC_FINNHUB_API_KEY;
+    if (!token) {
+        throw new Error('FINNHUB API key is not configured');
+    }
+
+    const cleanSymbol = symbol.trim().toUpperCase();
+
+    type FinnhubQuoteResponse = { c?: number; d?: number; dp?: number };
+    type FinnhubProfileResponse = { name?: string; marketCapitalization?: number };
+    type FinnhubMetricsResponse = { metric?: { peBasicExclExtraTTM?: number } };
+
+    const [quote, profile, metrics] = await Promise.all([
+        fetchJSON<FinnhubQuoteResponse>(`${FINNHUB_BASE_URL}/quote?symbol=${encodeURIComponent(cleanSymbol)}&token=${token}`, 60),
+        fetchJSON<FinnhubProfileResponse>(`${FINNHUB_BASE_URL}/stock/profile2?symbol=${encodeURIComponent(cleanSymbol)}&token=${token}`, 900),
+        fetchJSON<FinnhubMetricsResponse>(`${FINNHUB_BASE_URL}/stock/metric?symbol=${encodeURIComponent(cleanSymbol)}&metric=all&token=${token}`, 900),
+    ]);
+
+    const currentPrice = typeof quote?.c === 'number' ? quote.c : undefined;
+    const priceFormatted = typeof currentPrice === 'number' ? formatPrice(currentPrice) : undefined;
+    const changePercent = typeof quote?.dp === 'number' ? quote.dp : undefined;
+    const changeValue = typeof quote?.d === 'number' ? quote.d : undefined;
+
+    let changeFormatted: string | undefined;
+    if (typeof changeValue === 'number' && typeof changePercent === 'number') {
+        const sign = changeValue > 0 ? '+' : '';
+        changeFormatted = `${sign}${changeValue.toFixed(2)} (${changePercent.toFixed(2)}%)`;
+    } else if (typeof changePercent === 'number') {
+        const sign = changePercent > 0 ? '+' : '';
+        changeFormatted = `${sign}${changePercent.toFixed(2)}%`;
+    }
+
+    const marketCap =
+        typeof profile?.marketCapitalization === 'number' ? profile.marketCapitalization * 1_000_000 : undefined;
+    const peRatio = metrics?.metric?.peBasicExclExtraTTM;
+
+    return {
+        symbol: cleanSymbol,
+        company: profile?.name || cleanSymbol,
+        currentPrice,
+        priceFormatted,
+        changeFormatted,
+        changePercent,
+        marketCap,
+        peRatio,
+    } satisfies WatchlistEntryWithData;
+}
