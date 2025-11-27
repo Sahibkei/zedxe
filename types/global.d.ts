@@ -84,15 +84,9 @@ declare global {
         isInWatchlist: boolean;
     };
 
-    type AlertCondition =
-        | 'greater_than'
-        | 'less_than'
-        | 'greater_or_equal'
-        | 'less_or_equal'
-        | 'crosses_above'
-        | 'crosses_below';
+    type AlertCondition = 'greater_than' | 'less_than' | 'crosses_above' | 'crosses_below';
 
-    type AlertFrequency = 'once' | 'once_per_day';
+    type AlertFrequency = 'once' | 'once_per_day' | 'once_per_hour';
 
     type FinnhubSearchResult = {
         symbol: string;
@@ -176,10 +170,11 @@ declare global {
         alertId?: string;
         symbol: string;
         company: string;
-        name?: string;
+        alertName: string;
         condition: AlertCondition;
         thresholdValue: number | '';
         frequency: AlertFrequency;
+        isActive?: boolean;
     };
 
     type AlertModalProps = {
@@ -205,12 +200,15 @@ declare global {
         id: string;
         userId: string;
         symbol: string;
-        name?: string;
+        company: string;
+        alertName: string;
         condition: AlertCondition;
         thresholdValue: number;
         frequency: AlertFrequency;
         isActive: boolean;
-        lastTriggeredAt?: Date | null;
+        createdAt: Date | string;
+        lastTriggeredAt?: Date | string | null;
+        lastPrice?: number | null;
     };
 
     type UserForNewsEmail = {

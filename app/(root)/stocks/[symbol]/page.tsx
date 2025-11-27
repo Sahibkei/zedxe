@@ -18,6 +18,13 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
     ]);
 
     const symbolAlert = alerts.find((alert) => alert.symbol === symbolUpper);
+    const symbolAlertDisplay = symbolAlert
+        ? {
+              ...symbolAlert,
+              id: String((symbolAlert as { _id?: string })._id || symbolAlert._id || ''),
+              createdAt: symbolAlert.createdAt,
+          }
+        : undefined;
     const scriptUrl = `https://s3.tradingview.com/external-embedding/embed-widget-`;
 
     return (
@@ -53,7 +60,7 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                             symbol={symbolUpper}
                             company={snapshot.company || symbolUpper}
                             isInWatchlist={inWatchlist}
-                            initialAlert={symbolAlert ? { ...symbolAlert, id: String(symbolAlert._id) } : undefined}
+                            initialAlert={symbolAlertDisplay as AlertDisplay | undefined}
                         />
                     </div>
 

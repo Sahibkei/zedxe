@@ -1,11 +1,11 @@
 import {inngest} from "@/lib/inngest/client";
 import {NEWS_SUMMARY_EMAIL_PROMPT, PERSONALIZED_WELCOME_EMAIL_PROMPT, WATCHLIST_SUMMARY_EMAIL_PROMPT} from "@/lib/inngest/prompts";
-import {sendNewsSummaryEmail, sendWelcomeEmail} from "@/lib/nodemailer";
-import {getAllUsersForNewsEmail} from "@/lib/actions/user.actions";
+import {sendNewsSummaryEmail, sendWelcomeEmail, sendPriceAlertEmail} from "@/lib/nodemailer";
+import {getAllUsersForNewsEmail, getUserById} from "@/lib/actions/user.actions";
 import { getWatchlistSymbolsByEmail, getWatchlistItemsByUserId } from "@/lib/actions/watchlist.actions";
-import { getNews, getSnapshotsForSymbols } from "@/lib/actions/finnhub.actions";
+import { getNews, getSnapshotsForSymbols, getStocksDetails } from "@/lib/actions/finnhub.actions";
 import { getFormattedTodayDate } from "@/lib/utils";
-import { getAlertsByUser, markAlertTriggered } from "@/lib/actions/alert.actions";
+import { getActiveAlerts, getAlertsByUser, markAlertTriggered, updateAlertLastPrice } from "@/lib/actions/alert.actions";
 
 export const sendSignUpEmail = inngest.createFunction(
     { id: 'sign-up-email' },
@@ -66,7 +66,7 @@ export const sendDailyNewsSummary = inngest.createFunction(
             symbol: string;
             id?: string;
             _id?: unknown;
-            name?: string;
+            alertName?: string;
         };
 
         const isSameDay = (a?: Date | string | null, b?: Date) => {
@@ -85,17 +85,11 @@ export const sendDailyNewsSummary = inngest.createFunction(
             case 'less_than':
                 conditionMet = price < alert.thresholdValue;
                 break;
-            case 'greater_or_equal':
+            case 'crosses_above':
                 conditionMet = price >= alert.thresholdValue;
                 break;
-            case 'less_or_equal':
-                conditionMet = price <= alert.thresholdValue;
-                break;
-            case 'crosses_above':
-                conditionMet = price > alert.thresholdValue;
-                break;
             case 'crosses_below':
-                conditionMet = price < alert.thresholdValue;
+                conditionMet = price <= alert.thresholdValue;
                 break;
             default:
                 conditionMet = false;
@@ -125,13 +119,18 @@ export const sendDailyNewsSummary = inngest.createFunction(
             for (const alert of alerts) {
                 const price = snapshots[alert.symbol]?.currentPrice;
                 const { triggered, near } = evaluateAlert(alert, price);
-                const alreadyTriggered = alert.frequency === 'once' ? !!alert.lastTriggeredAt : isSameDay(alert.lastTriggeredAt, today);
+                const lastTriggered = alert.lastTriggeredAt ? new Date(alert.lastTriggeredAt) : null;
+                const alreadyTriggered = alert.frequency === 'once'
+                    ? !!lastTriggered
+                    : alert.frequency === 'once_per_hour'
+                        ? !!(lastTriggered && Date.now() - lastTriggered.getTime() < 60 * 60 * 1000)
+                        : isSameDay(lastTriggered || undefined, today);
 
                 if (alert.isActive && triggered && !alreadyTriggered) {
                     const alertId = alert._id || alert.id;
                     triggeredAlerts.push({ symbol: alert.symbol, thresholdValue: alert.thresholdValue, condition: alert.condition });
                     if (alertId) {
-                        await markAlertTriggered(String(alertId), alert.frequency === 'once');
+                        await markAlertTriggered(String(alertId), alert.frequency === 'once', price);
                     }
                 } else if (near) {
                     nearAlerts.push({ symbol: alert.symbol, thresholdValue: alert.thresholdValue, condition: alert.condition });
@@ -148,7 +147,7 @@ export const sendDailyNewsSummary = inngest.createFunction(
                     alerts: alerts
                         .filter((alert) => alert.symbol === item.symbol)
                         .map((alert) => ({
-                            name: alert.name,
+                            name: alert.alertName,
                             condition: alert.condition,
                             thresholdValue: alert.thresholdValue,
                             isActive: alert.isActive,
@@ -214,3 +213,81 @@ export const sendDailyNewsSummary = inngest.createFunction(
         return { success: true, message: 'Daily news summary emails sent successfully' };
     }
 )
+export const processPriceAlerts = inngest.createFunction(
+    { id: 'process-price-alerts' },
+    [{ event: 'app/check.price.alerts' }, { cron: '0 * * * *' }],
+    async ({ step }) => {
+        const alerts = await step.run('fetch-active-alerts', getActiveAlerts);
+        if (!alerts || alerts.length === 0) return { success: true, message: 'No active alerts' };
+
+        const priceCache: Record<string, Awaited<ReturnType<typeof getStocksDetails>>> = {};
+        const userCache: Record<string, UserForNewsEmail | null> = {};
+        const now = new Date();
+
+        const hasCooldown = (frequency: AlertFrequency, lastTriggeredAt?: Date | string | null) => {
+            if (!lastTriggeredAt) return false;
+            const last = new Date(lastTriggeredAt);
+            if (frequency === 'once') return true;
+            if (frequency === 'once_per_hour') return Date.now() - last.getTime() < 60 * 60 * 1000;
+            return last.getUTCFullYear() === now.getUTCFullYear() && last.getUTCMonth() === now.getUTCMonth() && last.getUTCDate() === now.getUTCDate();
+        };
+
+        for (const alert of alerts) {
+            await step.run(`process-alert-${alert._id}`, async () => {
+                if (!priceCache[alert.symbol]) {
+                    priceCache[alert.symbol] = await getStocksDetails(alert.symbol);
+                }
+                const details = priceCache[alert.symbol];
+                const currentPrice = details.currentPrice;
+                if (currentPrice === undefined || currentPrice === null) return;
+
+                const lastPrice = alert.lastPrice ?? null;
+                const crossedAbove = lastPrice !== null ? lastPrice < alert.thresholdValue && currentPrice >= alert.thresholdValue : false;
+                const crossedBelow = lastPrice !== null ? lastPrice > alert.thresholdValue && currentPrice <= alert.thresholdValue : false;
+
+                let conditionMet = false;
+                switch (alert.condition) {
+                case 'greater_than':
+                    conditionMet = currentPrice > alert.thresholdValue;
+                    break;
+                case 'less_than':
+                    conditionMet = currentPrice < alert.thresholdValue;
+                    break;
+                case 'crosses_above':
+                    conditionMet = crossedAbove;
+                    break;
+                case 'crosses_below':
+                    conditionMet = crossedBelow;
+                    break;
+                default:
+                    conditionMet = false;
+                }
+
+                const onCooldown = hasCooldown(alert.frequency as AlertFrequency, alert.lastTriggeredAt);
+                await updateAlertLastPrice(String(alert._id), currentPrice);
+
+                if (!alert.isActive || !conditionMet || onCooldown) return;
+
+                if (!userCache[alert.userId]) {
+                    userCache[alert.userId] = await getUserById(alert.userId);
+                }
+                const user = userCache[alert.userId];
+                if (!user?.email) return;
+
+                await sendPriceAlertEmail({
+                    email: user.email,
+                    alertName: alert.alertName,
+                    symbol: alert.symbol,
+                    company: alert.company,
+                    currentPrice,
+                    thresholdValue: alert.thresholdValue,
+                    condition: alert.condition,
+                });
+
+                await markAlertTriggered(String(alert._id), alert.frequency === 'once', currentPrice);
+            });
+        }
+
+        return { success: true, message: `Processed ${alerts.length} alerts` };
+    }
+);
