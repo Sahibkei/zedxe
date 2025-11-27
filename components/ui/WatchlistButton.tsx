@@ -50,6 +50,7 @@ const WatchlistButton = ({
                     method: 'DELETE',
                     credentials: 'include',
                 });
+                const res = await fetch(`/api/watchlist/${symbol}`, { method: 'DELETE' });
                 if (res.status === 401) return redirectToSignIn();
                 if (!res.ok) throw new Error('Failed to remove from watchlist');
 
@@ -98,6 +99,7 @@ const WatchlistButton = ({
 
     return (
         <Button onClick={handleClick} disabled={pending} className={baseClass}>
+        <button className={`watchlist-btn ${added ? "watchlist-remove" : ""}`} onClick={handleClick} disabled={pending}>
             {showTrashIcon && added ? (
                 <svg
                     xmlns="http://www.w3.org/2000/svg"

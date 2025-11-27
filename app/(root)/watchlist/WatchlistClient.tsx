@@ -63,6 +63,7 @@ const WatchlistClient = ({ initialWatchlist, initialAlerts }: { initialWatchlist
                 method: 'DELETE',
                 credentials: 'include',
             });
+            const res = await fetch(`/api/watchlist/${symbol}`, { method: 'DELETE' });
             if (!res.ok) throw new Error('Failed to remove');
             setWatchlist((prev) => prev.filter((item) => item.symbol !== symbol));
             setAlerts((prev) => prev.filter((alert) => alert.symbol !== symbol));
@@ -106,6 +107,7 @@ const WatchlistClient = ({ initialWatchlist, initialAlerts }: { initialWatchlist
 
     const handleToggle = async (alert: AlertDisplay, isActive: boolean) => {
         setAlertToggleId(alert.id);
+    const handleToggle = async (alert: AlertDisplay, isActive: boolean) => {
         setAlerts((prev) => prev.map((a) => (a.id === alert.id ? { ...a, isActive } : a)));
         try {
             const res = await fetch(`/api/alerts/${alert.id}`, {
@@ -149,6 +151,7 @@ const WatchlistClient = ({ initialWatchlist, initialAlerts }: { initialWatchlist
                             <th className="py-3 pr-4">Market Cap</th>
                             <th className="py-3 pr-4">Alert?</th>
                             <th className="py-3 pr-4 text-center">Actions</th>
+                            <th className="py-3 pr-4 text-right">Actions</th>
                         </tr>
                         </thead>
                         <tbody>
@@ -171,6 +174,7 @@ const WatchlistClient = ({ initialWatchlist, initialAlerts }: { initialWatchlist
                                                 {item.symbol}
                                             </Link>
                                         </td>
+                                        <td className="py-3 pr-4 text-gray-300">{item.symbol}</td>
                                         <td className="py-3 pr-4 text-gray-100">{item.currentPrice ? formatPrice(item.currentPrice) : '—'}</td>
                                         <td className={`py-3 pr-4 ${changeColor}`}>
                                             {item.changePercent ? `${item.changePercent.toFixed(2)}%` : '—'}
@@ -213,6 +217,23 @@ const WatchlistClient = ({ initialWatchlist, initialAlerts }: { initialWatchlist
                                                     {loadingSymbol === item.symbol ? 'Removing...' : 'Remove from Watchlist'}
                                                 </Button>
                                             </div>
+                                        <td className="py-3 pr-4 text-right flex flex-wrap gap-2 justify-end">
+                                            <Link href={`/stocks/${item.symbol}`} className="text-yellow-400 text-sm hover:text-yellow-300">View</Link>
+                                            <button
+                                                className="text-sm text-red-400 hover:text-red-300"
+                                                onClick={() => handleRemove(item.symbol)}
+                                                disabled={loadingSymbol === item.symbol}
+                                            >
+                                                {loadingSymbol === item.symbol ? 'Removing...' : 'Remove'}
+                                            </button>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="border-gray-700 text-gray-100"
+                                                onClick={() => openAlertModal(item.symbol, item.company)}
+                                            >
+                                                {alertForSymbol ? 'Edit Alert' : 'Add Alert'}
+                                            </Button>
                                         </td>
                                     </tr>
                                 );
@@ -271,6 +292,18 @@ const WatchlistClient = ({ initialWatchlist, initialAlerts }: { initialWatchlist
                                         >
                                             {alertPendingId === alert.id ? 'Removing...' : 'Remove'}
                                         </Button>
+                                        <label className="flex items-center gap-2 text-xs text-gray-400">
+                                            <input
+                                                type="checkbox"
+                                                checked={alert.isActive}
+                                                onChange={(e) => handleToggle(alert, e.target.checked)}
+                                                className="accent-yellow-400"
+                                            />
+                                            {alert.isActive ? 'On' : 'Off'}
+                                        </label>
+                                        <button className="text-yellow-400 text-xs" onClick={() => openAlertModal(alert.symbol, alert.symbol)}>
+                                            Edit
+                                        </button>
                                     </div>
                                 </div>
                             </div>
