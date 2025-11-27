@@ -101,8 +101,8 @@ const WatchlistButton = ({
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 4v6m4-6v6m4-6v6" />
                 </svg>
             ) : null}
-            <span>{pending ? 'Working...' : label}</span>
-        </Button>
+            <span>{label}</span>
+        </button>
     );
 };
 
