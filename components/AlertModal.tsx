@@ -16,12 +16,15 @@ const mapAlertFromApi = (alert: ApiAlert): AlertDisplay => ({
     id: String(alert._id || alert.id),
     userId: String(alert.userId),
     symbol: alert.symbol || '',
-    name: alert.name,
+    company: alert.company || '',
+    alertName: alert.alertName || alert.name || '',
     condition: alert.condition as AlertCondition,
     thresholdValue: Number(alert.thresholdValue),
     frequency: (alert.frequency as AlertFrequency) || 'once_per_day',
     isActive: Boolean(alert.isActive),
     lastTriggeredAt: alert.lastTriggeredAt || null,
+    createdAt: alert.createdAt || new Date().toISOString(),
+    lastPrice: alert.lastPrice ?? null,
 });
 
 const AlertModal = ({ open, onClose, initialState, onSave }: AlertModalProps) => {
@@ -49,10 +52,12 @@ const AlertModal = ({ open, onClose, initialState, onSave }: AlertModalProps) =>
                 body: JSON.stringify({
                     id: formState.alertId,
                     symbol: formState.symbol,
-                    name: formState.name,
+                    company: formState.company,
+                    alertName: formState.alertName,
                     condition: formState.condition,
                     thresholdValue: Number(formState.thresholdValue),
                     frequency: formState.frequency,
+                    isActive: formState.isActive,
                 }),
             });
 
@@ -76,7 +81,7 @@ const AlertModal = ({ open, onClose, initialState, onSave }: AlertModalProps) =>
         }
     };
 
-    const handleChange = (key: keyof AlertFormState, value: string | number) => {
+    const handleChange = (key: keyof AlertFormState, value: string | number | boolean) => {
         setFormState((prev) => ({ ...prev, [key]: value }));
     };
 
@@ -85,15 +90,15 @@ const AlertModal = ({ open, onClose, initialState, onSave }: AlertModalProps) =>
             <DialogContent className="bg-[#0f0f0f] border border-gray-800 text-gray-100 max-w-lg">
                 <DialogHeader>
                     <DialogTitle className="text-xl text-yellow-400">Price Alert</DialogTitle>
-                    <p className="text-sm text-gray-400">Create a simple price alert for {formState.symbol}.</p>
+                    <p className="text-sm text-gray-400">Stay notified when {formState.symbol} moves past your target.</p>
                 </DialogHeader>
 
                 <form className="space-y-4" onSubmit={handleSubmit}>
                     <div>
-                        <Label className="text-gray-300">Alert Name</Label>
+                        <Label className="text-gray-300">Alert name</Label>
                         <Input
-                            value={formState.name || ''}
-                            onChange={(e) => handleChange('name', e.target.value)}
+                            value={formState.alertName || ''}
+                            onChange={(e) => handleChange('alertName', e.target.value)}
                             placeholder={`Alert for ${formState.symbol}`}
                             className="bg-[#111] border-gray-700 text-gray-100"
                         />
@@ -153,6 +158,21 @@ const AlertModal = ({ open, onClose, initialState, onSave }: AlertModalProps) =>
                                 ))}
                             </SelectContent>
                         </Select>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-md border border-gray-800 bg-[#111] px-4 py-3">
+                        <div>
+                            <p className="text-sm font-medium text-gray-200">Alert status</p>
+                            <p className="text-xs text-gray-400">Temporarily pause or resume this alert.</p>
+                        </div>
+                        <Button
+                            type="button"
+                            variant={formState.isActive ? 'default' : 'outline'}
+                            className={formState.isActive ? 'bg-green-500 text-black hover:bg-green-400' : 'border-gray-700 text-gray-200'}
+                            onClick={() => handleChange('isActive', !formState.isActive)}
+                        >
+                            {formState.isActive ? 'Active' : 'Paused'}
+                        </Button>
                     </div>
 
                     <div className="flex justify-end gap-3 pt-2">

@@ -4,9 +4,16 @@ import Link from "next/link";
 import { useState } from "react";
 
 import WatchlistButton from "@/components/WatchlistButton";
+import { Button } from "@/components/ui/button";
 import { formatMarketCapValue, formatPrice } from "@/lib/utils";
 
-const WatchlistTable = ({ watchlist }: { watchlist: WatchlistEntryWithData[] }) => {
+const WatchlistTable = ({
+    watchlist,
+    onAddAlert,
+}: {
+    watchlist: WatchlistEntryWithData[];
+    onAddAlert?: (item: WatchlistEntryWithData) => void;
+}) => {
     const [items, setItems] = useState<WatchlistEntryWithData[]>(watchlist);
 
     const handleWatchlistChange = (symbol: string, isAdded: boolean) => {
@@ -44,6 +51,9 @@ const WatchlistTable = ({ watchlist }: { watchlist: WatchlistEntryWithData[] }) 
                         <th scope="col" className="table-header px-4 py-3 text-left text-sm font-semibold">
                             Company
                         </th>
+                        <th scope="col" className="px-4 py-3 text-left text-sm font-semibold text-gray-400">
+                            Symbol
+                        </th>
                         <th scope="col" className="px-4 py-3 text-right text-sm font-semibold text-gray-400">
                             Price
                         </th>
@@ -57,7 +67,10 @@ const WatchlistTable = ({ watchlist }: { watchlist: WatchlistEntryWithData[] }) 
                             P/E Ratio
                         </th>
                         <th scope="col" className="px-4 py-3 text-right text-sm font-semibold text-gray-400">
-                            Action
+                            Add Alert
+                        </th>
+                        <th scope="col" className="px-4 py-3 text-right text-sm font-semibold text-gray-400">
+                            Watchlist
                         </th>
                     </tr>
                 </thead>
@@ -67,9 +80,9 @@ const WatchlistTable = ({ watchlist }: { watchlist: WatchlistEntryWithData[] }) 
                             <td className="px-4 py-4 text-left">
                                 <Link href={`/stocks/${item.symbol}`} className="flex flex-col">
                                     <span className="font-semibold text-gray-100">{item.company}</span>
-                                    <span className="text-sm text-gray-500">{item.symbol}</span>
                                 </Link>
                             </td>
+                            <td className="px-4 py-4 text-left text-sm text-gray-400">{item.symbol}</td>
                             <td className="px-4 py-4 text-right table-cell">{formatPriceValue(item)}</td>
                             <td className={`px-4 py-4 text-right table-cell ${getChangeClass(item.changePercent)}`}>
                                 {formatChangeValue(item)}
@@ -79,6 +92,15 @@ const WatchlistTable = ({ watchlist }: { watchlist: WatchlistEntryWithData[] }) 
                             </td>
                             <td className="px-4 py-4 text-right table-cell">
                                 {typeof item.peRatio === "number" ? item.peRatio.toFixed(2) : "N/A"}
+                            </td>
+                            <td className="px-4 py-4 text-right">
+                                <Button
+                                    type="button"
+                                    className="bg-yellow-500 text-black hover:bg-yellow-400"
+                                    onClick={() => onAddAlert?.(item)}
+                                >
+                                    Add Alert
+                                </Button>
                             </td>
                             <td className="px-4 py-4 text-right">
                                 <WatchlistButton
