@@ -1,13 +1,15 @@
 import { Star } from "lucide-react";
 
 import SearchCommand from "@/components/SearchCommand";
-import WatchlistTable from "@/components/WatchlistTable";
+import WatchlistWithAlerts from "@/components/WatchlistWithAlerts";
 import { searchStocks } from "@/lib/actions/finnhub.actions";
+import { getAlertsForCurrentUser } from "@/lib/actions/alert.actions";
 import { getWatchlistWithData } from "@/lib/actions/watchlist.actions";
 
 const WatchlistPage = async () => {
     const watchlist = await getWatchlistWithData();
     const initialStocks = await searchStocks();
+    const alerts = await getAlertsForCurrentUser();
 
     if (watchlist.length === 0) {
         return (
@@ -30,7 +32,7 @@ const WatchlistPage = async () => {
                 <h2 className="watchlist-title">Watchlist</h2>
                 <SearchCommand initialStocks={initialStocks} />
             </div>
-            <WatchlistTable watchlist={watchlist} />
+            <WatchlistWithAlerts watchlist={watchlist} alerts={alerts} />
         </section>
     );
 };

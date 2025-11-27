@@ -125,9 +125,15 @@ export const formatDateToday = new Date().toLocaleDateString('en-US', {
 });
 
 
-export const getAlertText = (alert: Alert) => {
-    const condition = alert.alertType === 'upper' ? '>' : '<';
-    return `Price ${condition} ${formatPrice(alert.threshold)}`;
+export const getAlertText = (alert: Pick<AlertDisplay, 'condition' | 'thresholdValue' | 'alertName'>) => {
+    const conditionMap: Record<AlertCondition, string> = {
+        greater_than: 'Price is greater than',
+        less_than: 'Price is less than',
+        crosses_above: 'Price crosses above',
+        crosses_below: 'Price crosses below',
+    };
+    const descriptor = conditionMap[alert.condition] || 'Price alert at';
+    return `${alert.alertName || 'Price alert'} — ${descriptor} ${formatPrice(alert.thresholdValue)}`;
 };
 
 export const getFormattedTodayDate = () => new Date().toLocaleDateString('en-US', {

@@ -13,10 +13,11 @@ const StockActionBar = ({ symbol, company, isInWatchlist, initialAlert }: { symb
         alertId: alert?.id,
         symbol,
         company,
-        name: alert?.name || `${symbol} price alert`,
+        alertName: alert?.alertName || `${symbol} price alert`,
         condition: alert?.condition || 'greater_than',
         thresholdValue: alert?.thresholdValue ?? '',
         frequency: alert?.frequency || 'once_per_day',
+        isActive: alert?.isActive ?? true,
     };
 
     const handleSave = (saved: AlertDisplay) => {
