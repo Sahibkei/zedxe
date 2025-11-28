@@ -148,6 +148,13 @@
     .yellow-btn {
         @apply h-12 cursor-pointer bg-gradient-to-b from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-gray-950 font-medium text-base rounded-lg shadow-lg disabled:opacity-50;
     }
+    .blue-btn {
+        @apply h-12 cursor-pointer
+        bg-gradient-to-b from-[#5D22FF] to-[#0D107A]
+        hover:from-[#0D107A] hover:to-[#5D22FF]
+        rounded-lg shadow-lg
+        disabled:opacity-50;
+    }
     .home-wrapper {
         @apply text-gray-400 flex-col gap-4 md:gap-10 items-center sm:items-start;
     }
