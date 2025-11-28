@@ -114,7 +114,7 @@ const SignUp = () => {
                     required
                 />
 
-                <Button type="submit" disabled={isSubmitting} className="yellow-btn w-full mt-5">
+                 <Button type="submit" disabled={isSubmitting} className="blue-btn w-full mt-5 text-white">
                     {isSubmitting ? 'Creating Account' : 'Start Your Investing Journey'}
                 </Button>
 
