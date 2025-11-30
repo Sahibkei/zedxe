@@ -1,7 +1,7 @@
 import FeaturedArticle from "@/app/(root)/news/_components/FeaturedArticle";
 import NewsGrid from "@/app/(root)/news/_components/NewsGrid";
 import Pagination from "@/app/(root)/news/_components/Pagination";
-import { fetchNews, RESULTS_CAP } from "@/app/(root)/news/data";
+import { DEFAULT_LIMIT, fetchNews, RESULTS_CAP } from "@/app/(root)/news/data";
 import type { MarketauxResponse } from "@/types/marketaux";
 
 const parsePage = (pageParam?: string): number => {
@@ -21,7 +21,17 @@ const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) 
     let newsResponse: MarketauxResponse | null = null;
 
     try {
-        newsResponse = await fetchNews(currentPage);
+        const { data = [], meta } = await fetchNews(currentPage);
+
+        newsResponse = {
+            data,
+            meta: {
+                found: meta?.found ?? data.length,
+                returned: meta?.returned ?? data.length,
+                limit: meta?.limit ?? DEFAULT_LIMIT,
+                page: meta?.page ?? currentPage,
+            },
+        };
     } catch (error) {
         console.error("[NewsPage] Failed to load MarketAux news", error);
 
