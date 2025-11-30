@@ -4,7 +4,7 @@ const MARKET_AUX_BASE_URL = "https://api.marketaux.com/v1/news/all";
 const DEFAULT_LIMIT = 10;
 
 const buildPublishedAfterIso = (): string => {
-    const millisAgo = 30 * 24 * 60 * 60 * 1000;
+    const millisAgo = 1 * 24 * 60 * 60 * 1000;
     return new Date(Date.now() - millisAgo).toISOString();
 };
 
@@ -12,11 +12,11 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
     const apiToken = process.env.MARKETAUX_API_TOKEN;
 
     if (!apiToken) {
-        console.error("[MarketAux] Missing MARKETAUX_API_TOKEN env variable");
-        throw new Error("Missing MarketAux API token. Set MARKETAUX_API_TOKEN in your environment.");
+        console.error("[MarketAux] Missing MARKETAUX_API_TOKEN");
+        throw new Error("MARKETAUX_API_TOKEN is not configured.");
     }
 
-    const safePage = Number.isFinite(page) && page > 0 ? page : 1;
+    const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
 
     const params = new URLSearchParams({
         api_token: apiToken,
@@ -43,8 +43,8 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
     }
 
     if (!response.ok) {
-        const bodyText = await response.text().catch(() => "<body read error>");
-        console.error("[MarketAux] Non-OK HTTP response", {
+        const bodyText = await response.text();
+        console.error("[MarketAux] HTTP error", {
             url,
             status: response.status,
             statusText: response.statusText,
@@ -56,10 +56,8 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
             if (errJson?.error || errJson?.message) {
                 throw new Error(`MarketAux error: ${errJson.error || errJson.message}`);
             }
-        } catch (parseError) {
-            if (parseError instanceof Error) {
-                console.error("[MarketAux] Failed to parse error body", { url, parseError });
-            }
+        } catch {
+            // ignore parse errors
         }
 
         throw new Error(`MarketAux request failed with status ${response.status}`);
@@ -67,7 +65,16 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
 
     const json = await response.json();
 
-    if (!json || !Array.isArray(json.data) || !json.meta) {
+    if (
+        !json ||
+        typeof json !== "object" ||
+        !Array.isArray(json.data) ||
+        !json.meta ||
+        typeof json.meta.found !== "number" ||
+        typeof json.meta.returned !== "number" ||
+        typeof json.meta.limit !== "number" ||
+        typeof json.meta.page !== "number"
+    ) {
         console.error("[MarketAux] Unexpected response shape", { url, json });
         throw new Error("Unexpected MarketAux response shape");
     }
