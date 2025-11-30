@@ -5,10 +5,13 @@ const NewsCard = ({ article }: { article: MarketauxArticle }) => {
     const primaryEntity = article.entities?.[0];
     const tagLabel = deriveTagLabel(primaryEntity?.industry, primaryEntity?.type, primaryEntity?.country);
     const excerpt = article.snippet || article.description || "";
+    const title = article.title ?? "Untitled article";
+    const articleUrl = article.url ?? "#";
+    const source = article.source ?? "Unknown source";
 
     return (
         <a
-            href={article.url}
+            href={articleUrl}
             target="_blank"
             rel="noreferrer"
             className="group flex h-full flex-col rounded-xl border border-gray-800 bg-[#0f1115] p-5 transition transform hover:-translate-y-1 hover:border-emerald-400/50 hover:shadow-lg hover:shadow-emerald-900/30"
@@ -18,7 +21,7 @@ const NewsCard = ({ article }: { article: MarketauxArticle }) => {
             </span>
 
             <h3 className="mt-3 text-lg font-semibold text-white leading-tight line-clamp-3 group-hover:text-emerald-200">
-                {article.title}
+                {title}
             </h3>
 
             {excerpt && (
@@ -28,7 +31,7 @@ const NewsCard = ({ article }: { article: MarketauxArticle }) => {
             )}
 
             <div className="mt-auto flex items-center gap-2 pt-4 text-xs text-gray-500">
-                <span className="text-gray-300">{article.source}</span>
+                <span className="text-gray-300">{source}</span>
                 <span className="text-gray-600">•</span>
                 <span>{formatRelativeTime(article.published_at)}</span>
             </div>
