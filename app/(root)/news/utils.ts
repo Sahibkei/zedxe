@@ -1,10 +1,11 @@
 export const formatRelativeTime = (isoDate?: string | null): string => {
-    const date = isoDate ? new Date(isoDate) : new Date();
+    if (!isoDate) return "Unknown date";
+
+    const date = new Date(isoDate);
+    if (Number.isNaN(date.getTime())) return "Unknown date";
+
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
-
-    if (Number.isNaN(diffMs)) return "Just now";
-
     const diffMinutes = Math.floor(diffMs / (1000 * 60));
     const diffHours = Math.floor(diffMinutes / 60);
     const diffDays = Math.floor(diffHours / 24);

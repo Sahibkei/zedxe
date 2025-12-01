@@ -4,6 +4,33 @@ const MARKET_AUX_BASE_URL = "https://api.marketaux.com/v1/news/all";
 export const DEFAULT_LIMIT = 10;
 const PUBLISHED_AFTER_DAYS = 14;
 
+const extractErrorMessage = (bodyText: string): string | undefined => {
+    const trimmed = bodyText.trim();
+    if (!trimmed) return undefined;
+
+    try {
+        const parsed = JSON.parse(trimmed) as { error?: unknown; message?: unknown } | null;
+
+        if (parsed && typeof parsed === "object") {
+            if (typeof parsed.error === "string") return parsed.error;
+
+            if (
+                parsed.error &&
+                typeof parsed.error === "object" &&
+                typeof (parsed.error as { message?: unknown }).message === "string"
+            ) {
+                return (parsed.error as { message?: string }).message;
+            }
+
+            if (typeof parsed.message === "string") return parsed.message;
+        }
+    } catch {
+        // Ignore JSON parse errors and fall back to raw text.
+    }
+
+    return trimmed;
+};
+
 const buildPublishedAfterDate = (): string | null => {
     const millisAgo = PUBLISHED_AFTER_DAYS * 24 * 60 * 60 * 1000;
     const computedDate = new Date(Date.now() - millisAgo);
@@ -57,26 +84,7 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
     if (!response.ok) {
         const bodyText = await response.text().catch(() => "");
 
-        let parsedError: unknown;
-        try {
-            parsedError = bodyText ? JSON.parse(bodyText) : null;
-        } catch {
-            parsedError = null;
-        }
-
-        const errorMessage =
-            (parsedError && typeof parsedError === "object" && "error" in parsedError
-                ? typeof (parsedError as { error?: unknown }).error === "string"
-                    ? (parsedError as { error?: string }).error
-                    : typeof (parsedError as { error?: { message?: unknown } }).error?.message === "string"
-                    ? (parsedError as { error?: { message?: string } }).error?.message
-                    : undefined
-                : undefined) ||
-            (parsedError && typeof parsedError === "object" && "message" in parsedError
-                ? typeof (parsedError as { message?: unknown }).message === "string"
-                    ? (parsedError as { message?: string }).message
-                    : undefined
-                : undefined);
+        const errorMessage = extractErrorMessage(bodyText);
 
         console.error("[MarketAux] HTTP error", {
             url: redactedUrl,
