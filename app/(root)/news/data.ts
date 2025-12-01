@@ -44,14 +44,41 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
 
     if (!response.ok) {
         const bodyText = await response.text().catch(() => "");
+
+        let parsedError: unknown;
+        try {
+            parsedError = bodyText ? JSON.parse(bodyText) : null;
+        } catch {
+            parsedError = null;
+        }
+
+        const errorMessage =
+            (parsedError && typeof parsedError === "object" && "error" in parsedError
+                ? typeof (parsedError as { error?: unknown }).error === "string"
+                    ? (parsedError as { error?: string }).error
+                    : typeof (parsedError as { error?: { message?: unknown } }).error?.message === "string"
+                    ? (parsedError as { error?: { message?: string } }).error?.message
+                    : undefined
+                : undefined) ||
+            (parsedError && typeof parsedError === "object" && "message" in parsedError
+                ? typeof (parsedError as { message?: unknown }).message === "string"
+                    ? (parsedError as { message?: string }).message
+                    : undefined
+                : undefined);
+
         console.error("[MarketAux] HTTP error", {
             url,
             status: response.status,
             statusText: response.statusText,
             body: bodyText,
+            error: errorMessage,
         });
 
-        throw new Error(`MarketAux request failed with status ${response.status}`);
+        const detailedMessage = errorMessage
+            ? `MarketAux request failed with status ${response.status}: ${errorMessage}`
+            : `MarketAux request failed with status ${response.status}`;
+
+        throw new Error(detailedMessage);
     }
 
     let json: unknown;
@@ -69,23 +96,24 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
         meta?: MarketauxMeta;
     };
 
-    const data = Array.isArray(parsed?.data)
+    const rawData = Array.isArray(parsed?.data)
         ? (parsed.data as MarketauxArticle[])
         : Array.isArray(parsed?.results)
         ? (parsed.results as MarketauxArticle[])
-        : [];
+        : null;
 
-    const meta = parsed?.meta ?? {
-        found: data.length,
-        returned: data.length,
-        limit: DEFAULT_LIMIT,
-        page: safePage,
-    };
-
-    if (!Array.isArray(data)) {
+    if (!rawData) {
         console.warn("[MarketAux] Response missing data array", { url, json });
-        return { data: [], meta } as MarketauxResponse;
     }
+
+    const data = Array.isArray(rawData) ? rawData : [];
+
+    const meta: MarketauxMeta = {
+        found: parsed?.meta?.found ?? data.length,
+        returned: parsed?.meta?.returned ?? data.length,
+        limit: parsed?.meta?.limit ?? DEFAULT_LIMIT,
+        page: parsed?.meta?.page ?? safePage,
+    };
 
     return { data, meta } as MarketauxResponse;
 };

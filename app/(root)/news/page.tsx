@@ -36,16 +36,13 @@ const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) 
         console.error("[NewsPage] Failed to load MarketAux news", error);
 
         const debugMessage = error instanceof Error ? error.message : String(error);
-        const showDebug = process.env.NODE_ENV === "development";
 
         return (
             <div className="mx-auto max-w-5xl py-16">
                 <div className="rounded-xl border border-red-900/60 bg-red-950/40 px-6 py-8 text-center text-red-100">
                     <h2 className="text-xl font-semibold">Unable to load news right now.</h2>
                     <p className="mt-2 text-sm text-red-200">Please try again later.</p>
-                    {showDebug && (
-                        <p className="mt-3 text-xs text-red-300">{debugMessage}</p>
-                    )}
+                    <p className="mt-3 text-xs text-red-300">Debug: {debugMessage}</p>
                 </div>
             </div>
         );
