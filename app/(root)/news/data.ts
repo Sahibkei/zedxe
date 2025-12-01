@@ -4,9 +4,16 @@ const MARKET_AUX_BASE_URL = "https://api.marketaux.com/v1/news/all";
 export const DEFAULT_LIMIT = 10;
 const PUBLISHED_AFTER_DAYS = 14;
 
-const buildPublishedAfterIso = (): string => {
+const buildPublishedAfterDate = (): string | null => {
     const millisAgo = PUBLISHED_AFTER_DAYS * 24 * 60 * 60 * 1000;
-    return new Date(Date.now() - millisAgo).toISOString();
+    const computedDate = new Date(Date.now() - millisAgo);
+
+    if (Number.isNaN(computedDate.getTime())) {
+        console.warn("[MarketAux] Unable to compute published_after date");
+        return null;
+    }
+
+    return computedDate.toISOString().slice(0, 10);
 };
 
 export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
@@ -25,11 +32,16 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
         filter_entities: "true",
         limit: DEFAULT_LIMIT.toString(),
         page: safePage.toString(),
-        published_after: buildPublishedAfterIso(),
         api_token: apiToken,
     });
 
+    const publishedAfter = buildPublishedAfterDate();
+    if (publishedAfter) {
+        params.set("published_after", publishedAfter);
+    }
+
     const url = `${MARKET_AUX_BASE_URL}?${params.toString()}`;
+    const redactedUrl = url.replace(apiToken, "[REDACTED]");
 
     let response: Response;
 
@@ -38,7 +50,7 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
             next: { revalidate: 60 },
         });
     } catch (error) {
-        console.error("[MarketAux] Network error while fetching news", { url, error });
+        console.error("[MarketAux] Network error while fetching news", { url: redactedUrl, error });
         throw new Error("Network error while contacting MarketAux");
     }
 
@@ -67,7 +79,7 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
                 : undefined);
 
         console.error("[MarketAux] HTTP error", {
-            url,
+            url: redactedUrl,
             status: response.status,
             statusText: response.statusText,
             body: bodyText,
@@ -86,7 +98,7 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
     try {
         json = await response.json();
     } catch (error) {
-        console.error("[MarketAux] Failed to parse JSON", { url, error });
+        console.error("[MarketAux] Failed to parse JSON", { url: redactedUrl, error });
         throw new Error("Unable to parse MarketAux response JSON.");
     }
 
@@ -103,7 +115,7 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
         : null;
 
     if (!rawData) {
-        console.warn("[MarketAux] Response missing data array", { url, json });
+        console.warn("[MarketAux] Response missing data array", { url: redactedUrl, json });
     }
 
     const data = Array.isArray(rawData) ? rawData : [];
