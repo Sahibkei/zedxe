@@ -128,8 +128,9 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
 
     const data = Array.isArray(rawData) ? rawData : [];
 
+    const fallbackFound = Math.max(data.length, safePage * DEFAULT_LIMIT);
     const meta: MarketauxMeta = {
-        found: parsed?.meta?.found ?? data.length,
+        found: parsed?.meta?.found ?? fallbackFound,
         returned: parsed?.meta?.returned ?? data.length,
         limit: parsed?.meta?.limit ?? DEFAULT_LIMIT,
         page: parsed?.meta?.page ?? safePage,

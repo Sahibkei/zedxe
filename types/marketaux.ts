@@ -19,6 +19,7 @@ export interface MarketauxArticle {
     title?: string;
     description?: string | null;
     snippet?: string | null;
+    content?: string | null;
     url?: string;
     image_url?: string | null;
     language?: string;

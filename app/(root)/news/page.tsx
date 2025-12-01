@@ -10,9 +10,12 @@ const parsePage = (pageParam?: string): number => {
     return Math.floor(parsed);
 };
 
-const buildTotalPages = (found: number, limit: number): number => {
-    if (!limit || limit <= 0) return 1;
-    return Math.min(RESULTS_CAP, Math.max(1, Math.ceil(found / limit)));
+const buildTotalPages = (found?: number, limit?: number, fallbackPage = 1): number => {
+    const safeLimit = limit && limit > 0 ? limit : DEFAULT_LIMIT;
+    const computed = typeof found === "number" && found > 0 ? Math.ceil(found / safeLimit) : undefined;
+    const total = computed ?? Math.max(1, fallbackPage);
+
+    return Math.min(RESULTS_CAP, Math.max(1, total));
 };
 
 const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) => {
@@ -61,8 +64,8 @@ const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) 
 
     const featured = data[0];
     const headlines = data.slice(1);
-    const totalPages = buildTotalPages(resolvedMeta.found ?? data.length, resolvedMeta.limit ?? DEFAULT_LIMIT);
-    const paginationPage = Math.min(Math.max(1, currentPage), totalPages);
+    const totalPages = buildTotalPages(resolvedMeta.found, resolvedMeta.limit, currentPage);
+    const paginationPage = Math.min(Math.max(1, currentPage), totalPages || 1);
 
     return (
         <section className="max-w-6xl mx-auto px-4 py-8 space-y-10">
@@ -72,7 +75,7 @@ const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) 
                 <p className="text-gray-400">Stay on top of market-moving headlines and deep-dive analyses.</p>
             </div>
 
-            <FeaturedArticle article={featured} currentPage={currentPage} />
+            <FeaturedArticle article={featured} currentPage={paginationPage} />
 
             {headlines.length > 0 && (
                 <div className="space-y-4">
@@ -81,7 +84,7 @@ const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) 
                         <span className="text-xs uppercase tracking-wide text-gray-500">Updated hourly</span>
                     </div>
 
-                    <NewsGrid articles={headlines} currentPage={currentPage} />
+                    <NewsGrid articles={headlines} currentPage={paginationPage} />
                 </div>
             )}
 

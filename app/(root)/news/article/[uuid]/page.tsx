@@ -29,13 +29,24 @@ const NewsArticlePage = async ({
 }) => {
     const requestedPage = parsePage(searchParams?.page);
 
-    const initialResponse = await fetchNews(requestedPage);
-    let article = initialResponse.data?.find((item) => item.uuid === params.uuid);
+    const loadPage = async (page: number) => {
+        try {
+            return await fetchNews(page);
+        } catch (error) {
+            console.error("[NewsArticlePage] Failed to fetch news", error);
+            return null;
+        }
+    };
+
+    const initialResponse = await loadPage(requestedPage);
+    const initialData = initialResponse?.data ?? [];
+    let article = initialData.find((item) => item.uuid === params.uuid);
     let originPage = requestedPage;
 
     if (!article && requestedPage !== 1) {
-        const fallbackResponse = await fetchNews(1);
-        article = fallbackResponse.data?.find((item) => item.uuid === params.uuid);
+        const fallbackResponse = await loadPage(1);
+        const fallbackData = fallbackResponse?.data ?? [];
+        article = fallbackData.find((item) => item.uuid === params.uuid);
         if (article) {
             originPage = 1;
         }

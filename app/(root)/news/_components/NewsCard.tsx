@@ -9,6 +9,7 @@ const NewsCard = ({ article, currentPage }: { article: MarketauxArticle; current
     const title = article.title ?? "Untitled article";
     const internalHref = article.uuid ? `/news/article/${article.uuid}?page=${currentPage}` : null;
     const source = article.source ?? "Unknown source";
+    const externalHref = article.url && article.url !== "#" ? article.url : null;
 
     const content = (
         <>
@@ -30,6 +31,19 @@ const NewsCard = ({ article, currentPage }: { article: MarketauxArticle; current
                 <span className="text-gray-300">{source}</span>
                 <span className="text-gray-600">•</span>
                 <span>{formatRelativeTime(article.published_at)}</span>
+                {externalHref ? (
+                    <>
+                        <span className="text-gray-600">•</span>
+                        <Link
+                            href={externalHref}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="text-emerald-400 hover:text-emerald-300"
+                        >
+                            Source
+                        </Link>
+                    </>
+                ) : null}
             </div>
         </>
     );
