@@ -1,8 +1,8 @@
 import FeaturedArticle from "@/app/(root)/news/_components/FeaturedArticle";
 import NewsGrid from "@/app/(root)/news/_components/NewsGrid";
 import Pagination from "@/app/(root)/news/_components/Pagination";
-import { fetchNews, RESULTS_CAP } from "@/app/(root)/news/data";
-import type { MarketauxResponse } from "@/types/marketaux";
+import { DEFAULT_LIMIT, fetchNews, RESULTS_CAP } from "@/app/(root)/news/data";
+import type { MarketauxArticle, MarketauxMeta } from "@/types/marketaux";
 
 const parsePage = (pageParam?: string): number => {
     const parsed = Number(pageParam ?? "1");
@@ -18,30 +18,31 @@ const buildTotalPages = (found: number, limit: number): number => {
 const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) => {
     const currentPage = parsePage(searchParams?.page);
 
-    let newsResponse: MarketauxResponse | null = null;
+    let data: MarketauxArticle[] = [];
+    let meta: MarketauxMeta | undefined;
 
     try {
-        newsResponse = await fetchNews(currentPage);
+        const newsResponse = await fetchNews(currentPage);
+        data = newsResponse.data ?? [];
+        meta = newsResponse.meta;
     } catch (error) {
         console.error("[NewsPage] Failed to load MarketAux news", error);
 
         const debugMessage = error instanceof Error ? error.message : String(error);
-        const showDebug = process.env.NODE_ENV === "development";
+        const showDebug = process.env.NODE_ENV !== "production";
 
         return (
             <div className="mx-auto max-w-5xl py-16">
                 <div className="rounded-xl border border-red-900/60 bg-red-950/40 px-6 py-8 text-center text-red-100">
                     <h2 className="text-xl font-semibold">Unable to load news right now.</h2>
                     <p className="mt-2 text-sm text-red-200">Please try again later.</p>
-                    {showDebug && (
-                        <p className="mt-3 text-xs text-red-300">{debugMessage}</p>
-                    )}
+                    {showDebug ? <p className="mt-3 text-xs text-red-300">Debug: {debugMessage}</p> : null}
                 </div>
             </div>
         );
     }
 
-    if (!newsResponse || newsResponse.data.length === 0) {
+    if (data.length === 0) {
         return (
             <div className="mx-auto max-w-5xl py-16">
                 <div className="rounded-xl border border-gray-800 bg-[#0f1115] px-6 py-10 text-center text-gray-300">
@@ -51,11 +52,17 @@ const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) 
         );
     }
 
-    const { data, meta } = newsResponse;
+    const resolvedMeta: MarketauxMeta = meta ?? {
+        found: data.length,
+        returned: data.length,
+        limit: DEFAULT_LIMIT,
+        page: currentPage,
+    };
+
     const featured = data[0];
     const headlines = data.slice(1);
-    const totalPages = buildTotalPages(meta.found, meta.limit);
-    const paginationPage = Math.min(Math.max(1, currentPage), totalPages);
+    const totalPages = buildTotalPages(resolvedMeta.found ?? data.length, resolvedMeta.limit ?? DEFAULT_LIMIT);
+    const paginationPage = Math.min(Math.max(1, resolvedMeta.page ?? currentPage), totalPages);
 
     return (
         <section className="max-w-6xl mx-auto px-4 py-8 space-y-10">
