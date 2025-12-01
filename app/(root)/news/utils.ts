@@ -1,3 +1,9 @@
+export const parsePage = (pageParam?: string): number => {
+    const parsed = Number(pageParam ?? "1");
+    if (Number.isNaN(parsed) || parsed < 1) return 1;
+    return Math.floor(parsed);
+};
+
 export const formatRelativeTime = (isoDate?: string | null): string => {
     if (!isoDate) return "Unknown date";
 

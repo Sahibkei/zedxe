@@ -1,16 +1,31 @@
 /* eslint-disable @next/next/no-img-element */
+import Link from "next/link";
+
 import { formatRelativeTime } from "@/app/(root)/news/utils";
 import type { MarketauxArticle } from "@/types/marketaux";
 
-const FeaturedArticle = ({ article }: { article: MarketauxArticle }) => {
+const FeaturedArticle = ({ article, originPage }: { article: MarketauxArticle; originPage: number }) => {
     const mainEntity = article.entities?.[0];
     const entityLabel = mainEntity?.name || mainEntity?.symbol || "Markets";
     const title = article.title ?? "Untitled article";
     const description = article.description || article.snippet || "";
     const source = article.source ?? "Unknown source";
     const articleUrl = article.url ?? "#";
+    const internalHref = article.uuid ? `/news/article/${article.uuid}?page=${originPage}` : null;
 
-    return (
+    const sourceLink = article.url ? (
+        <a
+            href={articleUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            onClick={(event) => event.stopPropagation()}
+            className="text-sm font-medium text-emerald-400 transition-colors hover:text-emerald-300"
+        >
+            Source ↗
+        </a>
+    ) : null;
+
+    const content = (
         <article className="grid gap-6 rounded-2xl border border-gray-800 bg-[#0f1115] p-6 shadow-lg shadow-black/20 md:grid-cols-5">
             <div className="md:col-span-2">
                 {article.image_url ? (
@@ -35,25 +50,46 @@ const FeaturedArticle = ({ article }: { article: MarketauxArticle }) => {
 
                 <h2 className="text-2xl font-semibold text-white leading-tight line-clamp-3">{title}</h2>
 
-                {description && (
-                    <p className="text-sm text-gray-400 line-clamp-3">{description}</p>
-                )}
+                {description && <p className="text-sm text-gray-400 line-clamp-3">{description}</p>}
 
                 <div className="mt-auto flex flex-wrap items-center gap-3 text-sm text-gray-500">
                     <span className="text-gray-300">{source}</span>
                     <span className="text-gray-600">•</span>
                     <span>{formatRelativeTime(article.published_at)}</span>
-                    <a
-                        href={articleUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="ml-auto text-emerald-400 hover:text-emerald-300 font-medium transition-colors"
-                    >
+                    <span className="ml-auto text-emerald-400 transition-colors group-hover:text-emerald-300">
                         Read More →
-                    </a>
+                    </span>
                 </div>
             </div>
         </article>
+    );
+
+    if (internalHref) {
+        return (
+            <div className="group space-y-2">
+                <Link
+                    href={internalHref}
+                    className="group block focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                >
+                    {content}
+                </Link>
+                {sourceLink}
+            </div>
+        );
+    }
+
+    return (
+        <div className="group space-y-2">
+            <a
+                href={articleUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="group block focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+            >
+                {content}
+            </a>
+            {sourceLink}
+        </div>
     );
 };
 

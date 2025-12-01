@@ -2,28 +2,24 @@ import FeaturedArticle from "@/app/(root)/news/_components/FeaturedArticle";
 import NewsGrid from "@/app/(root)/news/_components/NewsGrid";
 import Pagination from "@/app/(root)/news/_components/Pagination";
 import { DEFAULT_LIMIT, fetchNews, RESULTS_CAP } from "@/app/(root)/news/data";
+import { parsePage } from "@/app/(root)/news/utils";
 import type { MarketauxArticle, MarketauxMeta } from "@/types/marketaux";
-
-const parsePage = (pageParam?: string): number => {
-    const parsed = Number(pageParam ?? "1");
-    if (Number.isNaN(parsed) || parsed < 1) return 1;
-    return Math.floor(parsed);
-};
 
 const buildTotalPages = (found: number, limit: number): number => {
     if (!limit || limit <= 0) return 1;
     return Math.min(RESULTS_CAP, Math.max(1, Math.ceil(found / limit)));
 };
 
-const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) => {
-    const currentPage = parsePage(searchParams?.page);
+const NewsPage = async ({ searchParams }: { searchParams: Promise<{ page?: string }> }) => {
+    const resolvedSearchParams = await searchParams;
+    const currentPage = parsePage(resolvedSearchParams?.page);
 
     let data: MarketauxArticle[] = [];
     let meta: MarketauxMeta | undefined;
 
     try {
         const newsResponse = await fetchNews(currentPage);
-        data = newsResponse.data ?? [];
+        data = (newsResponse.data ?? []).filter((article) => Boolean(article?.uuid));
         meta = newsResponse.meta;
     } catch (error) {
         console.error("[NewsPage] Failed to load MarketAux news", error);
@@ -72,7 +68,7 @@ const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) 
                 <p className="text-gray-400">Stay on top of market-moving headlines and deep-dive analyses.</p>
             </div>
 
-            <FeaturedArticle article={featured} />
+            <FeaturedArticle article={featured} originPage={paginationPage} />
 
             {headlines.length > 0 && (
                 <div className="space-y-4">
@@ -81,7 +77,7 @@ const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) 
                         <span className="text-xs uppercase tracking-wide text-gray-500">Updated hourly</span>
                     </div>
 
-                    <NewsGrid articles={headlines} />
+                    <NewsGrid articles={headlines} originPage={paginationPage} />
                 </div>
             )}
 
