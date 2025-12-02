@@ -15,15 +15,16 @@ export interface MarketauxEntity {
 }
 
 export interface MarketauxArticle {
-    uuid?: string;
-    title?: string;
+    uuid: string;
+    title?: string | null;
     description?: string | null;
     snippet?: string | null;
-    url?: string;
+    content?: string | null;
+    url?: string | null;
     image_url?: string | null;
-    language?: string;
-    published_at?: string;
-    source?: string;
+    language?: string | null;
+    published_at?: string | null;
+    source?: string | null;
     entities?: MarketauxEntity[];
 }
 

@@ -7,9 +7,9 @@ import type { MouseEvent } from "react";
 const FeaturedArticle = ({ article, currentPage }: { article: MarketauxArticle; currentPage: number }) => {
     const mainEntity = article.entities?.[0];
     const entityLabel = mainEntity?.name || mainEntity?.symbol || "Markets";
-    const title = article.title ?? "Untitled article";
-    const description = article.description || article.snippet || "";
-    const source = article.source ?? "Unknown source";
+    const title = article.title || "Untitled article";
+    const description = article.snippet || article.description || "";
+    const source = article.source || "Unknown source";
     const internalHref = article.uuid ? `/news/article/${article.uuid}?page=${currentPage}` : null;
     const externalHref = article.url ?? null;
 

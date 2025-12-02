@@ -1,34 +1,19 @@
-import type { MarketauxArticle, MarketauxMeta, MarketauxResponse } from "@/types/marketaux";
+import type { MarketauxArticle } from "@/types/marketaux";
 
 const MARKET_AUX_BASE_URL = "https://api.marketaux.com/v1/news/all";
 export const DEFAULT_LIMIT = 10;
 const PUBLISHED_AFTER_DAYS = 14;
 
-const extractErrorMessage = (bodyText: string): string | undefined => {
-    const trimmed = bodyText.trim();
-    if (!trimmed) return undefined;
+export type NewsMeta = {
+    page: number;
+    totalPages: number;
+    found: number;
+    limit: number;
+};
 
-    try {
-        const parsed = JSON.parse(trimmed) as { error?: unknown; message?: unknown } | null;
-
-        if (parsed && typeof parsed === "object") {
-            if (typeof parsed.error === "string") return parsed.error;
-
-            if (
-                parsed.error &&
-                typeof parsed.error === "object" &&
-                typeof (parsed.error as { message?: unknown }).message === "string"
-            ) {
-                return (parsed.error as { message?: string }).message;
-            }
-
-            if (typeof parsed.message === "string") return parsed.message;
-        }
-    } catch {
-        // Ignore JSON parse errors and fall back to raw text.
-    }
-
-    return trimmed;
+export type NewsResult = {
+    articles: MarketauxArticle[];
+    meta: NewsMeta;
 };
 
 const buildPublishedAfterDate = (): string | null => {
@@ -43,99 +28,62 @@ const buildPublishedAfterDate = (): string | null => {
     return computedDate.toISOString().slice(0, 10);
 };
 
-export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
-    const apiToken = process.env.MARKETAUX_API_TOKEN;
-
-    if (!apiToken) {
-        console.error("[MarketAux] Missing MARKETAUX_API_TOKEN");
-        throw new Error("MARKETAUX_API_TOKEN is not configured.");
-    }
-
-    const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
-
-    const params = new URLSearchParams({
-        countries: "us",
-        language: "en",
-        filter_entities: "true",
-        limit: DEFAULT_LIMIT.toString(),
-        page: safePage.toString(),
-        api_token: apiToken,
-    });
-
-    const publishedAfter = buildPublishedAfterDate();
-    if (publishedAfter) {
-        params.set("published_after", publishedAfter);
-    }
-
-    const url = `${MARKET_AUX_BASE_URL}?${params.toString()}`;
-    const redactedUrl = url.replace(apiToken, "[REDACTED]");
-
-    let response: Response;
-
-    try {
-        response = await fetch(url, {
-            next: { revalidate: 60 },
-        });
-    } catch (error) {
-        console.error("[MarketAux] Network error while fetching news", { url: redactedUrl, error });
-        throw new Error("Network error while contacting MarketAux");
-    }
-
-    if (!response.ok) {
-        const bodyText = await response.text().catch(() => "");
-
-        const errorMessage = extractErrorMessage(bodyText);
-
-        console.error("[MarketAux] HTTP error", {
-            url: redactedUrl,
-            status: response.status,
-            statusText: response.statusText,
-            body: bodyText,
-            error: errorMessage,
-        });
-
-        const detailedMessage = errorMessage
-            ? `MarketAux request failed with status ${response.status}: ${errorMessage}`
-            : `MarketAux request failed with status ${response.status}`;
-
-        throw new Error(detailedMessage);
-    }
-
-    let json: unknown;
-
-    try {
-        json = await response.json();
-    } catch (error) {
-        console.error("[MarketAux] Failed to parse JSON", { url: redactedUrl, error });
-        throw new Error("Unable to parse MarketAux response JSON.");
-    }
-
-    const parsed = json as {
-        data?: unknown;
-        results?: unknown;
-        meta?: MarketauxMeta;
+export async function fetchNews(page: number): Promise<NewsResult> {
+    const fallback: NewsResult = {
+        articles: [],
+        meta: { page: 1, totalPages: 1, found: 0, limit: DEFAULT_LIMIT },
     };
 
-    const rawData = Array.isArray(parsed?.data)
-        ? (parsed.data as MarketauxArticle[])
-        : Array.isArray(parsed?.results)
-        ? (parsed.results as MarketauxArticle[])
-        : null;
+    try {
+        const apiToken = process.env.MARKETAUX_API_TOKEN;
 
-    if (!rawData) {
-        console.warn("[MarketAux] Response missing data array", { url: redactedUrl, json });
+        if (!apiToken) {
+            console.error("[MarketAux] Failed to fetch news", { reason: "Missing MARKETAUX_API_TOKEN" });
+            return fallback;
+        }
+
+        const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+
+        const params = new URLSearchParams({
+            countries: "us",
+            language: "en",
+            filter_entities: "true",
+            limit: DEFAULT_LIMIT.toString(),
+            page: safePage.toString(),
+            api_token: apiToken,
+        });
+
+        const publishedAfter = buildPublishedAfterDate();
+        if (publishedAfter) {
+            params.set("published_after", publishedAfter);
+        }
+
+        const url = `${MARKET_AUX_BASE_URL}?${params.toString()}`;
+        const response = await fetch(url, { next: { revalidate: 60 } });
+
+        if (!response.ok) {
+            console.error("[MarketAux] Failed to fetch news", { status: response.status, statusText: response.statusText });
+            return fallback;
+        }
+
+        const json = await response.json().catch(() => ({}));
+        const meta = json && typeof json === "object" ? (json as { meta?: { [key: string]: unknown } }).meta : undefined;
+        const articles = (json as { data?: unknown; results?: unknown }).data ?? (json as { results?: unknown }).results ?? [];
+        const limit = typeof meta?.limit === "number" ? meta.limit : DEFAULT_LIMIT;
+        const found = typeof meta?.found === "number" ? meta.found : (Array.isArray(articles) ? articles.length : 0);
+        const totalPages = Math.max(1, Math.ceil(found / limit));
+
+        return {
+            articles: Array.isArray(articles) ? (articles as MarketauxArticle[]) : [],
+            meta: {
+                page: typeof meta?.page === "number" && meta.page > 0 ? Math.floor(meta.page) : safePage,
+                totalPages,
+                found,
+                limit,
+            },
+        } satisfies NewsResult;
+    } catch (error) {
+        console.error("[MarketAux] Failed to fetch news", error);
+        return fallback;
     }
-
-    const data = Array.isArray(rawData) ? rawData : [];
-
-    const meta: MarketauxMeta = {
-        found: parsed?.meta?.found ?? data.length,
-        returned: parsed?.meta?.returned ?? data.length,
-        limit: parsed?.meta?.limit ?? DEFAULT_LIMIT,
-        page: parsed?.meta?.page ?? safePage,
-    };
-
-    return { data, meta } as MarketauxResponse;
-};
-
-export const RESULTS_CAP = 5;
+}

@@ -7,8 +7,8 @@ const NewsCard = ({ article, currentPage }: { article: MarketauxArticle; current
     const primaryEntity = article.entities?.[0];
     const tagLabel = deriveTagLabel(primaryEntity?.industry, primaryEntity?.type, primaryEntity?.country);
     const excerpt = article.snippet || article.description || "";
-    const title = article.title ?? "Untitled article";
-    const source = article.source ?? "Unknown source";
+    const title = article.title || "Untitled article";
+    const source = article.source || "Unknown source";
     const internalHref = article.uuid ? `/news/article/${article.uuid}?page=${currentPage}` : null;
     const externalHref = article.url ?? null;
 
@@ -55,16 +55,15 @@ const NewsCard = ({ article, currentPage }: { article: MarketauxArticle; current
         );
     }
 
-    return (
-        <a
-            href={externalHref ?? "#"}
-            target={externalHref ? "_blank" : undefined}
-            rel={externalHref ? "noreferrer noopener" : undefined}
-            className="flex h-full"
-        >
-            {content}
-        </a>
-    );
+    if (externalHref) {
+        return (
+            <a href={externalHref} target="_blank" rel="noreferrer noopener" className="flex h-full">
+                {content}
+            </a>
+        );
+    }
+
+    return content;
 };
 
 export default NewsCard;
