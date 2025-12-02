@@ -4,15 +4,18 @@ import type { MarketauxArticle } from "@/types/marketaux";
 import Link from "next/link";
 
 interface NewsArticlePageProps {
-    params: { uuid: string };
-    searchParams?: { page?: string };
+    params: Promise<{ uuid: string }>;
+    searchParams?: Promise<{ page?: string }>;
 }
 
 const NewsArticlePage = async ({ params, searchParams }: NewsArticlePageProps) => {
-    const rawUuid = params?.uuid ?? "";
+    const resolvedParams = await params;
+    const resolvedSearchParams = searchParams ? await searchParams : undefined;
+
+    const rawUuid = resolvedParams?.uuid ?? "";
     const uuid = rawUuid.trim();
 
-    const fromPage = searchParams?.page;
+    const fromPage = resolvedSearchParams?.page;
     const backHref = fromPage ? `/news?page=${fromPage}` : "/news";
 
     if (!uuid) {
