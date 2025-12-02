@@ -1,82 +1,126 @@
-import FeaturedArticle from "@/app/(root)/news/_components/FeaturedArticle";
 import { fetchArticleByUuid } from "@/app/(root)/news/data";
-import { deriveTagLabel, formatRelativeTime } from "@/app/(root)/news/utils";
+import { formatRelativeTime } from "@/app/(root)/news/utils";
+import type { MarketauxArticle } from "@/types/marketaux";
 import Link from "next/link";
 
-const ArticlePage = async ({ params }: { params: { uuid: string } }) => {
-    let article = null;
-    let errorMessage: string | null = null;
+interface NewsArticlePageProps {
+    params: { uuid: string };
+    searchParams?: { page?: string };
+}
 
-    try {
-        article = await fetchArticleByUuid(params.uuid);
-    } catch (error) {
-        console.error("[NewsArticlePage] Failed to load article", error);
-        errorMessage = error instanceof Error ? error.message : String(error);
-    }
+const NewsArticlePage = async ({ params, searchParams }: NewsArticlePageProps) => {
+    const rawUuid = params?.uuid ?? "";
+    const uuid = rawUuid.trim();
 
-    if (!article) {
+    const fromPage = searchParams?.page;
+    const backHref = fromPage ? `/news?page=${fromPage}` : "/news";
+
+    if (!uuid) {
         return (
-            <div className="mx-auto max-w-5xl px-4 py-16">
-                <div className="rounded-xl border border-red-900/60 bg-red-950/40 px-6 py-8 text-center text-red-100">
-                    <h2 className="text-xl font-semibold">Unable to load this article right now.</h2>
-                    <p className="mt-2 text-sm text-red-200">Please try again later.</p>
-                    {errorMessage ? <p className="mt-3 text-xs text-red-300">Debug: {errorMessage}</p> : null}
-                </div>
+            <div className="max-w-3xl mx-auto px-4 py-16">
+                <h1 className="text-2xl font-semibold text-white">Article not found</h1>
+                <p className="mt-2 text-gray-400">
+                    We couldn&apos;t find this article. It may have expired or been removed.
+                </p>
+                <Link
+                    href={backHref}
+                    className="mt-6 inline-flex text-sm text-emerald-400 hover:text-emerald-300"
+                >
+                    ← Back to News
+                </Link>
             </div>
         );
     }
 
-    const primaryEntity = article.entities?.[0];
-    const tagLabel = deriveTagLabel(primaryEntity?.industry, primaryEntity?.type, primaryEntity?.country);
+    let article: MarketauxArticle | null = null;
+
+    try {
+        article = await fetchArticleByUuid(uuid);
+    } catch (error) {
+        console.error("[NewsArticlePage] Unexpected error while fetching article", { uuid, error });
+    }
+
+    if (!article) {
+        return (
+            <div className="max-w-3xl mx-auto px-4 py-16">
+                <h1 className="text-2xl font-semibold text-white">Article not found</h1>
+                <p className="mt-2 text-gray-400">
+                    We couldn&apos;t load this article. It may have expired or been removed.
+                </p>
+                <Link
+                    href={backHref}
+                    className="mt-6 inline-flex text-sm text-emerald-400 hover:text-emerald-300"
+                >
+                    ← Back to News
+                </Link>
+            </div>
+        );
+    }
+
     const title = article.title ?? "Untitled article";
     const source = article.source ?? "Unknown source";
-    const publishedLabel = formatRelativeTime(article.published_at);
+    const imageUrl = article.image_url;
+    const externalUrl = article.url ?? "#";
 
     return (
-        <section className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-8">
-            <div className="flex items-center gap-3 text-sm text-gray-400">
-                <Link href="/news" className="text-emerald-400 hover:text-emerald-300">
-                    ← Back to news
+        <article className="max-w-3xl mx-auto px-4 py-10 space-y-6">
+            <header className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-400">
+                    News Article
+                </p>
+                <h1 className="text-3xl font-bold text-white leading-tight">
+                    {title}
+                </h1>
+                <div className="flex flex-wrap items-center gap-2 text-sm text-gray-400">
+                    <span>{source}</span>
+                    <span className="text-gray-600">•</span>
+                    <span>{formatRelativeTime(article.published_at)}</span>
+                </div>
+            </header>
+
+            {imageUrl && (
+                <div className="overflow-hidden rounded-xl border border-gray-800 bg-black/40">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                        src={imageUrl}
+                        alt={title}
+                        className="w-full max-h-[420px] object-cover"
+                        loading="lazy"
+                    />
+                </div>
+            )}
+
+            {article.description && (
+                <p className="text-base leading-relaxed text-gray-200">
+                    {article.description}
+                </p>
+            )}
+
+            {article.snippet && article.snippet !== article.description && (
+                <p className="text-base leading-relaxed text-gray-300">
+                    {article.snippet}
+                </p>
+            )}
+
+            <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-gray-800 pt-6">
+                <Link
+                    href={backHref}
+                    className="text-sm text-gray-400 hover:text-gray-200"
+                >
+                    ← Back to News
                 </Link>
-                <span className="text-gray-600">•</span>
-                <span className="inline-flex w-fit rounded-full bg-emerald-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
-                    {tagLabel}
-                </span>
-                <span className="text-gray-600">•</span>
-                <span>{publishedLabel}</span>
+
+                <a
+                    href={externalUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center text-sm font-medium text-emerald-400 hover:text-emerald-300"
+                >
+                    Read full story on {source}
+                </a>
             </div>
-
-            <div className="space-y-3">
-                <p className="text-sm uppercase tracking-wide text-emerald-400">In-depth coverage</p>
-                <h1 className="text-3xl font-bold text-white leading-tight">{title}</h1>
-                <div className="flex flex-wrap items-center gap-3 text-sm text-gray-400">
-                    <span className="text-gray-300">{source}</span>
-                </div>
-            </div>
-
-            <FeaturedArticle article={article} />
-
-            {article.description || article.snippet ? (
-                <div className="space-y-4 rounded-2xl border border-gray-800 bg-[#0f1115] p-6">
-                    <p className="text-lg font-semibold text-white">Summary</p>
-                    <p className="text-gray-300 leading-relaxed">{article.description || article.snippet}</p>
-                </div>
-            ) : null}
-
-            {article.url ? (
-                <div className="flex items-center justify-end">
-                    <a
-                        href={article.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 rounded-full border border-emerald-700 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:border-emerald-500 hover:text-white"
-                    >
-                        View original source
-                    </a>
-                </div>
-            ) : null}
-        </section>
+        </article>
     );
 };
 
-export default ArticlePage;
+export default NewsArticlePage;

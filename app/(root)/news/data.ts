@@ -140,38 +140,35 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
 };
 
 export const fetchArticleByUuid = async (uuid: string): Promise<MarketauxArticle | null> => {
-    const apiToken = process.env.MARKETAUX_API_TOKEN;
-
-    if (!apiToken) {
-        console.error("[MarketAux] Missing MARKETAUX_API_TOKEN");
-        throw new Error("MARKETAUX_API_TOKEN is not configured.");
-    }
-
-    const trimmedUuid = uuid?.trim();
+    const trimmedUuid = (uuid ?? "").trim();
 
     if (!trimmedUuid) {
-        throw new Error("A valid article UUID is required.");
+        console.warn("[MarketAux] fetchArticleByUuid called without a UUID");
+        return null;
+    }
+
+    const apiToken = process.env.MARKETAUX_API_TOKEN;
+    if (!apiToken) {
+        console.error("[MarketAux] Missing MARKETAUX_API_TOKEN in fetchArticleByUuid");
+        return null;
     }
 
     const url = `${MARKET_AUX_ARTICLE_URL}/${encodeURIComponent(trimmedUuid)}?api_token=${apiToken}`;
     const redactedUrl = url.replace(apiToken, "[REDACTED]");
 
     let response: Response;
-
     try {
-        response = await fetch(url, {
-            next: { revalidate: 300 },
-        });
+        response = await fetch(url, { next: { revalidate: 300 } });
     } catch (error) {
-        console.error("[MarketAux] Network error while fetching article", { url: redactedUrl, error });
-        throw new Error("Network error while contacting MarketAux");
+        console.error("[MarketAux] Network error while fetching article by UUID", { url: redactedUrl, error });
+        return null;
     }
 
-    if (!response.ok) {
-        const bodyText = await response.text().catch(() => "");
-        const errorMessage = extractErrorMessage(bodyText);
+    const bodyText = await response.text().catch(() => "");
 
-        console.error("[MarketAux] HTTP error while fetching article", {
+    if (!response.ok) {
+        const errorMessage = extractErrorMessage(bodyText);
+        console.error("[MarketAux] HTTP error for fetchArticleByUuid", {
             url: redactedUrl,
             status: response.status,
             statusText: response.statusText,
@@ -179,31 +176,30 @@ export const fetchArticleByUuid = async (uuid: string): Promise<MarketauxArticle
             error: errorMessage,
         });
 
-        const detailedMessage = errorMessage
-            ? `MarketAux article request failed with status ${response.status}: ${errorMessage}`
-            : `MarketAux article request failed with status ${response.status}`;
-
-        throw new Error(detailedMessage);
+        return null;
     }
 
     let json: unknown;
-
     try {
-        json = await response.json();
+        json = bodyText ? JSON.parse(bodyText) : null;
     } catch (error) {
-        console.error("[MarketAux] Failed to parse article JSON", { url: redactedUrl, error });
-        throw new Error("Unable to parse MarketAux article response JSON.");
+        console.error("[MarketAux] Failed to parse article JSON in fetchArticleByUuid", {
+            url: redactedUrl,
+            error,
+            body: bodyText,
+        });
+        return null;
     }
 
-    const parsed = json as { data?: unknown };
-
-    const article = Array.isArray(parsed?.data)
-        ? (parsed.data as MarketauxArticle[])[0]
-        : (parsed?.data as MarketauxArticle | undefined | null);
-
-    if (!article) {
-        console.warn("[MarketAux] Article not found in response", { url: redactedUrl, json });
+    if (!json || typeof json !== "object") {
+        console.warn("[MarketAux] Article response is not an object", { url: redactedUrl, json });
         return null;
+    }
+
+    const article = json as MarketauxArticle;
+
+    if (!article.uuid) {
+        console.warn("[MarketAux] Article response missing uuid", { url: redactedUrl, article });
     }
 
     return article;
