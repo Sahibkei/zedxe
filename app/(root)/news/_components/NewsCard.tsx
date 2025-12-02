@@ -36,7 +36,7 @@ const NewsCard = ({ article, currentPage }: { article: MarketauxArticle; current
                     <a
                         href={externalHref}
                         target="_blank"
-                        rel="noreferrer"
+                        rel="noreferrer noopener"
                         onClick={handleExternalClick}
                         className="ml-auto text-emerald-400 hover:text-emerald-300"
                     >
@@ -59,7 +59,7 @@ const NewsCard = ({ article, currentPage }: { article: MarketauxArticle; current
         <a
             href={externalHref ?? "#"}
             target={externalHref ? "_blank" : undefined}
-            rel={externalHref ? "noreferrer" : undefined}
+            rel={externalHref ? "noreferrer noopener" : undefined}
             className="flex h-full"
         >
             {content}

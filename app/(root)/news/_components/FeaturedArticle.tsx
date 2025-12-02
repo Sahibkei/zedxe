@@ -52,7 +52,7 @@ const FeaturedArticle = ({ article, currentPage }: { article: MarketauxArticle; 
                         <a
                             href={externalHref}
                             target="_blank"
-                            rel="noreferrer"
+                            rel="noreferrer noopener"
                             onClick={handleExternalClick}
                             className="ml-auto text-emerald-400 hover:text-emerald-300 font-medium transition-colors"
                         >
@@ -69,6 +69,14 @@ const FeaturedArticle = ({ article, currentPage }: { article: MarketauxArticle; 
             <Link href={internalHref} className="block">
                 {content}
             </Link>
+        );
+    }
+
+    if (externalHref) {
+        return (
+            <a href={externalHref} target="_blank" rel="noreferrer noopener" className="block">
+                {content}
+            </a>
         );
     }
 

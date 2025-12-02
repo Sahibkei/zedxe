@@ -2,79 +2,57 @@
 import Link from "next/link";
 import { fetchNews } from "@/app/(root)/news/data";
 import { formatRelativeTime } from "@/app/(root)/news/utils";
-import type { MarketauxArticle } from "@/types/marketaux";
 import { parsePage } from "@/app/(root)/news/page";
 
-const loadNewsPage = async (page: number) => {
-    try {
-        return await fetchNews(page);
-    } catch (error) {
-        console.error(`[ArticlePage] Failed to load news for page ${page}`, error);
-        return null;
-    }
+type NewsArticlePageProps = {
+    params: { uuid: string } | Promise<{ uuid: string }>;
+    searchParams?: { page?: string } | Promise<{ page?: string }> | undefined;
 };
 
-type ParamsInput = { uuid: string } | Promise<{ uuid: string }>;
-type SearchParamsInput = { page?: string } | Promise<{ page?: string } | undefined> | undefined;
+const isPromise = <T,>(value: T | Promise<T> | undefined): value is Promise<T> =>
+    typeof value === "object" && value !== null && "then" in value;
 
-const NewsArticlePage = async ({
-    params,
-    searchParams,
-}: {
-    params: ParamsInput;
-    searchParams?: SearchParamsInput;
-}) => {
-    const resolvedParams = await params;
-    const resolvedSearchParams = await searchParams;
+const NewsArticlePage = async ({ params, searchParams }: NewsArticlePageProps) => {
+    const resolvedParams = isPromise(params) ? await params : params;
 
-    const uuid = resolvedParams?.uuid;
+    const resolvedSearchParams = isPromise(searchParams) ? await searchParams : searchParams;
+
     const originPage = parsePage(resolvedSearchParams?.page);
+    let article = null;
+    let loadError = false;
 
-    if (!uuid) {
+    try {
+        const { data = [] } = await fetchNews(originPage);
+        article = data.find((item) => item.uuid === resolvedParams.uuid) ?? null;
+
+        if (!article) {
+            const { data: fallback = [] } = await fetchNews(1);
+            article = fallback.find((item) => item.uuid === resolvedParams.uuid) ?? null;
+        }
+    } catch (err) {
+        console.error("[NewsArticlePage] Failed to load article:", err);
+        loadError = true;
+    }
+
+    if (loadError) {
         return (
-            <section className="mx-auto max-w-4xl px-4 py-12 space-y-6">
-                <h1 className="text-2xl font-semibold text-white">Article not found</h1>
-                <p className="text-gray-400">The requested article could not be located.</p>
+            <main className="flex-1 flex flex-col items-center justify-center px-4 py-12">
+                <p className="text-red-400 mb-4">Unable to load this article right now.</p>
                 <Link href={`/news?page=${originPage}`} className="text-emerald-400 hover:text-emerald-300">
                     Back to News
                 </Link>
-            </section>
+            </main>
         );
-    }
-
-    const primaryPageResponse = await loadNewsPage(originPage);
-
-    if (!primaryPageResponse) {
-        return (
-            <section className="mx-auto max-w-4xl px-4 py-12 space-y-6">
-                <h1 className="text-2xl font-semibold text-white">Unable to load article</h1>
-                <p className="text-gray-400">Unable to load news right now. Please try again later.</p>
-                <Link href={`/news?page=${originPage}`} className="text-emerald-400 hover:text-emerald-300">
-                    Back to News
-                </Link>
-            </section>
-        );
-    }
-
-    const locateArticle = (articles: MarketauxArticle[]): MarketauxArticle | undefined =>
-        articles.find((article) => article.uuid === uuid);
-
-    let article = locateArticle(primaryPageResponse.data ?? []);
-
-    if (!article && originPage !== 1) {
-        const fallbackResponse = await loadNewsPage(1);
-        article = locateArticle(fallbackResponse?.data ?? []);
     }
 
     if (!article) {
         return (
-            <section className="mx-auto max-w-4xl px-4 py-12 space-y-6">
-                <h1 className="text-2xl font-semibold text-white">Article not found</h1>
-                <p className="text-gray-400">The requested article could not be located.</p>
+            <main className="flex-1 flex flex-col items-center justify-center px-4 py-12">
+                <p className="text-slate-300 mb-4">Article not found.</p>
                 <Link href={`/news?page=${originPage}`} className="text-emerald-400 hover:text-emerald-300">
                     Back to News
                 </Link>
-            </section>
+            </main>
         );
     }
 
@@ -108,7 +86,7 @@ const NewsArticlePage = async ({
                     <a
                         href={article.url}
                         target="_blank"
-                        rel="noreferrer"
+                        rel="noreferrer noopener"
                         className="inline-flex w-fit items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-emerald-400"
                     >
                         Read original on {article.source ?? "source"}

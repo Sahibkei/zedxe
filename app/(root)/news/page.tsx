@@ -2,97 +2,83 @@ import FeaturedArticle from "@/app/(root)/news/_components/FeaturedArticle";
 import NewsGrid from "@/app/(root)/news/_components/NewsGrid";
 import Pagination from "@/app/(root)/news/_components/Pagination";
 import { DEFAULT_LIMIT, fetchNews, RESULTS_CAP } from "@/app/(root)/news/data";
-import type { MarketauxArticle, MarketauxMeta } from "@/types/marketaux";
 
 export const dynamic = "force-dynamic";
 
-export const parsePage = (pageParam?: string): number => {
-    const parsed = Number(pageParam ?? "1");
-    if (!Number.isFinite(parsed) || parsed < 1) return 1;
-    return Math.floor(parsed);
+type NewsPageProps = {
+    searchParams?: { page?: string } | Promise<{ page?: string }> | undefined;
 };
 
-type SearchParams = { page?: string } | Promise<{ page?: string } | undefined> | undefined;
+const DEFAULT_PAGE = 1;
 
-const buildTotalPages = (found: number, limit: number): number => {
-    if (!limit || limit <= 0) return RESULTS_CAP;
-    return Math.min(RESULTS_CAP, Math.max(1, Math.ceil(found / limit)));
-};
+const isSearchParamsPromise = (
+    value: NewsPageProps["searchParams"],
+): value is Promise<{ page?: string }> =>
+    typeof value === "object" && value !== null && "then" in value;
 
-const NewsPage = async ({ searchParams }: { searchParams?: SearchParams }) => {
-    const resolvedSearchParams = await searchParams;
+export function parsePage(value?: string): number {
+    const v = typeof value === "string" ? Number(value) : NaN;
+    if (!Number.isFinite(v) || v < 1) return DEFAULT_PAGE;
+    return Math.floor(v);
+}
+
+const NewsPage = async ({ searchParams }: NewsPageProps) => {
+    const resolvedSearchParams = isSearchParamsPromise(searchParams)
+        ? await searchParams
+        : (searchParams as { page?: string } | undefined);
+
     const currentPage = parsePage(resolvedSearchParams?.page);
 
-    let data: MarketauxArticle[] = [];
-    let meta: MarketauxMeta | undefined;
-
     try {
-        const newsResponse = await fetchNews(currentPage);
-        data = newsResponse.data ?? [];
-        meta = newsResponse.meta;
-    } catch (error) {
-        console.error("[NewsPage] Failed to load MarketAux news", error);
+        const { data = [], meta } = await fetchNews(currentPage);
 
-        const debugMessage = error instanceof Error ? error.message : String(error);
-        const showDebug = process.env.NODE_ENV !== "production";
+        if (!data.length) {
+            return (
+                <main className="flex-1 flex items-center justify-center px-4 py-16">
+                    <p className="text-gray-300">No news articles found.</p>
+                </main>
+            );
+        }
+
+        const featured = data[0];
+        const headlines = data.slice(1);
+        const totalPages = meta?.found
+            ? Math.min(RESULTS_CAP, Math.max(1, Math.ceil(meta.found / (meta.limit || DEFAULT_LIMIT))))
+            : 5;
+        const safePage = Math.min(Math.max(1, meta?.page ?? currentPage), totalPages);
 
         return (
-            <div className="mx-auto max-w-5xl py-16">
-                <div className="rounded-xl border border-red-900/60 bg-red-950/40 px-6 py-8 text-center text-red-100">
-                    <h2 className="text-xl font-semibold">Unable to load news right now.</h2>
-                    <p className="mt-2 text-sm text-red-200">Please try again later.</p>
-                    {showDebug ? <p className="mt-3 text-xs text-red-300">Debug: {debugMessage}</p> : null}
+            <section className="max-w-6xl mx-auto px-4 py-8 space-y-10">
+                <div className="space-y-3">
+                    <p className="text-sm uppercase tracking-wide text-emerald-400">News</p>
+                    <h1 className="text-3xl font-bold text-white">Financial News Center</h1>
+                    <p className="text-gray-400">Stay on top of market-moving headlines and deep-dive analyses.</p>
                 </div>
-            </div>
-        );
-    }
 
-    if (data.length === 0) {
-        return (
-            <div className="mx-auto max-w-5xl py-16">
-                <div className="rounded-xl border border-gray-800 bg-[#0f1115] px-6 py-10 text-center text-gray-300">
-                    <h2 className="text-xl font-semibold">No news articles found for your filters.</h2>
-                </div>
-            </div>
-        );
-    }
+                <FeaturedArticle article={featured} currentPage={safePage} />
 
-    const resolvedMeta: MarketauxMeta = meta ?? {
-        found: data.length,
-        returned: data.length,
-        limit: DEFAULT_LIMIT,
-        page: currentPage,
-    };
+                {headlines.length > 0 && (
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-3 border-b border-gray-800 pb-2">
+                            <h2 className="text-xl font-semibold text-white">Latest Headlines</h2>
+                            <span className="text-xs uppercase tracking-wide text-gray-500">Updated hourly</span>
+                        </div>
 
-    const featured = data[0];
-    const headlines = data.slice(1);
-    const totalPages = buildTotalPages(resolvedMeta.found ?? data.length, resolvedMeta.limit ?? DEFAULT_LIMIT);
-    const paginationPage = Math.min(Math.max(1, resolvedMeta.page ?? currentPage), totalPages);
-
-    return (
-        <section className="max-w-6xl mx-auto px-4 py-8 space-y-10">
-            <div className="space-y-3">
-                <p className="text-sm uppercase tracking-wide text-emerald-400">News</p>
-                <h1 className="text-3xl font-bold text-white">Financial News Center</h1>
-                <p className="text-gray-400">Stay on top of market-moving headlines and deep-dive analyses.</p>
-            </div>
-
-            <FeaturedArticle article={featured} currentPage={paginationPage} />
-
-            {headlines.length > 0 && (
-                <div className="space-y-4">
-                    <div className="flex items-center gap-3 border-b border-gray-800 pb-2">
-                        <h2 className="text-xl font-semibold text-white">Latest Headlines</h2>
-                        <span className="text-xs uppercase tracking-wide text-gray-500">Updated hourly</span>
+                        <NewsGrid articles={headlines} currentPage={safePage} />
                     </div>
+                )}
 
-                    <NewsGrid articles={headlines} currentPage={paginationPage} />
-                </div>
-            )}
-
-            <Pagination currentPage={paginationPage} totalPages={totalPages} />
-        </section>
-    );
+                <Pagination currentPage={safePage} totalPages={totalPages} />
+            </section>
+        );
+    } catch (err) {
+        console.error("[NewsPage] Failed to load news:", err);
+        return (
+            <main className="flex-1 flex items-center justify-center">
+                <p className="text-red-400">Unable to load news right now. Please try again later.</p>
+            </main>
+        );
+    }
 };
 
 export default NewsPage;
