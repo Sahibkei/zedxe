@@ -1,6 +1,7 @@
 import type { MarketauxArticle, MarketauxMeta, MarketauxResponse } from "@/types/marketaux";
 
 const MARKET_AUX_BASE_URL = "https://api.marketaux.com/v1/news/all";
+const MARKET_AUX_ARTICLE_URL = "https://api.marketaux.com/v1/news/uuid";
 export const DEFAULT_LIMIT = 10;
 const PUBLISHED_AFTER_DAYS = 14;
 
@@ -136,6 +137,72 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
     };
 
     return { data, meta } as MarketauxResponse;
+};
+
+export const fetchArticleByUuid = async (uuid: string): Promise<MarketauxArticle | null> => {
+    const trimmedUuid = (uuid ?? "").trim();
+
+    if (!trimmedUuid) {
+        console.warn("[MarketAux] fetchArticleByUuid called without a UUID");
+        return null;
+    }
+
+    const apiToken = process.env.MARKETAUX_API_TOKEN;
+    if (!apiToken) {
+        console.error("[MarketAux] Missing MARKETAUX_API_TOKEN in fetchArticleByUuid");
+        return null;
+    }
+
+    const url = `${MARKET_AUX_ARTICLE_URL}/${encodeURIComponent(trimmedUuid)}?api_token=${apiToken}`;
+    const redactedUrl = url.replace(apiToken, "[REDACTED]");
+
+    let response: Response;
+    try {
+        response = await fetch(url, { next: { revalidate: 300 } });
+    } catch (error) {
+        console.error("[MarketAux] Network error while fetching article by UUID", { url: redactedUrl, error });
+        return null;
+    }
+
+    const bodyText = await response.text().catch(() => "");
+
+    if (!response.ok) {
+        const errorMessage = extractErrorMessage(bodyText);
+        console.error("[MarketAux] HTTP error for fetchArticleByUuid", {
+            url: redactedUrl,
+            status: response.status,
+            statusText: response.statusText,
+            body: bodyText,
+            error: errorMessage,
+        });
+
+        return null;
+    }
+
+    let json: unknown;
+    try {
+        json = bodyText ? JSON.parse(bodyText) : null;
+    } catch (error) {
+        console.error("[MarketAux] Failed to parse article JSON in fetchArticleByUuid", {
+            url: redactedUrl,
+            error,
+            body: bodyText,
+        });
+        return null;
+    }
+
+    if (!json || typeof json !== "object") {
+        console.warn("[MarketAux] Article response is not an object", { url: redactedUrl, json });
+        return null;
+    }
+
+    const article = json as MarketauxArticle;
+
+    if (!article.uuid) {
+        console.warn("[MarketAux] Article response missing uuid", { url: redactedUrl, article });
+    }
+
+    return article;
 };
 
 export const RESULTS_CAP = 5;
