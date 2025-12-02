@@ -4,19 +4,24 @@ import Pagination from "@/app/(root)/news/_components/Pagination";
 import { DEFAULT_LIMIT, fetchNews, RESULTS_CAP } from "@/app/(root)/news/data";
 import type { MarketauxArticle, MarketauxMeta } from "@/types/marketaux";
 
-const parsePage = (pageParam?: string): number => {
+export const dynamic = "force-dynamic";
+
+export const parsePage = (pageParam?: string): number => {
     const parsed = Number(pageParam ?? "1");
-    if (Number.isNaN(parsed) || parsed < 1) return 1;
+    if (!Number.isFinite(parsed) || parsed < 1) return 1;
     return Math.floor(parsed);
 };
 
+type SearchParams = { page?: string } | Promise<{ page?: string } | undefined> | undefined;
+
 const buildTotalPages = (found: number, limit: number): number => {
-    if (!limit || limit <= 0) return 1;
+    if (!limit || limit <= 0) return RESULTS_CAP;
     return Math.min(RESULTS_CAP, Math.max(1, Math.ceil(found / limit)));
 };
 
-const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) => {
-    const currentPage = parsePage(searchParams?.page);
+const NewsPage = async ({ searchParams }: { searchParams?: SearchParams }) => {
+    const resolvedSearchParams = await searchParams;
+    const currentPage = parsePage(resolvedSearchParams?.page);
 
     let data: MarketauxArticle[] = [];
     let meta: MarketauxMeta | undefined;
@@ -72,7 +77,7 @@ const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) 
                 <p className="text-gray-400">Stay on top of market-moving headlines and deep-dive analyses.</p>
             </div>
 
-            <FeaturedArticle article={featured} />
+            <FeaturedArticle article={featured} currentPage={paginationPage} />
 
             {headlines.length > 0 && (
                 <div className="space-y-4">
@@ -81,7 +86,7 @@ const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) 
                         <span className="text-xs uppercase tracking-wide text-gray-500">Updated hourly</span>
                     </div>
 
-                    <NewsGrid articles={headlines} />
+                    <NewsGrid articles={headlines} currentPage={paginationPage} />
                 </div>
             )}
 
