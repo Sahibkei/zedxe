@@ -1,20 +1,20 @@
 import { deriveTagLabel, formatRelativeTime } from "@/app/(root)/news/utils";
 import type { MarketauxArticle } from "@/types/marketaux";
+import Link from "next/link";
 
 const NewsCard = ({ article }: { article: MarketauxArticle }) => {
     const primaryEntity = article.entities?.[0];
     const tagLabel = deriveTagLabel(primaryEntity?.industry, primaryEntity?.type, primaryEntity?.country);
     const excerpt = article.snippet || article.description || "";
     const title = article.title ?? "Untitled article";
-    const articleUrl = article.url ?? "#";
+    const articleUrl = article.uuid ? `/news/article/${article.uuid}` : article.url ?? "#";
     const source = article.source ?? "Unknown source";
 
     return (
-        <a
+        <Link
             href={articleUrl}
-            target="_blank"
-            rel="noreferrer"
             className="group flex h-full flex-col rounded-xl border border-gray-800 bg-[#0f1115] p-5 transition transform hover:-translate-y-1 hover:border-emerald-400/50 hover:shadow-lg hover:shadow-emerald-900/30"
+            prefetch={false}
         >
             <span className="inline-flex w-fit rounded-full bg-emerald-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
                 {tagLabel}
@@ -35,7 +35,7 @@ const NewsCard = ({ article }: { article: MarketauxArticle }) => {
                 <span className="text-gray-600">•</span>
                 <span>{formatRelativeTime(article.published_at)}</span>
             </div>
-        </a>
+        </Link>
     );
 };
 

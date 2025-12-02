@@ -15,8 +15,17 @@ const buildTotalPages = (found: number, limit: number): number => {
     return Math.min(RESULTS_CAP, Math.max(1, Math.ceil(found / limit)));
 };
 
-const NewsPage = async ({ searchParams }: { searchParams?: { page?: string } }) => {
-    const currentPage = parsePage(searchParams?.page);
+interface NewsPageProps {
+    searchParams?: Promise<ReadonlyURLSearchParams | { page?: string } | undefined>;
+}
+
+const NewsPage = async ({ searchParams }: NewsPageProps) => {
+    const resolvedSearchParams = await searchParams;
+    const pageParam = typeof resolvedSearchParams?.get === "function"
+        ? resolvedSearchParams.get("page") ?? undefined
+        : resolvedSearchParams?.page;
+
+    const currentPage = parsePage(pageParam);
 
     let data: MarketauxArticle[] = [];
     let meta: MarketauxMeta | undefined;

@@ -1,6 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 import { formatRelativeTime } from "@/app/(root)/news/utils";
 import type { MarketauxArticle } from "@/types/marketaux";
+import Link from "next/link";
 
 const FeaturedArticle = ({ article }: { article: MarketauxArticle }) => {
     const mainEntity = article.entities?.[0];
@@ -8,7 +9,7 @@ const FeaturedArticle = ({ article }: { article: MarketauxArticle }) => {
     const title = article.title ?? "Untitled article";
     const description = article.description || article.snippet || "";
     const source = article.source ?? "Unknown source";
-    const articleUrl = article.url ?? "#";
+    const articleUrl = article.uuid ? `/news/article/${article.uuid}` : article.url ?? "#";
 
     return (
         <article className="grid gap-6 rounded-2xl border border-gray-800 bg-[#0f1115] p-6 shadow-lg shadow-black/20 md:grid-cols-5">
@@ -43,14 +44,13 @@ const FeaturedArticle = ({ article }: { article: MarketauxArticle }) => {
                     <span className="text-gray-300">{source}</span>
                     <span className="text-gray-600">•</span>
                     <span>{formatRelativeTime(article.published_at)}</span>
-                    <a
+                    <Link
                         href={articleUrl}
-                        target="_blank"
-                        rel="noreferrer"
                         className="ml-auto text-emerald-400 hover:text-emerald-300 font-medium transition-colors"
+                        prefetch={false}
                     >
                         Read More →
-                    </a>
+                    </Link>
                 </div>
             </div>
         </article>
