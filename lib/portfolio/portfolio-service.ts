@@ -310,9 +310,10 @@ export async function getPortfolioPerformanceSeries(
 
     Object.values(txsBySymbol).forEach((list) => list.sort((a, b) => a.date.getTime() - b.date.getTime()));
 
-    const stateBySymbol: Record<string, { idx: number; quantity: number; txs: TxSummary[] }> = {};
+    type SymbolState = { idx: number; quantity: number; txs: TxSummary[]; lastPrice: number | null };
+    const stateBySymbol: Record<string, SymbolState> = {};
     for (const symbol of symbols) {
-        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txsBySymbol[symbol] || [] };
+        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txsBySymbol[symbol] || [], lastPrice: null };
     }
 
     const points: PortfolioPerformancePoint[] = [];
@@ -323,19 +324,30 @@ export async function getPortfolioPerformanceSeries(
 
         for (const symbol of symbols) {
             const state = stateBySymbol[symbol];
-            if (!state) continue;
+            const txs = state?.txs ?? [];
 
-            while (state.idx < state.txs.length && state.txs[state.idx].date.getTime() <= currentDate.getTime()) {
-                state.quantity += state.txs[state.idx].quantity;
+            // Apply all transactions up to and including the current date
+            while (state.idx < txs.length && txs[state.idx].date.getTime() <= currentDate.getTime()) {
+                state.quantity += txs[state.idx].quantity;
                 state.idx += 1;
             }
 
-            if (state.quantity === 0) continue;
+            // If we have no holdings and no known price yet, skip this symbol entirely
+            if (state.quantity === 0 && state.lastPrice == null) {
+                continue;
+            }
 
             const priceOnDate = priceMaps[symbol]?.[dateStr];
-            if (typeof priceOnDate !== 'number') continue; // Skip missing prices instead of treating as zero
+            if (typeof priceOnDate === 'number') {
+                state.lastPrice = priceOnDate;
+            }
 
-            totalValue += state.quantity * priceOnDate;
+            if (typeof state.lastPrice !== 'number') {
+                // Still no usable price for this symbol, skip contribution for this date
+                continue;
+            }
+
+            totalValue += state.quantity * state.lastPrice;
         }
 
         points.push({ date: dateStr, value: totalValue });

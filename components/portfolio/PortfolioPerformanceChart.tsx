@@ -16,12 +16,17 @@ export type PortfolioPerformanceChartProps = {
     initialPoints: PortfolioPerformancePoint[];
 };
 
-const formatCurrency = (value: number, currency: string) =>
-    new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency,
-        minimumFractionDigits: 2,
-    }).format(value || 0);
+const formatCurrency = (value: number, currency: string) => {
+    try {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency,
+            minimumFractionDigits: 2,
+        }).format(value || 0);
+    } catch {
+        return `${(value || 0).toFixed(2)} ${currency}`;
+    }
+};
 
 const PortfolioPerformanceChart = ({
     portfolioId,

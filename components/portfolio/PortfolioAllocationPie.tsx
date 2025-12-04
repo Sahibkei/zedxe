@@ -10,7 +10,7 @@ export type PortfolioAllocationPieProps = {
     }[];
 };
 
-const COLORS = ['#facc15', '#34d399', '#60a5fa', '#a78bfa', '#f472b6', '#f97316', '#22d3ee', '#c084fc', '#fef08a'];
+const COLORS = ['#60a5fa', '#3b82f6', '#2563eb', '#1d4ed8', '#1e40af'];
 
 const PortfolioAllocationPie = ({ positions }: PortfolioAllocationPieProps) => {
     if (!positions || positions.length === 0) {
@@ -23,11 +23,11 @@ const PortfolioAllocationPie = ({ positions }: PortfolioAllocationPieProps) => {
 
     const data = positions
         .filter((p) => p.weightPct > 0)
-        .map((p, idx) => ({
+        .map((p) => ({
             name: p.companyName ? `${p.symbol} – ${p.companyName}` : p.symbol,
             symbol: p.symbol,
+            companyName: p.companyName,
             weight: p.weightPct,
-            fill: COLORS[idx % COLORS.length],
         }));
 
     if (data.length === 0) {
@@ -52,14 +52,25 @@ const PortfolioAllocationPie = ({ positions }: PortfolioAllocationPieProps) => {
                             label={({ symbol, weight }) => `${symbol}: ${weight.toFixed(1)}%`}
                         >
                             {data.map((entry, index) => (
-                                <Cell key={`cell-${entry.symbol}-${index}`} fill={entry.fill} />
+                                <Cell key={entry.symbol} fill={COLORS[index % COLORS.length]} />
                             ))}
                         </Pie>
                         <Tooltip
-                            formatter={(value: number, _name, payload) =>
-                                `${payload?.payload?.symbol ?? ''} – ${Number(value).toFixed(2)}%`
-                            }
-                            contentStyle={{ backgroundColor: '#0b1224', borderColor: '#1f2937', color: '#e5e7eb' }}
+                            formatter={(value, _name, entry: any) => {
+                                const symbol = entry?.payload?.symbol ?? '';
+                                const company = entry?.payload?.companyName ?? '';
+                                const weight = typeof value === 'number' ? value : Number(value);
+                                const label = company ? `${symbol} – ${company}` : symbol;
+                                return [`${weight.toFixed(2)}%`, label];
+                            }}
+                            contentStyle={{
+                                backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                                borderRadius: 9999,
+                                border: '1px solid #1f2937',
+                                padding: '4px 8px',
+                            }}
+                            itemStyle={{ color: '#ffffff' }}
+                            cursor={{ fill: 'rgba(148, 163, 184, 0.15)' }}
                         />
                         <Legend
                             layout="horizontal"
