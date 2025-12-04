@@ -3,6 +3,7 @@ import { Portfolio, type PortfolioDocument } from '@/database/models/portfolio.m
 import { Transaction, type TransactionDocument } from '@/database/models/transaction.model';
 import { getSnapshotsForSymbols } from '@/lib/actions/finnhub.actions';
 import { fetchJSON } from '@/lib/actions/finnhub.actions';
+import { getFxRate } from '@/lib/finnhub/fx';
 
 export interface PositionSummary {
     symbol: string;
@@ -103,6 +104,28 @@ const emptyRatios: PortfolioRatios = {
     sharpe: null,
     benchmarkReturn: null,
     totalReturnPct: null,
+};
+
+const getFxRatesForCurrencies = async (currencies: string[], baseCurrency: string) => {
+    const normalizedBase = baseCurrency.toUpperCase();
+    const rates: Record<string, number> = { [normalizedBase]: 1 };
+
+    await Promise.all(
+        currencies.map(async (currency) => {
+            const normalized = currency.toUpperCase();
+            if (normalized === normalizedBase) {
+                rates[normalized] = 1;
+                return;
+            }
+
+            if (rates[normalized] !== undefined) return;
+
+            const rate = await getFxRate(normalized, normalizedBase);
+            rates[normalized] = rate;
+        })
+    );
+
+    return rates;
 };
 
 export async function getPortfolioRatios(userId: string, portfolioId: string): Promise<PortfolioRatios> {
@@ -206,27 +229,37 @@ export async function getPortfolioSummary(userId: string, portfolioId: string): 
 
     const transactions = await Transaction.find({ userId, portfolioId }).sort({ tradeDate: 1 }).lean();
 
+    const baseCurrency = (portfolio.baseCurrency || 'USD').toUpperCase();
+    const currencies = new Set<string>(transactions.map((tx) => (tx.currency || baseCurrency).toUpperCase()));
+    currencies.add(baseCurrency);
+    const fxRates = await getFxRatesForCurrencies(Array.from(currencies), baseCurrency);
+
     const aggregated: Record<
         string,
         {
             symbol: string;
             quantity: number;
             totalCost: number;
+            currency: string;
         }
     > = {};
 
     for (const tx of transactions) {
         const symbol = tx.symbol.toUpperCase();
-        const fxRate = typeof tx.fxRateToBase === 'number' && tx.fxRateToBase > 0 ? tx.fxRateToBase : 1;
+        const txCurrency = (tx.currency || baseCurrency).toUpperCase();
+        const fxRateCandidate = txCurrency === baseCurrency ? 1 : fxRates[txCurrency];
+        const fallbackFxRate = typeof tx.fxRateToBase === 'number' && tx.fxRateToBase > 0 ? tx.fxRateToBase : 1;
+        const fxRate = typeof fxRateCandidate === 'number' && fxRateCandidate > 0 ? fxRateCandidate : fallbackFxRate;
         const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
         const totalValue = tx.price * Math.abs(tx.quantity) * fxRate;
 
         if (!aggregated[symbol]) {
-            aggregated[symbol] = { symbol, quantity: 0, totalCost: 0 };
+            aggregated[symbol] = { symbol, quantity: 0, totalCost: 0, currency: txCurrency };
         }
 
         aggregated[symbol].quantity += signedQty;
         aggregated[symbol].totalCost += tx.type === 'SELL' ? -totalValue : totalValue;
+        aggregated[symbol].currency = aggregated[symbol].currency || txCurrency;
     }
 
     const activeSymbols = Object.values(aggregated)
@@ -249,8 +282,11 @@ export async function getPortfolioSummary(userId: string, portfolioId: string): 
             // TODO: show N/A in UI when price is missing instead of skipping
             continue;
         }
+        const positionCurrency = entry.currency || baseCurrency;
+        const fxRate = positionCurrency === baseCurrency ? 1 : fxRates[positionCurrency] ?? 1;
+        const priceInBase = currentPrice * fxRate;
         const avgPrice = entry.quantity > 0 ? entry.totalCost / entry.quantity : 0;
-        const currentValue = entry.quantity * currentPrice;
+        const currentValue = entry.quantity * priceInBase;
         const pnlAbs = currentValue - entry.totalCost;
         const pnlPct = entry.totalCost !== 0 ? (pnlAbs / entry.totalCost) * 100 : 0;
 
@@ -269,7 +305,7 @@ export async function getPortfolioSummary(userId: string, portfolioId: string): 
             companyName: snapshot?.company,
             quantity: entry.quantity,
             avgPrice,
-            currentPrice,
+            currentPrice: priceInBase,
             currentValue,
             pnlAbs,
             pnlPct,
@@ -400,6 +436,11 @@ export async function getPortfolioPerformanceSeries(
         return [];
     }
 
+    const baseCurrency = (portfolio.baseCurrency || 'USD').toUpperCase();
+    const currencies = new Set<string>(transactions.map((tx) => (tx.currency || baseCurrency).toUpperCase()));
+    currencies.add(baseCurrency);
+    const fxRates = await getFxRatesForCurrencies(Array.from(currencies), baseCurrency);
+
     const today = startOfDay(new Date());
     const earliestTxDate = startOfDay(new Date(transactions[0].tradeDate));
 
@@ -423,20 +464,27 @@ export async function getPortfolioPerformanceSeries(
     );
 
     type TxSummary = { date: Date; quantity: number };
-    const txsBySymbol: Record<string, TxSummary[]> = {};
+    const txsBySymbol: Record<string, { currency: string; txs: TxSummary[] }> = {};
     for (const tx of transactions) {
         const symbol = tx.symbol.toUpperCase();
         const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
-        if (!txsBySymbol[symbol]) txsBySymbol[symbol] = [];
-        txsBySymbol[symbol].push({ date: startOfDay(new Date(tx.tradeDate)), quantity: signedQty });
+        const txCurrency = (tx.currency || baseCurrency).toUpperCase();
+        if (!txsBySymbol[symbol]) txsBySymbol[symbol] = { currency: txCurrency, txs: [] };
+        txsBySymbol[symbol].txs.push({ date: startOfDay(new Date(tx.tradeDate)), quantity: signedQty });
+        if (!txsBySymbol[symbol].currency) {
+            txsBySymbol[symbol].currency = txCurrency;
+        }
     }
 
-    Object.values(txsBySymbol).forEach((list) => list.sort((a, b) => a.date.getTime() - b.date.getTime()));
+    Object.values(txsBySymbol).forEach((entry) => entry.txs.sort((a, b) => a.date.getTime() - b.date.getTime()));
 
-    type SymbolState = { idx: number; quantity: number; txs: TxSummary[]; lastPrice: number | null };
+    type SymbolState = { idx: number; quantity: number; txs: TxSummary[]; lastPrice: number | null; fxRate: number };
     const stateBySymbol: Record<string, SymbolState> = {};
     for (const symbol of symbols) {
-        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txsBySymbol[symbol] || [], lastPrice: null };
+        const txGroup = txsBySymbol[symbol];
+        const symbolCurrency = txGroup?.currency || baseCurrency;
+        const fxRate = symbolCurrency === baseCurrency ? 1 : fxRates[symbolCurrency] ?? 1;
+        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txGroup?.txs || [], lastPrice: null, fxRate };
     }
 
     const points: PortfolioPerformancePoint[] = [];
@@ -470,7 +518,7 @@ export async function getPortfolioPerformanceSeries(
                 continue;
             }
 
-            totalValue += state.quantity * state.lastPrice;
+            totalValue += state.quantity * state.lastPrice * (state.fxRate || 1);
         }
 
         points.push({ date: dateStr, value: totalValue });
