@@ -5,12 +5,18 @@ import { useEffect, useMemo, useState, useTransition } from 'react';
 import AddPortfolioDialog from '@/components/portfolio/AddPortfolioDialog';
 import AddTransactionDialog from '@/components/portfolio/AddTransactionDialog';
 import PortfolioHoldingsTable from '@/components/portfolio/PortfolioHoldingsTable';
-import PortfolioPerformanceChartPlaceholder from '@/components/portfolio/PortfolioPerformanceChartPlaceholder';
+import PortfolioAllocationPie from '@/components/portfolio/PortfolioAllocationPie';
+import PortfolioPerformanceChart from '@/components/portfolio/PortfolioPerformanceChart';
 import PortfolioRatiosCard from '@/components/portfolio/PortfolioRatiosCard';
 import PortfolioSettingsDialog from '@/components/portfolio/PortfolioSettingsDialog';
 import { Button } from '@/components/ui/button';
-import { getPortfolioSummaryAction, getUserPortfoliosAction } from '@/lib/portfolio/actions';
-import type { PortfolioLean, PortfolioSummary } from '@/lib/portfolio/portfolio-service';
+import { getPortfolioPerformanceAction, getPortfolioSummaryAction, getUserPortfoliosAction } from '@/lib/portfolio/actions';
+import type {
+    PortfolioLean,
+    PortfolioPerformancePoint,
+    PortfolioPerformanceRange,
+    PortfolioSummary,
+} from '@/lib/portfolio/portfolio-service';
 import { Settings2 } from 'lucide-react';
 
 const formatCurrency = (value: number, currency: string) => {
@@ -26,12 +32,18 @@ const changeColor = (value: number) => {
     return value > 0 ? 'text-green-400' : 'text-red-400';
 };
 
+const DEFAULT_PERFORMANCE_RANGE: PortfolioPerformanceRange = '1M';
+
 const PortfolioPageClient = ({
     initialPortfolios,
     initialSummary,
+    initialPerformanceRange,
+    initialPerformancePoints,
 }: {
     initialPortfolios: PortfolioLean[];
     initialSummary: PortfolioSummary | null;
+    initialPerformanceRange: PortfolioPerformanceRange;
+    initialPerformancePoints: PortfolioPerformancePoint[];
 }) => {
     const [portfolios, setPortfolios] = useState<PortfolioLean[]>(initialPortfolios);
     const [summary, setSummary] = useState<PortfolioSummary | null>(initialSummary);
@@ -43,6 +55,8 @@ const PortfolioPageClient = ({
     const [transactionDefaultSymbol, setTransactionDefaultSymbol] = useState<string | null>(null);
     const [loadingSummary, startTransition] = useTransition();
     const [error, setError] = useState('');
+    const [performanceRange, setPerformanceRange] = useState<PortfolioPerformanceRange>(initialPerformanceRange);
+    const [performancePoints, setPerformancePoints] = useState<PortfolioPerformancePoint[]>(initialPerformancePoints);
 
     useEffect(() => {
         if (!summary && selectedPortfolioId) {
@@ -71,9 +85,19 @@ const PortfolioPageClient = ({
                 const data = await getPortfolioSummaryAction(portfolioId);
                 setSummary(data);
                 setError('');
+                const res = await getPortfolioPerformanceAction(portfolioId, DEFAULT_PERFORMANCE_RANGE);
+                if (res.success) {
+                    setPerformancePoints(res.points);
+                    setPerformanceRange(DEFAULT_PERFORMANCE_RANGE);
+                } else {
+                    setPerformancePoints([]);
+                    setPerformanceRange(DEFAULT_PERFORMANCE_RANGE);
+                }
             } catch (e) {
                 console.error('Failed to load portfolio summary', e);
                 setError('Unable to load portfolio summary.');
+                setPerformancePoints([]);
+                setPerformanceRange(DEFAULT_PERFORMANCE_RANGE);
             }
         });
     };
@@ -115,6 +139,8 @@ const PortfolioPageClient = ({
         } else {
             setSelectedPortfolioId('');
             setSummary(null);
+            setPerformancePoints([]);
+            setPerformanceRange(DEFAULT_PERFORMANCE_RANGE);
         }
     };
 
@@ -196,7 +222,12 @@ const PortfolioPageClient = ({
                             </div>
                         </div>
                         {loadingSummary && <p className="mt-2 text-sm text-gray-400">Refreshing portfolio...</p>}
-                        <PortfolioPerformanceChartPlaceholder />
+                        <PortfolioPerformanceChart
+                            portfolioId={selectedPortfolioId}
+                            baseCurrency={baseCurrency}
+                            initialRange={performanceRange}
+                            initialPoints={performancePoints}
+                        />
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -221,8 +252,12 @@ const PortfolioPageClient = ({
                         onAddTransactionForSymbol={handleOpenTransactionForSymbol}
                     />
                 </div>
-
-                <PortfolioRatiosCard ratios={summary?.ratios || { beta: null, sharpe: null, benchmarkReturn: null, totalReturnPct: null }} />
+                <div className="space-y-4">
+                    <PortfolioAllocationPie positions={positions} />
+                    <PortfolioRatiosCard
+                        ratios={summary?.ratios || { beta: null, sharpe: null, benchmarkReturn: null, totalReturnPct: null }}
+                    />
+                </div>
             </div>
 
             <PortfolioSettingsDialog

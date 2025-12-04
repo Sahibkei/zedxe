@@ -2,6 +2,7 @@ import { connectToDatabase } from '@/database/mongoose';
 import { Portfolio, type PortfolioDocument } from '@/database/models/portfolio.model';
 import { Transaction, type TransactionDocument } from '@/database/models/transaction.model';
 import { getSnapshotsForSymbols } from '@/lib/actions/finnhub.actions';
+import { fetchJSON } from '@/lib/actions/finnhub.actions';
 
 export interface PositionSummary {
     symbol: string;
@@ -34,6 +35,13 @@ export interface PortfolioSummary {
     positions: PositionSummary[];
     ratios: PortfolioRatios;
 }
+
+export type PortfolioPerformancePoint = {
+    date: string; // ISO date string (YYYY-MM-DD)
+    value: number; // portfolio market value in base currency
+};
+
+export type PortfolioPerformanceRange = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | 'YTD' | 'MAX';
 
 export type PortfolioLean = {
     id: string;
@@ -169,5 +177,175 @@ export async function getPortfolioSummary(userId: string, portfolioId: string): 
 
     return summary;
 }
+
+const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1';
+
+const normalizeDateString = (value: Date) => value.toISOString().slice(0, 10);
+
+const startOfDay = (value: Date) => {
+    const d = new Date(value);
+    d.setUTCHours(0, 0, 0, 0);
+    return d;
+};
+
+const getRangeStartDate = (range: PortfolioPerformanceRange, today: Date): Date => {
+    const start = new Date(today);
+    switch (range) {
+        case '1D':
+            start.setUTCDate(start.getUTCDate() - 1);
+            break;
+        case '1W':
+            start.setUTCDate(start.getUTCDate() - 6);
+            break;
+        case '1M':
+            start.setUTCDate(start.getUTCDate() - 29);
+            break;
+        case '3M':
+            start.setUTCDate(start.getUTCDate() - 89);
+            break;
+        case '6M':
+            start.setUTCDate(start.getUTCDate() - 179);
+            break;
+        case '1Y':
+            start.setUTCDate(start.getUTCDate() - 364);
+            break;
+        case 'YTD':
+            start.setUTCMonth(0, 1);
+            start.setUTCHours(0, 0, 0, 0);
+            break;
+        case 'MAX':
+        default:
+            break;
+    }
+    return startOfDay(start);
+};
+
+const fetchDailyCloses = async (symbol: string, from: Date, to: Date): Promise<Record<string, number>> => {
+    const token = process.env.FINNHUB_API_KEY ?? process.env.NEXT_PUBLIC_FINNHUB_API_KEY ?? '';
+    if (!token) {
+        console.error('getPortfolioPerformanceSeries: FINNHUB API key missing');
+        return {};
+    }
+
+    type FinnhubCandleResponse = { c?: number[]; t?: number[]; s?: 'ok' | 'no_data' | string };
+
+    const fromTs = Math.floor(from.getTime() / 1000);
+    const toTs = Math.floor(to.getTime() / 1000);
+    const url = `${FINNHUB_BASE_URL}/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=D&from=${fromTs}&to=${toTs}&token=${token}`;
+
+    try {
+        const data = await fetchJSON<FinnhubCandleResponse>(url, 3600);
+        if (!data || data.s !== 'ok' || !Array.isArray(data.c) || !Array.isArray(data.t)) {
+            return {};
+        }
+
+        const closes: Record<string, number> = {};
+        const len = Math.min(data.c.length, data.t.length);
+        for (let i = 0; i < len; i++) {
+            const ts = data.t[i];
+            const close = data.c[i];
+            if (typeof ts !== 'number' || typeof close !== 'number') continue;
+            const date = new Date(ts * 1000);
+            closes[normalizeDateString(startOfDay(date))] = close;
+        }
+        return closes;
+    } catch (error) {
+        console.error('getPortfolioPerformanceSeries candle fetch error for', symbol, error);
+        // TODO: Add caching / fallback prices when market data is unavailable
+        return {};
+    }
+};
+
+export async function getPortfolioPerformanceSeries(
+    userId: string,
+    portfolioId: string,
+    range: PortfolioPerformanceRange
+): Promise<PortfolioPerformancePoint[]> {
+    if (!userId || !portfolioId) {
+        throw new Error('Missing user or portfolio id');
+    }
+
+    await connectToDatabase();
+
+    const portfolio = await Portfolio.findOne({ _id: portfolioId, userId }).lean();
+    if (!portfolio) {
+        throw new Error('Portfolio not found');
+    }
+
+    const transactions = await Transaction.find({ userId, portfolioId }).sort({ tradeDate: 1 }).lean();
+    if (!transactions || transactions.length === 0) {
+        return [];
+    }
+
+    const today = startOfDay(new Date());
+    const earliestTxDate = startOfDay(new Date(transactions[0].tradeDate));
+
+    const rangeStartRaw = getRangeStartDate(range, today);
+    const startDate = range === 'MAX' ? earliestTxDate : startDateAfterEarliest(rangeStartRaw, earliestTxDate);
+
+    const dateCursor = new Date(startDate);
+    const dateStrings: string[] = [];
+    while (dateCursor <= today) {
+        dateStrings.push(normalizeDateString(dateCursor));
+        dateCursor.setUTCDate(dateCursor.getUTCDate() + 1);
+    }
+
+    const symbols = Array.from(new Set(transactions.map((tx) => tx.symbol.toUpperCase())));
+
+    const priceMaps: Record<string, Record<string, number>> = {};
+    await Promise.all(
+        symbols.map(async (symbol) => {
+            priceMaps[symbol] = await fetchDailyCloses(symbol, startDate, today);
+        })
+    );
+
+    type TxSummary = { date: Date; quantity: number };
+    const txsBySymbol: Record<string, TxSummary[]> = {};
+    for (const tx of transactions) {
+        const symbol = tx.symbol.toUpperCase();
+        const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
+        if (!txsBySymbol[symbol]) txsBySymbol[symbol] = [];
+        txsBySymbol[symbol].push({ date: startOfDay(new Date(tx.tradeDate)), quantity: signedQty });
+    }
+
+    Object.values(txsBySymbol).forEach((list) => list.sort((a, b) => a.date.getTime() - b.date.getTime()));
+
+    const stateBySymbol: Record<string, { idx: number; quantity: number; txs: TxSummary[] }> = {};
+    for (const symbol of symbols) {
+        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txsBySymbol[symbol] || [] };
+    }
+
+    const points: PortfolioPerformancePoint[] = [];
+
+    for (const dateStr of dateStrings) {
+        const currentDate = startOfDay(new Date(dateStr));
+        let totalValue = 0;
+
+        for (const symbol of symbols) {
+            const state = stateBySymbol[symbol];
+            if (!state) continue;
+
+            while (state.idx < state.txs.length && state.txs[state.idx].date.getTime() <= currentDate.getTime()) {
+                state.quantity += state.txs[state.idx].quantity;
+                state.idx += 1;
+            }
+
+            if (state.quantity === 0) continue;
+
+            const priceOnDate = priceMaps[symbol]?.[dateStr];
+            if (typeof priceOnDate !== 'number') continue; // Skip missing prices instead of treating as zero
+
+            totalValue += state.quantity * priceOnDate;
+        }
+
+        points.push({ date: dateStr, value: totalValue });
+    }
+
+    return points;
+}
+
+const startDateAfterEarliest = (candidate: Date, earliest: Date) => {
+    return candidate < earliest ? earliest : candidate;
+};
 
 export type { PortfolioDocument, TransactionDocument };
