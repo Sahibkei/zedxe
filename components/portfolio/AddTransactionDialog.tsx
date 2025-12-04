@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -15,27 +15,36 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { addTransaction } from '@/lib/portfolio/actions';
+import { CURRENCIES } from '@/lib/constants';
 import type { PortfolioLean } from '@/lib/portfolio/portfolio-service';
 import type { TransactionType } from '@/database/models/transaction.model';
-
-const currencies = ['USD', 'EUR', 'GBP'];
 
 const AddTransactionDialog = ({
     portfolios,
     defaultPortfolioId,
+    defaultSymbol,
+    triggerVariant = 'button',
+    open: controlledOpen,
+    onOpenChange,
     onAdded,
     triggerLabel = '+ Add Transaction',
 }: {
     portfolios: PortfolioLean[];
     defaultPortfolioId?: string;
+    defaultSymbol?: string;
+    triggerVariant?: 'button' | 'icon' | 'link';
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
     onAdded?: () => void;
     triggerLabel?: string;
 }) => {
-    const [open, setOpen] = useState(false);
+    const [internalOpen, setInternalOpen] = useState(false);
+    const isOpen = controlledOpen ?? internalOpen;
+    const handleOpenChange = onOpenChange ?? setInternalOpen;
     const initialPortfolioId = defaultPortfolioId || portfolios[0]?.id || '';
     const [portfolioId, setPortfolioId] = useState(initialPortfolioId);
     const [type, setType] = useState<TransactionType>('BUY');
-    const [symbol, setSymbol] = useState('');
+    const [symbol, setSymbol] = useState(defaultSymbol || '');
     const [quantity, setQuantity] = useState('');
     const [price, setPrice] = useState('');
     const initialCurrency = portfolios.find((p) => p.id === initialPortfolioId)?.baseCurrency || 'USD';
@@ -57,6 +66,17 @@ const AddTransactionDialog = ({
         return Boolean(portfolioId && symbol.trim() && Number(quantity) > 0 && Number(price) > 0 && currency);
     }, [currency, portfolioId, price, quantity, symbol]);
 
+    useEffect(() => {
+        if (!isOpen) return;
+        /* eslint-disable react-hooks/set-state-in-effect */
+        const nextPortfolioId = defaultPortfolioId || portfolios[0]?.id || '';
+        setPortfolioId(nextPortfolioId);
+        setSymbol(defaultSymbol || '');
+        const base = portfolios.find((p) => p.id === (defaultPortfolioId || nextPortfolioId))?.baseCurrency;
+        if (base) setCurrency(base);
+        /* eslint-enable react-hooks/set-state-in-effect */
+    }, [defaultPortfolioId, defaultSymbol, isOpen, portfolios]);
+
     const handleSubmit = () => {
         if (!canSubmit) return;
         startTransition(async () => {
@@ -73,8 +93,8 @@ const AddTransactionDialog = ({
             if (res?.success) {
                 setError('');
                 onAdded?.();
-                setOpen(false);
-                setSymbol('');
+                handleOpenChange(false);
+                setSymbol(defaultSymbol || '');
                 setQuantity('');
                 setPrice('');
                 return;
@@ -83,12 +103,38 @@ const AddTransactionDialog = ({
         });
     };
 
-    return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                <Button variant="outline" className="border-gray-700 bg-gray-800 text-gray-100">
+    const renderTrigger = () => {
+        if (triggerVariant === 'icon') {
+            return (
+                <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 border border-gray-800 bg-gray-900 text-gray-100 hover:bg-gray-800"
+                >
+                    +
+                </Button>
+            );
+        }
+
+        if (triggerVariant === 'link') {
+            return (
+                <Button variant="link" className="h-8 px-0 text-yellow-400">
                     {triggerLabel}
                 </Button>
+            );
+        }
+
+        return (
+            <Button variant="outline" className="border-gray-700 bg-gray-800 text-gray-100">
+                {triggerLabel}
+            </Button>
+        );
+    };
+
+    return (
+        <Dialog open={isOpen} onOpenChange={handleOpenChange}>
+            <DialogTrigger asChild>
+                {renderTrigger()}
             </DialogTrigger>
             <DialogContent className="bg-gray-950 text-gray-100">
                 <DialogHeader>
@@ -167,7 +213,7 @@ const AddTransactionDialog = ({
                                 <SelectValue placeholder="Select currency" />
                             </SelectTrigger>
                             <SelectContent className="bg-gray-900 text-gray-100">
-                                {(selectedPortfolio ? [selectedPortfolio.baseCurrency, ...currencies] : currencies)
+                                {(selectedPortfolio ? [selectedPortfolio.baseCurrency, ...CURRENCIES] : CURRENCIES)
                                     .filter((val, idx, arr) => arr.indexOf(val) === idx)
                                     .map((code) => (
                                         <SelectItem key={code} value={code}>
@@ -193,7 +239,7 @@ const AddTransactionDialog = ({
                 </div>
                 {error && <p className="text-sm text-red-400">{error}</p>}
                 <DialogFooter>
-                    <Button variant="outline" className="border-gray-700 text-gray-100" onClick={() => setOpen(false)}>
+                    <Button variant="outline" className="border-gray-700 text-gray-100" onClick={() => handleOpenChange(false)}>
                         Cancel
                     </Button>
                     <Button

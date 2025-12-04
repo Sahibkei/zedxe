@@ -15,9 +15,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { createPortfolio } from '@/lib/portfolio/actions';
+import { CURRENCIES } from '@/lib/constants';
 import type { PortfolioLean } from '@/lib/portfolio/portfolio-service';
-
-const currencies = ['USD', 'EUR', 'GBP'];
 
 const AddPortfolioDialog = ({
     triggerLabel = '+ New Portfolio',
@@ -76,7 +75,7 @@ const AddPortfolioDialog = ({
                                 <SelectValue placeholder="Select currency" />
                             </SelectTrigger>
                             <SelectContent className="bg-gray-900 text-gray-100">
-                                {currencies.map((code) => (
+                                {CURRENCIES.map((code) => (
                                     <SelectItem key={code} value={code}>
                                         {code}
                                     </SelectItem>

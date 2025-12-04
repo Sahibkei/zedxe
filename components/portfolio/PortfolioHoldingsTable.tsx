@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button';
 import type { PositionSummary } from '@/lib/portfolio/portfolio-service';
 
 const formatCurrency = (value: number, currency: string) => {
@@ -28,9 +29,11 @@ const calculateTotals = (positions: PositionSummary[]) => {
 const PortfolioHoldingsTable = ({
     positions,
     baseCurrency,
+    onAddTransactionForSymbol,
 }: {
     positions: PositionSummary[];
     baseCurrency: string;
+    onAddTransactionForSymbol?: (symbol: string) => void;
 }) => {
     const { totalPnlAbs, totalPnlPct } = calculateTotals(positions);
 
@@ -49,12 +52,13 @@ const PortfolioHoldingsTable = ({
                             <th className="px-4 py-3 text-right font-semibold">P/L</th>
                             <th className="px-4 py-3 text-right font-semibold">P/L (%)</th>
                             <th className="px-4 py-3 text-right font-semibold">Weight (%)</th>
+                            <th className="px-4 py-3 text-right font-semibold">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-800 bg-gray-950/40 text-gray-100">
                         {positions.length === 0 ? (
                             <tr>
-                                <td colSpan={9} className="px-4 py-6 text-center text-gray-400">
+                                <td colSpan={10} className="px-4 py-6 text-center text-gray-400">
                                     No holdings yet. Add your first transaction.
                                 </td>
                             </tr>
@@ -74,6 +78,15 @@ const PortfolioHoldingsTable = ({
                                         {formatNumber(position.pnlPct)}%
                                     </td>
                                     <td className="px-4 py-3 text-right text-gray-300">{formatNumber(position.weightPct)}%</td>
+                                    <td className="px-4 py-3 text-right">
+                                        <Button
+                                            variant="link"
+                                            className="px-0 text-yellow-400"
+                                            onClick={() => onAddTransactionForSymbol?.(position.symbol)}
+                                        >
+                                            Add
+                                        </Button>
+                                    </td>
                                 </tr>
                             ))
                         )}
@@ -89,7 +102,7 @@ const PortfolioHoldingsTable = ({
                             <td className={`px-4 py-3 text-right font-semibold ${getChangeClass(totalPnlPct)}`}>
                                 {formatNumber(totalPnlPct)}%
                             </td>
-                            <td className="px-4 py-3" />
+                            <td className="px-4 py-3" colSpan={2} />
                         </tr>
                     </tfoot>
                 </table>

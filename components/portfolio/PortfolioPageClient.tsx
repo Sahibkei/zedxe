@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 
 import AddPortfolioDialog from '@/components/portfolio/AddPortfolioDialog';
 import AddTransactionDialog from '@/components/portfolio/AddTransactionDialog';
 import PortfolioHoldingsTable from '@/components/portfolio/PortfolioHoldingsTable';
 import PortfolioPerformanceChartPlaceholder from '@/components/portfolio/PortfolioPerformanceChartPlaceholder';
 import PortfolioRatiosCard from '@/components/portfolio/PortfolioRatiosCard';
+import PortfolioSettingsDialog from '@/components/portfolio/PortfolioSettingsDialog';
 import { Button } from '@/components/ui/button';
 import { getPortfolioSummaryAction, getUserPortfoliosAction } from '@/lib/portfolio/actions';
 import type { PortfolioLean, PortfolioSummary } from '@/lib/portfolio/portfolio-service';
+import { Settings2 } from 'lucide-react';
 
 const formatCurrency = (value: number, currency: string) => {
     return new Intl.NumberFormat('en-US', {
@@ -36,6 +38,9 @@ const PortfolioPageClient = ({
     const [selectedPortfolioId, setSelectedPortfolioId] = useState<string>(
         initialSummary?.portfolio.id || initialPortfolios[0]?.id || ''
     );
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [transactionDialogOpen, setTransactionDialogOpen] = useState(false);
+    const [transactionDefaultSymbol, setTransactionDefaultSymbol] = useState<string | null>(null);
     const [loadingSummary, startTransition] = useTransition();
     const [error, setError] = useState('');
 
@@ -46,7 +51,13 @@ const PortfolioPageClient = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const baseCurrency = summary?.portfolio.baseCurrency || portfolios.find((p) => p.id === selectedPortfolioId)?.baseCurrency || 'USD';
+    const baseCurrency =
+        summary?.portfolio.baseCurrency || portfolios.find((p) => p.id === selectedPortfolioId)?.baseCurrency || 'USD';
+    const selectedPortfolio = useMemo(
+        () => portfolios.find((p) => p.id === selectedPortfolioId) || null,
+        [portfolios, selectedPortfolioId]
+    );
+    const activePortfolioMeta = summary?.portfolio || selectedPortfolio;
 
     const refreshPortfolios = async () => {
         const next = await getUserPortfoliosAction();
@@ -77,6 +88,40 @@ const PortfolioPageClient = ({
     const handleTransactionAdded = () => {
         if (!selectedPortfolioId) return;
         handleSelectPortfolio(selectedPortfolioId);
+    };
+
+    const handlePortfolioUpdated = (updated: { id: string; name: string; baseCurrency: string }) => {
+        setPortfolios((prev) =>
+            prev.map((p) => (p.id === updated.id ? { ...p, name: updated.name, baseCurrency: updated.baseCurrency } : p))
+        );
+
+        setSummary((prev) => {
+            if (!prev || prev.portfolio.id !== updated.id) return prev;
+            return { ...prev, portfolio: { ...prev.portfolio, name: updated.name, baseCurrency: updated.baseCurrency } };
+        });
+
+        handleSelectPortfolio(updated.id);
+    };
+
+    const handlePortfolioDeleted = () => {
+        if (!activePortfolioMeta) return;
+        const removedId = activePortfolioMeta.id;
+        const remaining = portfolios.filter((p) => p.id !== removedId);
+        setPortfolios(remaining);
+
+        if (remaining.length > 0) {
+            const nextId = remaining[0].id;
+            handleSelectPortfolio(nextId);
+        } else {
+            setSelectedPortfolioId('');
+            setSummary(null);
+        }
+    };
+
+    const handleOpenTransactionForSymbol = (symbol: string) => {
+        if (!selectedPortfolioId) return;
+        setTransactionDefaultSymbol(symbol);
+        setTransactionDialogOpen(true);
     };
 
     const hasPortfolios = portfolios.length > 0;
@@ -129,13 +174,25 @@ const PortfolioPageClient = ({
                                 <p className="text-sm text-gray-400">{summary?.portfolio.name || 'Portfolio'}</p>
                                 <p className="text-xs text-gray-500">Base Currency: {baseCurrency}</p>
                             </div>
-                            <div className="text-right">
-                                <p className="text-3xl font-bold text-gray-100">
-                                    {formatCurrency(totals.currentValue, baseCurrency)}
-                                </p>
-                                <p className={`text-sm font-medium ${changeColor(totals.dayChangeValue)}`}>
-                                    {formatCurrency(totals.dayChangeValue, baseCurrency)} ({totals.dayChangePct.toFixed(2)}%) today
-                                </p>
+                            <div className="flex items-center gap-3">
+                                <div className="text-right">
+                                    <p className="text-3xl font-bold text-gray-100">
+                                        {formatCurrency(totals.currentValue, baseCurrency)}
+                                    </p>
+                                    <p className={`text-sm font-medium ${changeColor(totals.dayChangeValue)}`}>
+                                        {formatCurrency(totals.dayChangeValue, baseCurrency)} ({totals.dayChangePct.toFixed(2)}%) today
+                                    </p>
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="border border-gray-800 bg-gray-900 text-gray-200 hover:bg-gray-800"
+                                    onClick={() => setIsSettingsOpen(true)}
+                                    disabled={!activePortfolioMeta}
+                                >
+                                    <Settings2 className="h-4 w-4" />
+                                    <span className="sr-only">Open portfolio settings</span>
+                                </Button>
                             </div>
                         </div>
                         {loadingSummary && <p className="mt-2 text-sm text-gray-400">Refreshing portfolio...</p>}
@@ -148,15 +205,41 @@ const PortfolioPageClient = ({
                             key={selectedPortfolioId || portfolios[0]?.id}
                             portfolios={portfolios}
                             defaultPortfolioId={selectedPortfolioId}
-                            onAdded={handleTransactionAdded}
+                            defaultSymbol={transactionDefaultSymbol || undefined}
                             triggerLabel="+ Add Transaction"
+                            onAdded={handleTransactionAdded}
+                            open={transactionDialogOpen}
+                            onOpenChange={(open) => {
+                                setTransactionDialogOpen(open);
+                                if (!open) setTransactionDefaultSymbol(null);
+                            }}
                         />
                     </div>
-                    <PortfolioHoldingsTable positions={positions} baseCurrency={baseCurrency} />
+                    <PortfolioHoldingsTable
+                        positions={positions}
+                        baseCurrency={baseCurrency}
+                        onAddTransactionForSymbol={handleOpenTransactionForSymbol}
+                    />
                 </div>
 
                 <PortfolioRatiosCard ratios={summary?.ratios || { beta: null, sharpe: null, benchmarkReturn: null, totalReturnPct: null }} />
             </div>
+
+            <PortfolioSettingsDialog
+                portfolio={
+                    activePortfolioMeta
+                        ? {
+                              id: activePortfolioMeta.id,
+                              name: activePortfolioMeta.name,
+                              baseCurrency: activePortfolioMeta.baseCurrency,
+                          }
+                        : null
+                }
+                open={isSettingsOpen}
+                onOpenChange={setIsSettingsOpen}
+                onUpdated={handlePortfolioUpdated}
+                onDeleted={handlePortfolioDeleted}
+            />
 
             {error && <p className="text-sm text-red-400">{error}</p>}
         </div>

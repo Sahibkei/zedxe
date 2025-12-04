@@ -6,6 +6,8 @@ export const NAV_ITEMS = [
     { href: '/watchlist', label: 'Watchlist' },
 ];
 
+export const CURRENCIES = ['USD', 'EUR', 'GBP'];
+
 // Sign-up form select options
 export const INVESTMENT_GOALS = [
     { value: 'Growth', label: 'Growth' },
