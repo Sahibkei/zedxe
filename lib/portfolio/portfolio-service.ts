@@ -53,13 +53,18 @@ export type PortfolioLean = {
 
 const BENCHMARK_SYMBOL = '^GSPC';
 
-const toDailyReturns = (points: PortfolioPerformancePoint[]): number[] => {
-    const returns: number[] = [];
+const toDailyReturns = (points: PortfolioPerformancePoint[]): (number | null)[] => {
+    const returns: (number | null)[] = [];
     for (let i = 1; i < points.length; i++) {
         const prev = points[i - 1].value;
         const curr = points[i].value;
-        if (prev === 0) continue;
-        returns.push(curr / prev - 1);
+
+        if (prev === 0) {
+            // Preserve index but mark as unusable
+            returns.push(null);
+        } else {
+            returns.push(curr / prev - 1);
+        }
     }
     return returns;
 };
@@ -139,7 +144,7 @@ export async function getPortfolioRatios(userId: string, portfolioId: string): P
             const benchReturn = benchCurr / benchPrev - 1;
             const portfolioReturn = portfolioReturns[i - 1];
 
-            if (!Number.isFinite(portfolioReturn)) continue;
+            if (portfolioReturn == null || !Number.isFinite(portfolioReturn)) continue;
 
             rpAligned.push(portfolioReturn);
             rbAligned.push(benchReturn);
