@@ -114,14 +114,37 @@ const PortfolioPageClient = ({
         handleSelectPortfolio(selectedPortfolioId);
     };
 
-    const handlePortfolioUpdated = (updated: { id: string; name: string; baseCurrency: string }) => {
-        setPortfolios((prev) =>
-            prev.map((p) => (p.id === updated.id ? { ...p, name: updated.name, baseCurrency: updated.baseCurrency } : p))
-        );
+    const handlePortfolioUpdated = (updated: { id: string; name: string; baseCurrency: string; weeklyReportEnabled?: boolean }) => {
+        setPortfolios((prev) => {
+            const baseUpdated = prev.map((p) =>
+                p.id === updated.id ? { ...p, name: updated.name, baseCurrency: updated.baseCurrency } : p
+            );
+
+            if (updated.weeklyReportEnabled) {
+                return baseUpdated.map((p) => ({
+                    ...p,
+                    weeklyReportEnabled: p.id === updated.id,
+                }));
+            }
+
+            return baseUpdated.map((p) =>
+                p.id === updated.id
+                    ? { ...p, weeklyReportEnabled: updated.weeklyReportEnabled ?? p.weeklyReportEnabled }
+                    : { ...p, weeklyReportEnabled: updated.weeklyReportEnabled ? false : p.weeklyReportEnabled }
+            );
+        });
 
         setSummary((prev) => {
             if (!prev || prev.portfolio.id !== updated.id) return prev;
-            return { ...prev, portfolio: { ...prev.portfolio, name: updated.name, baseCurrency: updated.baseCurrency } };
+            return {
+                ...prev,
+                portfolio: {
+                    ...prev.portfolio,
+                    name: updated.name,
+                    baseCurrency: updated.baseCurrency,
+                    weeklyReportEnabled: updated.weeklyReportEnabled,
+                },
+            };
         });
 
         handleSelectPortfolio(updated.id);

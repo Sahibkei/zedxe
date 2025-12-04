@@ -1,5 +1,11 @@
 import nodemailer from 'nodemailer';
-import {WELCOME_EMAIL_TEMPLATE, NEWS_SUMMARY_EMAIL_TEMPLATE, STOCK_ALERT_LOWER_EMAIL_TEMPLATE, STOCK_ALERT_UPPER_EMAIL_TEMPLATE} from "@/lib/nodemailer/templates";
+import {
+    WELCOME_EMAIL_TEMPLATE,
+    NEWS_SUMMARY_EMAIL_TEMPLATE,
+    STOCK_ALERT_LOWER_EMAIL_TEMPLATE,
+    STOCK_ALERT_UPPER_EMAIL_TEMPLATE,
+    WEEKLY_PORTFOLIO_EMAIL_TEMPLATE,
+} from "@/lib/nodemailer/templates";
 import { formatPrice } from '@/lib/utils';
 
 export const transporter = nodemailer.createTransport({
@@ -71,6 +77,23 @@ export const sendPriceAlertEmail = async (
         to: params.email,
         subject: `${params.symbol} alert: ${params.alertName}`,
         text: `${params.symbol} hit your ${params.alertName} target of ${params.thresholdValue}`,
+        html: htmlTemplate,
+    };
+
+    await transporter.sendMail(mailOptions);
+};
+
+export const sendWeeklyReportEmail = async (params: { email: string; name: string; portfolioName: string; reportHtml: string }) => {
+    const htmlTemplate = WEEKLY_PORTFOLIO_EMAIL_TEMPLATE
+        .replace('{{name}}', params.name)
+        .replace('{{portfolioName}}', params.portfolioName)
+        .replace('{{reportContent}}', params.reportHtml || '');
+
+    const mailOptions = {
+        from: `"Signalist Weekly" <${process.env.NODEMAILER_EMAIL!}>`,
+        to: params.email,
+        subject: `📊 Weekly AI Report — ${params.portfolioName}`,
+        text: `Weekly portfolio update for ${params.portfolioName}`,
         html: htmlTemplate,
     };
 
