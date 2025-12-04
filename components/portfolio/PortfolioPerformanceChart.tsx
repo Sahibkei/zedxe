@@ -106,7 +106,7 @@ const PortfolioPerformanceChart = ({
                     </div>
                 ) : (
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData} margin={{ left: 0, right: 12, top: 12, bottom: 12 }}>
+                        <LineChart data={chartData} margin={{ left: 12, right: 12, top: 12, bottom: 12 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                             <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 12 }} tickLine={false} axisLine={{ stroke: '#1f2937' }} />
                             <YAxis

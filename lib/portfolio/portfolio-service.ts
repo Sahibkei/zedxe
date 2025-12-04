@@ -221,7 +221,7 @@ const getRangeStartDate = (range: PortfolioPerformanceRange, today: Date): Date 
 };
 
 const fetchDailyCloses = async (symbol: string, from: Date, to: Date): Promise<Record<string, number>> => {
-    const token = process.env.FINNHUB_API_KEY ?? process.env.NEXT_PUBLIC_FINNHUB_API_KEY ?? '';
+    const token = process.env.FINNHUB_API_KEY ?? '';
     if (!token) {
         console.error('getPortfolioPerformanceSeries: FINNHUB API key missing');
         return {};
@@ -351,6 +351,21 @@ export async function getPortfolioPerformanceSeries(
         }
 
         points.push({ date: dateStr, value: totalValue });
+    }
+
+    // Defensive fallback: if we failed to compute any non-zero points (e.g., missing historical prices),
+    // return a flat series at the current portfolio value so the chart remains usable. This can be
+    // revisited when more robust pricing data is available.
+    const hasNonZero = points.some((p) => p.value > 0);
+
+    if (!hasNonZero) {
+        const summary = await getPortfolioSummary(userId, portfolioId);
+        const currentValue = summary.totals.currentValue;
+
+        return dateStrings.map((dateStr) => ({
+            date: dateStr,
+            value: currentValue,
+        }));
     }
 
     return points;
