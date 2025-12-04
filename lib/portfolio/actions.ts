@@ -8,7 +8,15 @@ import { Portfolio } from '@/database/models/portfolio.model';
 import { Transaction, type TransactionType } from '@/database/models/transaction.model';
 import { connectToDatabase } from '@/database/mongoose';
 import { auth } from '@/lib/better-auth/auth';
-import { getPortfolioSummary, getUserPortfolios, type PortfolioLean, type PortfolioSummary } from './portfolio-service';
+import {
+    getPortfolioPerformanceSeries,
+    getPortfolioSummary,
+    getUserPortfolios,
+    type PortfolioLean,
+    type PortfolioPerformancePoint,
+    type PortfolioPerformanceRange,
+    type PortfolioSummary,
+} from './portfolio-service';
 
 const PORTFOLIO_PATH = '/portfolio';
 
@@ -165,4 +173,18 @@ export async function getUserPortfoliosAction(): Promise<PortfolioLean[]> {
 export async function getPortfolioSummaryAction(portfolioId: string): Promise<PortfolioSummary> {
     const session = await requireSession();
     return getPortfolioSummary(session.user.id, portfolioId);
+}
+
+export async function getPortfolioPerformanceAction(
+    portfolioId: string,
+    range: PortfolioPerformanceRange
+): Promise<{ success: true; points: PortfolioPerformancePoint[] } | { success: false; error: string }> {
+    const session = await requireSession();
+    try {
+        const points = await getPortfolioPerformanceSeries(session.user.id, portfolioId, range);
+        return { success: true, points } as const;
+    } catch (error) {
+        console.error('getPortfolioPerformanceAction error:', error);
+        return { success: false, error: 'Unable to load performance data.' } as const;
+    }
 }
