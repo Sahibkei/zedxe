@@ -10,7 +10,7 @@ export interface TransactionDocument extends Document {
     quantity: number;
     price: number;
     currency: string;
-    fxRateToBase?: number;
+    fxRateToBase: number | null;
     tradeDate: Date;
     createdAt: Date;
     updatedAt: Date;

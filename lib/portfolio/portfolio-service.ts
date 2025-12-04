@@ -111,17 +111,22 @@ export async function getPortfolioSummary(userId: string, portfolioId: string): 
         if (entry.quantity <= 0) continue; // Ignore closed positions for now
 
         const snapshot = snapshots[entry.symbol];
-        const currentPrice = typeof snapshot?.currentPrice === 'number' ? snapshot.currentPrice : 0;
+        const currentPrice = typeof snapshot?.currentPrice === 'number' ? snapshot.currentPrice : undefined;
+        if (currentPrice === undefined || currentPrice === null || currentPrice <= 0) {
+            // TODO: show N/A in UI when price is missing instead of skipping
+            continue;
+        }
         const avgPrice = entry.quantity > 0 ? entry.totalCost / entry.quantity : 0;
         const currentValue = entry.quantity * currentPrice;
         const pnlAbs = currentValue - entry.totalCost;
         const pnlPct = entry.totalCost !== 0 ? (pnlAbs / entry.totalCost) * 100 : 0;
 
-        const changePercent = typeof snapshot?.changePercent === 'number' ? snapshot.changePercent : 0; // TODO: replace with
-        // previous-close based change when available
-        const positionDayChangeValue = changePercent
-            ? currentValue - currentValue / (1 + changePercent / 100)
-            : 0;
+        const changePercent = snapshot?.changePercent ?? 0; // TODO: replace with previous-close based change when available
+        const changeFactor = 1 + changePercent / 100;
+        const positionDayChangeValue =
+            changePercent && changeFactor !== 0
+                ? currentValue - currentValue / changeFactor
+                : 0;
 
         totalCurrentValue += currentValue;
         totalDayChangeValue += positionDayChangeValue;

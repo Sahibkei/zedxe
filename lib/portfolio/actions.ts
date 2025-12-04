@@ -88,8 +88,8 @@ export async function deletePortfolio(id: string) {
         const session = await requireSession();
         await connectToDatabase();
 
-        await Portfolio.deleteOne({ _id: id, userId: session.user.id });
         await Transaction.deleteMany({ portfolioId: id, userId: session.user.id });
+        await Portfolio.deleteOne({ _id: id, userId: session.user.id });
 
         revalidatePath(PORTFOLIO_PATH);
         return { success: true } as const;
@@ -122,8 +122,11 @@ export async function addTransaction({
         const parsedQuantity = Number(quantity);
         const parsedPrice = Number(price);
 
-        if (!portfolioId || !cleanSymbol || !parsedQuantity || !parsedPrice) {
-            return { success: false, error: 'All fields are required.' } as const;
+        if (!portfolioId || !cleanSymbol || parsedQuantity <= 0 || parsedPrice <= 0) {
+            return {
+                success: false,
+                error: 'All fields are required and must be positive.',
+            } as const;
         }
 
         await connectToDatabase();
