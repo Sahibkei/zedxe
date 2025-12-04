@@ -13,10 +13,15 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { deletePortfolio, updatePortfolioMeta } from '@/lib/portfolio/actions';
+import {
+    clearWeeklyReportPortfolioAction,
+    deletePortfolio,
+    setWeeklyReportPortfolioAction,
+    updatePortfolioMeta,
+} from '@/lib/portfolio/actions';
 import { CURRENCIES } from '@/lib/constants';
 
-type PortfolioMeta = { id: string; name: string; baseCurrency: string };
+type PortfolioMeta = { id: string; name: string; baseCurrency: string; weeklyReportEnabled?: boolean };
 
 type PortfolioSettingsDialogProps = {
     portfolio: PortfolioMeta | null;
@@ -29,6 +34,7 @@ type PortfolioSettingsDialogProps = {
 const PortfolioSettingsDialog = ({ portfolio, open, onOpenChange, onDeleted, onUpdated }: PortfolioSettingsDialogProps) => {
     const [name, setName] = useState(portfolio?.name || '');
     const [baseCurrency, setBaseCurrency] = useState(portfolio?.baseCurrency || CURRENCIES[0]);
+    const [weeklyReportEnabled, setWeeklyReportEnabled] = useState<boolean>(Boolean(portfolio?.weeklyReportEnabled));
     const [error, setError] = useState('');
     const [confirmingDelete, setConfirmingDelete] = useState(false);
     const [pending, startTransition] = useTransition();
@@ -38,24 +44,57 @@ const PortfolioSettingsDialog = ({ portfolio, open, onOpenChange, onDeleted, onU
         /* eslint-disable react-hooks/set-state-in-effect */
         setName(portfolio?.name || '');
         setBaseCurrency(portfolio?.baseCurrency || CURRENCIES[0]);
+        setWeeklyReportEnabled(Boolean(portfolio?.weeklyReportEnabled));
         setError('');
         setConfirmingDelete(false);
         /* eslint-enable react-hooks/set-state-in-effect */
-    }, [open, portfolio?.baseCurrency, portfolio?.name]);
+    }, [open, portfolio?.baseCurrency, portfolio?.name, portfolio?.weeklyReportEnabled]);
 
     const canSave = Boolean(portfolio && name.trim().length > 1 && baseCurrency);
 
     const handleSave = () => {
         if (!portfolio) return;
         startTransition(async () => {
-            const res = await updatePortfolioMeta({ id: portfolio.id, name: name.trim(), baseCurrency });
-            if (res?.success) {
-                onUpdated?.({ id: portfolio.id, name: name.trim(), baseCurrency });
-                setError('');
-                onOpenChange(false);
-                return;
+            setError('');
+            const updatesNeeded = name.trim() !== portfolio.name || baseCurrency !== portfolio.baseCurrency;
+            let updatedMeta = { ...portfolio, name: portfolio.name, baseCurrency: portfolio.baseCurrency };
+            if (updatesNeeded) {
+                const res = await updatePortfolioMeta({ id: portfolio.id, name: name.trim(), baseCurrency });
+                if (res?.success && res.portfolio) {
+                    updatedMeta = { ...res.portfolio };
+                    setError('');
+                } else {
+                    setError(res?.error || 'Unable to update portfolio.');
+                    return;
+                }
             }
-            setError(res?.error || 'Unable to update portfolio.');
+
+            const wasWeeklyEnabled = Boolean(portfolio.weeklyReportEnabled);
+            if (weeklyReportEnabled && !wasWeeklyEnabled) {
+                const res = await setWeeklyReportPortfolioAction(portfolio.id);
+                if (!res?.success) {
+                    setError(res?.error || 'Unable to enable weekly reports.');
+                    return;
+                }
+                updatedMeta.weeklyReportEnabled = true;
+            } else if (!weeklyReportEnabled && wasWeeklyEnabled) {
+                const res = await clearWeeklyReportPortfolioAction();
+                if (!res?.success) {
+                    setError(res?.error || 'Unable to disable weekly reports.');
+                    return;
+                }
+                updatedMeta.weeklyReportEnabled = false;
+            } else {
+                updatedMeta.weeklyReportEnabled = weeklyReportEnabled;
+            }
+
+            onUpdated?.({
+                id: updatedMeta.id,
+                name: updatedMeta.name,
+                baseCurrency: updatedMeta.baseCurrency,
+                weeklyReportEnabled: updatedMeta.weeklyReportEnabled,
+            });
+            onOpenChange(false);
         });
     };
 
@@ -109,6 +148,23 @@ const PortfolioSettingsDialog = ({ portfolio, open, onOpenChange, onDeleted, onU
                                     ))}
                                 </SelectContent>
                             </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="weekly-report">Weekly AI report</Label>
+                            <div className="flex items-center justify-between rounded-md border border-gray-800 bg-gray-900/50 px-3 py-2">
+                                <div className="flex flex-col">
+                                    <span className="text-sm text-gray-200">Send weekly digest for this portfolio</span>
+                                    <span className="text-xs text-gray-500">Only one portfolio can be selected at a time.</span>
+                                </div>
+                                <input
+                                    id="weekly-report"
+                                    type="checkbox"
+                                    className="h-4 w-4 accent-yellow-500"
+                                    checked={weeklyReportEnabled}
+                                    onChange={(e) => setWeeklyReportEnabled(e.target.checked)}
+                                    disabled={disabled}
+                                />
+                            </div>
                         </div>
                     </div>
 

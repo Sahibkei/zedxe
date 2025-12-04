@@ -198,6 +198,33 @@ Apple Stock Jumped After Great Earnings Report
 </div>
 </div>`
 
+export const WEEKLY_PORTFOLIO_REPORT_PROMPT = `Generate HTML content for a weekly portfolio email. The HTML will be injected into the {{reportContent}} placeholder of a dark-mode friendly email template, so return ONLY HTML, no markdown or code fences.
+
+Portfolio name: {{portfolioName}}
+Portfolio data (JSON):
+{{portfolioData}}
+
+Formatting requirements:
+- Use short, scannable sections with headings using <h3 class="mobile-news-title dark-text">.
+- Use <p class="mobile-text dark-text-secondary"> for paragraphs and keep sentences concise and clear.
+- Use bullet lists (<ul> with list-style:none and <li class="dark-text-secondary">) for key stats and action items.
+- Highlight metrics using <strong style="color: #FDD458;"> for numbers or symbols.
+- Avoid tables. Keep tone encouraging and explanatory for everyday investors.
+
+Content requirements (in this order):
+1) Quick summary of the week with portfolio performance direction (up/down/flat) and total value in base currency.
+2) Performance highlights: recent return over the provided period, biggest daily move, and volatility notes if ratios are available.
+3) Top positions: list up to 5 holdings with weight %, PnL %, and any notable changes.
+4) Risk & ratios: mention beta/sharpe if present, otherwise say data is limited.
+5) Suggested next steps: 3 simple, friendly suggestions tailored to holdings/performance (rebalance, add cash, research, etc.).
+
+Tone guidelines:
+- Keep it friendly, confident, and concise.
+- Avoid jargon; explain numbers in plain language.
+- Do not invent tickers that are not in the data.
+- If data is missing, gracefully note that the metric is not available.
+`;
+
 export const WATCHLIST_SUMMARY_EMAIL_PROMPT = `You are creating a short HTML section titled "Your Watchlist Update".
 
 Input data:

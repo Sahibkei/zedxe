@@ -12,6 +12,8 @@ import {
     getPortfolioPerformanceSeries,
     getPortfolioSummary,
     getUserPortfolios,
+    setWeeklyReportPortfolio,
+    clearWeeklyReportSelection,
     type PortfolioLean,
     type PortfolioPerformancePoint,
     type PortfolioPerformanceRange,
@@ -49,7 +51,15 @@ export async function createPortfolio({ name, baseCurrency }: { name: string; ba
         });
 
         revalidatePath(PORTFOLIO_PATH);
-        return { success: true, portfolio: { id: String(created._id), name: created.name, baseCurrency: created.baseCurrency } } as const;
+        return {
+            success: true,
+            portfolio: {
+                id: String(created._id),
+                name: created.name,
+                baseCurrency: created.baseCurrency,
+                weeklyReportEnabled: created.weeklyReportEnabled,
+            },
+        } as const;
     } catch (error) {
         console.error('createPortfolio error:', error);
         return { success: false, error: 'Failed to create portfolio.' } as const;
@@ -84,7 +94,15 @@ export async function updatePortfolioMeta({
         }
 
         revalidatePath(PORTFOLIO_PATH);
-        return { success: true, portfolio: { id: String(updated._id), name: updated.name, baseCurrency: updated.baseCurrency } } as const;
+        return {
+            success: true,
+            portfolio: {
+                id: String(updated._id),
+                name: updated.name,
+                baseCurrency: updated.baseCurrency,
+                weeklyReportEnabled: updated.weeklyReportEnabled,
+            },
+        } as const;
     } catch (error) {
         console.error('updatePortfolioMeta error:', error);
         return { success: false, error: 'Failed to update portfolio.' } as const;
@@ -186,5 +204,29 @@ export async function getPortfolioPerformanceAction(
     } catch (error) {
         console.error('getPortfolioPerformanceAction error:', error);
         return { success: false, error: 'Unable to load performance data.' } as const;
+    }
+}
+
+export async function setWeeklyReportPortfolioAction(portfolioId: string) {
+    const session = await requireSession();
+    try {
+        await setWeeklyReportPortfolio(session.user.id, portfolioId);
+        revalidatePath(PORTFOLIO_PATH);
+        return { success: true } as const;
+    } catch (error) {
+        console.error('setWeeklyReportPortfolioAction error:', error);
+        return { success: false, error: 'Failed to update weekly report preference.' } as const;
+    }
+}
+
+export async function clearWeeklyReportPortfolioAction() {
+    const session = await requireSession();
+    try {
+        await clearWeeklyReportSelection(session.user.id);
+        revalidatePath(PORTFOLIO_PATH);
+        return { success: true } as const;
+    } catch (error) {
+        console.error('clearWeeklyReportPortfolioAction error:', error);
+        return { success: false, error: 'Failed to disable weekly reports.' } as const;
     }
 }

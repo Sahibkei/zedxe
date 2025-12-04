@@ -1,11 +1,14 @@
 import {inngest} from "@/lib/inngest/client";
-import {NEWS_SUMMARY_EMAIL_PROMPT, PERSONALIZED_WELCOME_EMAIL_PROMPT, WATCHLIST_SUMMARY_EMAIL_PROMPT} from "@/lib/inngest/prompts";
-import {sendNewsSummaryEmail, sendWelcomeEmail, sendPriceAlertEmail} from "@/lib/nodemailer";
+import {NEWS_SUMMARY_EMAIL_PROMPT, PERSONALIZED_WELCOME_EMAIL_PROMPT, WATCHLIST_SUMMARY_EMAIL_PROMPT, WEEKLY_PORTFOLIO_REPORT_PROMPT} from "@/lib/inngest/prompts";
+import {sendNewsSummaryEmail, sendWelcomeEmail, sendPriceAlertEmail, sendWeeklyReportEmail} from "@/lib/nodemailer";
 import {getAllUsersForNewsEmail, getUserById} from "@/lib/actions/user.actions";
 import { getWatchlistSymbolsByEmail, getWatchlistItemsByUserId } from "@/lib/actions/watchlist.actions";
 import { getNews, getSnapshotsForSymbols, getStocksDetails } from "@/lib/actions/finnhub.actions";
 import { getFormattedTodayDate } from "@/lib/utils";
 import { getActiveAlerts, getAlertsByUser, markAlertTriggered, updateAlertLastPrice } from "@/lib/actions/alert.actions";
+import { connectToDatabase } from '@/database/mongoose';
+import { Portfolio } from '@/database/models/portfolio.model';
+import { getPortfolioPerformanceSeries, getPortfolioSummary } from '@/lib/portfolio/portfolio-service';
 
 export const sendSignUpEmail = inngest.createFunction(
     { id: 'sign-up-email' },
@@ -289,5 +292,112 @@ export const processPriceAlerts = inngest.createFunction(
         }
 
         return { success: true, message: `Processed ${alerts.length} alerts` };
+    }
+);
+
+export const sendWeeklyPortfolioReport = inngest.createFunction(
+    { id: 'weekly-portfolio-report' },
+    { cron: '0 14 * * MON' },
+    async ({ step }) => {
+        const portfolios = await step.run('fetch-weekly-portfolios', async () => {
+            await connectToDatabase();
+            return Portfolio.find({ weeklyReportEnabled: true }).lean();
+        });
+
+        if (!portfolios || portfolios.length === 0) {
+            return { success: true, processed: 0 };
+        }
+
+        const weeklyPortfolios = portfolios as { _id: unknown; userId: string }[];
+
+        for (const portfolio of weeklyPortfolios) {
+            await step.run(`weekly-report-${String((portfolio as { _id: unknown })._id)}`, async () => {
+                const portfolioId = String((portfolio as { _id: unknown })._id);
+                const userId = (portfolio as { userId: string }).userId;
+                const user = await getUserById(userId);
+                if (!user?.email) return { skipped: 'missing-user' } as const;
+
+                let summary = null;
+                try {
+                    summary = await getPortfolioSummary(user.id, portfolioId);
+                } catch (error) {
+                    console.error('weekly report summary error', portfolioId, error);
+                    return { skipped: 'summary-error' } as const;
+                }
+
+                if (!summary) return { skipped: 'no-summary' } as const;
+
+                let performance = [] as Awaited<ReturnType<typeof getPortfolioPerformanceSeries>>;
+                try {
+                    performance = await getPortfolioPerformanceSeries(user.id, portfolioId, '3M', { allowFallbackFlatSeries: true });
+                } catch (error) {
+                    console.error('weekly report performance error', portfolioId, error);
+                }
+
+                const topPositions = [...(summary.positions || [])]
+                    .sort((a, b) => b.currentValue - a.currentValue)
+                    .slice(0, 5)
+                    .map((p) => ({
+                        symbol: p.symbol,
+                        weightPct: p.weightPct,
+                        pnlPct: p.pnlPct,
+                        currentValue: p.currentValue,
+                    }));
+
+                const perfChange =
+                    performance.length >= 2 && performance[0].value !== 0
+                        ? performance[performance.length - 1].value / performance[0].value - 1
+                        : null;
+
+                let biggestDailyMove: number | null = null;
+                for (let i = 1; i < performance.length; i++) {
+                    const prev = performance[i - 1].value;
+                    const curr = performance[i].value;
+                    if (prev === 0) continue;
+                    const move = curr / prev - 1;
+                    if (biggestDailyMove === null || Math.abs(move) > Math.abs(biggestDailyMove)) {
+                        biggestDailyMove = move;
+                    }
+                }
+
+                const reportData = {
+                    baseCurrency: summary.portfolio.baseCurrency,
+                    totals: summary.totals,
+                    ratios: summary.ratios,
+                    performance: {
+                        startDate: performance[0]?.date,
+                        endDate: performance.at(-1)?.date,
+                        changePct: perfChange,
+                        biggestDailyMove,
+                    },
+                    topPositions,
+                };
+
+                const prompt = WEEKLY_PORTFOLIO_REPORT_PROMPT
+                    .replace('{{portfolioName}}', summary.portfolio.name)
+                    .replace('{{portfolioData}}', JSON.stringify(reportData, null, 2));
+
+                const response = await step.ai.infer(`weekly-report-${portfolioId}`, {
+                    model: step.ai.models.gemini({ model: 'gemini-2.5-flash-lite' }),
+                    body: { contents: [{ role: 'user', parts: [{ text: prompt }] }] },
+                });
+
+                const part = response.candidates?.[0]?.content?.parts?.[0];
+                const reportContent =
+                    (part && 'text' in part ? (part as { text?: string }).text : null) ||
+                    '<p class="mobile-text dark-text-secondary" style="margin:0; font-size:15px; line-height:1.6; color:#CCDADC;">We could not generate a detailed summary this week, but your portfolio is being tracked.</p>';
+
+                await sendWeeklyReportEmail({
+                    email: user.email,
+                    name: user.name,
+                    portfolioName: summary.portfolio.name,
+                    reportHtml: reportContent,
+                });
+
+                return { success: true } as const;
+            });
+        }
+
+        return { success: true, processed: portfolios.length };
     }
 );

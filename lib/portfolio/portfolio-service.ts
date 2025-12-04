@@ -31,7 +31,7 @@ export interface PortfolioRatios {
 }
 
 export interface PortfolioSummary {
-    portfolio: { id: string; name: string; baseCurrency: string };
+    portfolio: { id: string; name: string; baseCurrency: string; weeklyReportEnabled?: boolean };
     totals: PortfolioTotals;
     positions: PositionSummary[];
     ratios: PortfolioRatios;
@@ -48,6 +48,7 @@ export type PortfolioLean = {
     id: string;
     name: string;
     baseCurrency: string;
+    weeklyReportEnabled?: boolean;
     createdAt?: Date;
     updatedAt?: Date;
 };
@@ -83,10 +84,11 @@ const variance = (values: number[]): number => {
 
 const stddev = (values: number[]): number => Math.sqrt(variance(values));
 
-const mapPortfolio = (portfolio: { _id: unknown; name: string; baseCurrency: string; createdAt?: Date; updatedAt?: Date }): PortfolioLean => ({
+const mapPortfolio = (portfolio: { _id: unknown; name: string; baseCurrency: string; weeklyReportEnabled?: boolean; createdAt?: Date; updatedAt?: Date }): PortfolioLean => ({
     id: String(portfolio._id),
     name: portfolio.name,
     baseCurrency: portfolio.baseCurrency,
+    weeklyReportEnabled: portfolio.weeklyReportEnabled,
     createdAt: portfolio.createdAt,
     updatedAt: portfolio.updatedAt,
 });
@@ -97,6 +99,22 @@ export async function getUserPortfolios(userId: string): Promise<PortfolioLean[]
     await connectToDatabase();
     const portfolios = await Portfolio.find({ userId }).sort({ createdAt: -1 }).lean();
     return portfolios.map(mapPortfolio);
+}
+
+export async function setWeeklyReportPortfolio(userId: string, portfolioId: string) {
+    if (!userId || !portfolioId) return;
+
+    await connectToDatabase();
+
+    await Portfolio.updateMany({ userId }, { $set: { weeklyReportEnabled: false } });
+    await Portfolio.updateOne({ _id: portfolioId, userId }, { $set: { weeklyReportEnabled: true } });
+}
+
+export async function clearWeeklyReportSelection(userId: string) {
+    if (!userId) return;
+
+    await connectToDatabase();
+    await Portfolio.updateMany({ userId }, { $set: { weeklyReportEnabled: false } });
 }
 
 const emptyRatios: PortfolioRatios = {
@@ -327,7 +345,12 @@ export async function getPortfolioSummary(userId: string, portfolioId: string): 
     const ratios = await getPortfolioRatios(userId, portfolioId);
 
     const summary: PortfolioSummary = {
-        portfolio: { id: String(portfolio._id), name: portfolio.name, baseCurrency: portfolio.baseCurrency },
+        portfolio: {
+            id: String(portfolio._id),
+            name: portfolio.name,
+            baseCurrency: portfolio.baseCurrency,
+            weeklyReportEnabled: portfolio.weeklyReportEnabled,
+        },
         totals,
         positions: withWeights,
         ratios,
