@@ -219,14 +219,14 @@ export async function setWeeklyReportPortfolioAction(portfolioId: string) {
     }
 }
 
-export async function clearWeeklyReportPortfolioAction() {
+export async function clearWeeklyReportSelectionAction() {
     const session = await requireSession();
     try {
         await clearWeeklyReportSelection(session.user.id);
         revalidatePath(PORTFOLIO_PATH);
         return { success: true } as const;
     } catch (error) {
-        console.error('clearWeeklyReportPortfolioAction error:', error);
+        console.error('clearWeeklyReportSelectionAction error:', error);
         return { success: false, error: 'Failed to disable weekly reports.' } as const;
     }
 }
