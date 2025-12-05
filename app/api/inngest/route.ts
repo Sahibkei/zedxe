@@ -5,4 +5,4 @@ import {sendDailyNewsSummary, sendSignUpEmail, sendWeeklyPortfolioReport} from "
 export const { GET, POST, PUT } = serve({
     client: inngest,
     functions: [sendSignUpEmail, sendDailyNewsSummary, sendWeeklyPortfolioReport],
-})
+});
