@@ -31,7 +31,7 @@ export interface PortfolioRatios {
 }
 
 export interface PortfolioSummary {
-    portfolio: { id: string; name: string; baseCurrency: string; weeklyReportEnabled?: boolean };
+    portfolio: { id: string; name: string; baseCurrency: string; weeklyReportEnabled: boolean };
     totals: PortfolioTotals;
     positions: PositionSummary[];
     ratios: PortfolioRatios;
@@ -48,7 +48,7 @@ export type PortfolioLean = {
     id: string;
     name: string;
     baseCurrency: string;
-    weeklyReportEnabled?: boolean;
+    weeklyReportEnabled: boolean;
     createdAt?: Date;
     updatedAt?: Date;
 };
@@ -88,7 +88,7 @@ const mapPortfolio = (portfolio: { _id: unknown; name: string; baseCurrency: str
     id: String(portfolio._id),
     name: portfolio.name,
     baseCurrency: portfolio.baseCurrency,
-    weeklyReportEnabled: portfolio.weeklyReportEnabled,
+    weeklyReportEnabled: Boolean(portfolio.weeklyReportEnabled),
     createdAt: portfolio.createdAt,
     updatedAt: portfolio.updatedAt,
 });
@@ -349,7 +349,7 @@ export async function getPortfolioSummary(userId: string, portfolioId: string): 
             id: String(portfolio._id),
             name: portfolio.name,
             baseCurrency: portfolio.baseCurrency,
-            weeklyReportEnabled: portfolio.weeklyReportEnabled,
+            weeklyReportEnabled: Boolean(portfolio.weeklyReportEnabled),
         },
         totals,
         positions: withWeights,

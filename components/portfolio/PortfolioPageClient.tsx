@@ -114,7 +114,7 @@ const PortfolioPageClient = ({
         handleSelectPortfolio(selectedPortfolioId);
     };
 
-    const handlePortfolioUpdated = (updated: { id: string; name: string; baseCurrency: string; weeklyReportEnabled?: boolean }) => {
+    const handlePortfolioUpdated = (updated: { id: string; name: string; baseCurrency: string; weeklyReportEnabled: boolean }) => {
         setPortfolios((prev) => {
             const baseUpdated = prev.map((p) =>
                 p.id === updated.id ? { ...p, name: updated.name, baseCurrency: updated.baseCurrency } : p
@@ -129,7 +129,7 @@ const PortfolioPageClient = ({
 
             return baseUpdated.map((p) =>
                 p.id === updated.id
-                    ? { ...p, weeklyReportEnabled: updated.weeklyReportEnabled ?? p.weeklyReportEnabled }
+                    ? { ...p, weeklyReportEnabled: updated.weeklyReportEnabled }
                     : { ...p, weeklyReportEnabled: updated.weeklyReportEnabled ? false : p.weeklyReportEnabled }
             );
         });

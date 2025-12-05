@@ -14,14 +14,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-    clearWeeklyReportPortfolioAction,
+    clearWeeklyReportSelectionAction,
     deletePortfolio,
     setWeeklyReportPortfolioAction,
     updatePortfolioMeta,
 } from '@/lib/portfolio/actions';
 import { CURRENCIES } from '@/lib/constants';
 
-type PortfolioMeta = { id: string; name: string; baseCurrency: string; weeklyReportEnabled?: boolean };
+type PortfolioMeta = { id: string; name: string; baseCurrency: string; weeklyReportEnabled: boolean };
 
 type PortfolioSettingsDialogProps = {
     portfolio: PortfolioMeta | null;
@@ -78,7 +78,7 @@ const PortfolioSettingsDialog = ({ portfolio, open, onOpenChange, onDeleted, onU
                 }
                 updatedMeta.weeklyReportEnabled = true;
             } else if (!weeklyReportEnabled && wasWeeklyEnabled) {
-                const res = await clearWeeklyReportPortfolioAction();
+                const res = await clearWeeklyReportSelectionAction();
                 if (!res?.success) {
                     setError(res?.error || 'Unable to disable weekly reports.');
                     return;
