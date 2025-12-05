@@ -304,21 +304,37 @@ export const sendWeeklyPortfolioReport = inngest.createFunction(
             return Portfolio.find({ weeklyReportEnabled: true }).lean();
         });
 
-        if (!portfolios || portfolios.length === 0) {
-            return { success: true, processed: 0 };
+        type WeeklyPortfolio = { _id: unknown; userId: string };
+
+        const weeklyPortfolios: WeeklyPortfolio[] = Array.isArray(portfolios)
+            ? (portfolios as WeeklyPortfolio[])
+            : [];
+
+        if (!Array.isArray(portfolios)) {
+            console.warn("weekly-portfolio-report: unexpected portfolios payload", { type: typeof portfolios });
         }
 
-        const weeklyPortfolios = portfolios as { _id: unknown; userId: string }[];
+        if (weeklyPortfolios.length === 0) {
+            return { success: true, processed: 0, sent: 0, skipped: 0 };
+        }
 
-        const results = await step.forEach(
+        let processed = 0;
+        let sent = 0;
+        let skipped = 0;
+
+        await step.forEach(
             'process-weekly-portfolios',
             weeklyPortfolios,
             async (portfolio, { step }) => {
+                processed += 1;
                 const portfolioId = String((portfolio as { _id: unknown })._id);
                 const userId = (portfolio as { userId: string }).userId;
 
                 const user = await step.run('load-user', async () => getUserById(userId));
-                if (!user?.email) return { portfolioId, status: 'skipped', reason: 'missing-user' } as const;
+                if (!user?.email) {
+                    skipped += 1;
+                    return { portfolioId, status: 'skipped', reason: 'missing-user' } as const;
+                }
 
                 const summary = await step.run('load-portfolio-summary', async () => {
                     try {
@@ -328,7 +344,10 @@ export const sendWeeklyPortfolioReport = inngest.createFunction(
                         return null;
                     }
                 });
-                if (!summary) return { portfolioId, status: 'skipped', reason: 'summary-error' } as const;
+                if (!summary) {
+                    skipped += 1;
+                    return { portfolioId, status: 'skipped', reason: 'summary-error' } as const;
+                }
 
                 const performance = await step.run('load-portfolio-performance', async () => {
                     try {
@@ -401,13 +420,11 @@ export const sendWeeklyPortfolioReport = inngest.createFunction(
                     });
                 });
 
+                sent += 1;
                 return { portfolioId, status: 'sent' } as const;
             },
         );
 
-        const sent = results.filter((r) => r.status === 'sent').length;
-        const skipped = results.length - sent;
-
-        return { success: true, processed: results.length, sent, skipped };
+        return { success: true, processed, sent, skipped };
     }
 );
