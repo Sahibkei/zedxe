@@ -297,7 +297,7 @@ export const processPriceAlerts = inngest.createFunction(
 
 export const sendWeeklyPortfolioReport = inngest.createFunction(
     { id: 'weekly-portfolio-report' },
-    { cron: "* * * * *" },
+    { cron: "0 14 * * MON" },
     async ({ step }) => {
         const portfolios = await step.run('fetch-weekly-portfolios', async () => {
             await connectToDatabase();
