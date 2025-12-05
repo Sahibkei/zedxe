@@ -304,35 +304,42 @@ export const sendWeeklyPortfolioReport = inngest.createFunction(
             return Portfolio.find({ weeklyReportEnabled: true }).lean();
         });
 
-        if (!portfolios || portfolios.length === 0) {
+        const weeklyPortfolios = Array.isArray(portfolios)
+            ? (portfolios as { _id: unknown; userId: string }[])
+            : [];
+
+        if (weeklyPortfolios.length === 0) {
             return { success: true, processed: 0 };
         }
 
-        const weeklyPortfolios = portfolios as { _id: unknown; userId: string }[];
-
-        for (const portfolio of weeklyPortfolios) {
-            await step.run(`weekly-report-${String((portfolio as { _id: unknown })._id)}`, async () => {
+        const results = await step.forEach(
+            'process-weekly-portfolios',
+            weeklyPortfolios,
+            async (portfolio, { step }) => {
                 const portfolioId = String((portfolio as { _id: unknown })._id);
                 const userId = (portfolio as { userId: string }).userId;
-                const user = await getUserById(userId);
-                if (!user?.email) return { skipped: 'missing-user' } as const;
 
-                let summary = null;
-                try {
-                    summary = await getPortfolioSummary(user.id, portfolioId);
-                } catch (error) {
-                    console.error('weekly report summary error', portfolioId, error);
-                    return { skipped: 'summary-error' } as const;
-                }
+                const user = await step.run('load-user', async () => getUserById(userId));
+                if (!user?.email) return { portfolioId, status: 'skipped', reason: 'missing-user' } as const;
 
-                if (!summary) return { skipped: 'no-summary' } as const;
+                const summary = await step.run('load-portfolio-summary', async () => {
+                    try {
+                        return await getPortfolioSummary(user.id, portfolioId);
+                    } catch (error) {
+                        console.error('weekly report summary error', portfolioId, error);
+                        return null;
+                    }
+                });
+                if (!summary) return { portfolioId, status: 'skipped', reason: 'summary-error' } as const;
 
-                let performance = [] as Awaited<ReturnType<typeof getPortfolioPerformanceSeries>>;
-                try {
-                    performance = await getPortfolioPerformanceSeries(user.id, portfolioId, '3M', { allowFallbackFlatSeries: true });
-                } catch (error) {
-                    console.error('weekly report performance error', portfolioId, error);
-                }
+                const performance = await step.run('load-portfolio-performance', async () => {
+                    try {
+                        return await getPortfolioPerformanceSeries(user.id, portfolioId, '3M', { allowFallbackFlatSeries: true });
+                    } catch (error) {
+                        console.error('weekly report performance error', portfolioId, error);
+                        return [] as Awaited<ReturnType<typeof getPortfolioPerformanceSeries>>;
+                    }
+                });
 
                 const topPositions = [...(summary.positions || [])]
                     .sort((a, b) => b.currentValue - a.currentValue)
@@ -387,17 +394,28 @@ export const sendWeeklyPortfolioReport = inngest.createFunction(
                     (part && 'text' in part ? (part as { text?: string }).text : null) ||
                     '<p class="mobile-text dark-text-secondary" style="margin:0; font-size:15px; line-height:1.6; color:#CCDADC;">We could not generate a detailed summary this week, but your portfolio is being tracked.</p>';
 
-                await sendWeeklyReportEmail({
-                    email: user.email,
-                    name: user.name,
-                    portfolioName: summary.portfolio.name,
-                    reportHtml: reportContent,
+                await step.run('send-weekly-report-email', async () => {
+                    await sendWeeklyReportEmail({
+                        email: user.email,
+                        name: user.name,
+                        portfolioName: summary.portfolio.name,
+                        reportHtml: reportContent,
+                    });
                 });
 
-                return { success: true } as const;
-            });
-        }
+                return { portfolioId, status: 'sent' } as const;
+            },
+        );
 
-        return { success: true, processed: portfolios.length };
+        const processedResults = Array.isArray(results)
+            ? results
+            : Array.isArray((results as { results?: unknown }).results)
+                ? ((results as { results?: { status: string }[] }).results ?? [])
+                : [] as { status: string }[];
+
+        const sent = processedResults.filter((r) => r.status === 'sent').length;
+        const skipped = processedResults.length - sent;
+
+        return { success: true, processed: processedResults.length, sent, skipped };
     }
 );
