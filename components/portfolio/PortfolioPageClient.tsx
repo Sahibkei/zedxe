@@ -72,6 +72,10 @@ const PortfolioPageClient = ({
         [portfolios, selectedPortfolioId]
     );
     const activePortfolioMeta = summary?.portfolio || selectedPortfolio;
+    const weeklyReportPortfolio = useMemo(
+        () => portfolios.find((p) => p.weeklyReportEnabled) ?? null,
+        [portfolios]
+    );
 
     const refreshPortfolios = async () => {
         const next = await getUserPortfoliosAction();
@@ -114,11 +118,21 @@ const PortfolioPageClient = ({
         handleSelectPortfolio(selectedPortfolioId);
     };
 
-    const handlePortfolioUpdated = (updated: { id: string; name: string; baseCurrency: string; weeklyReportEnabled: boolean }) => {
+    const handlePortfolioUpdated = (
+        updated: { id: string; name: string; baseCurrency: string; weeklyReportEnabled: boolean },
+        weeklyReportPortfolioId?: string | null
+    ) => {
         setPortfolios((prev) => {
             const baseUpdated = prev.map((p) =>
                 p.id === updated.id ? { ...p, name: updated.name, baseCurrency: updated.baseCurrency } : p
             );
+
+            if (weeklyReportPortfolioId !== undefined) {
+                return baseUpdated.map((p) => ({
+                    ...p,
+                    weeklyReportEnabled: weeklyReportPortfolioId ? p.id === weeklyReportPortfolioId : false,
+                }));
+            }
 
             if (updated.weeklyReportEnabled) {
                 return baseUpdated.map((p) => ({
@@ -135,14 +149,25 @@ const PortfolioPageClient = ({
         });
 
         setSummary((prev) => {
-            if (!prev || prev.portfolio.id !== updated.id) return prev;
+            if (!prev) return prev;
+            const isUpdatedPortfolio = prev.portfolio.id === updated.id;
+            const nextWeeklyEnabled =
+                weeklyReportPortfolioId !== undefined
+                    ? weeklyReportPortfolioId === prev.portfolio.id
+                    : isUpdatedPortfolio
+                    ? updated.weeklyReportEnabled
+                    : prev.portfolio.weeklyReportEnabled;
+
+            if (!isUpdatedPortfolio && weeklyReportPortfolioId === undefined) return prev;
+
             return {
                 ...prev,
                 portfolio: {
                     ...prev.portfolio,
-                    name: updated.name,
-                    baseCurrency: updated.baseCurrency,
-                    weeklyReportEnabled: updated.weeklyReportEnabled,
+                    ...(isUpdatedPortfolio
+                        ? { name: updated.name, baseCurrency: updated.baseCurrency }
+                        : {}),
+                    weeklyReportEnabled: nextWeeklyEnabled,
                 },
             };
         });
@@ -290,9 +315,17 @@ const PortfolioPageClient = ({
                               id: activePortfolioMeta.id,
                               name: activePortfolioMeta.name,
                               baseCurrency: activePortfolioMeta.baseCurrency,
+                              weeklyReportEnabled: Boolean(activePortfolioMeta.weeklyReportEnabled),
                           }
                         : null
                 }
+                portfolios={portfolios.map((p) => ({
+                    id: p.id,
+                    name: p.name,
+                    baseCurrency: p.baseCurrency,
+                    weeklyReportEnabled: Boolean(p.weeklyReportEnabled),
+                }))}
+                weeklyReportPortfolio={weeklyReportPortfolio}
                 open={isSettingsOpen}
                 onOpenChange={setIsSettingsOpen}
                 onUpdated={handlePortfolioUpdated}

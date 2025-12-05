@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -25,30 +25,56 @@ type PortfolioMeta = { id: string; name: string; baseCurrency: string; weeklyRep
 
 type PortfolioSettingsDialogProps = {
     portfolio: PortfolioMeta | null;
+    portfolios: PortfolioMeta[];
+    weeklyReportPortfolio: PortfolioMeta | null;
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    onUpdated?: (updated: PortfolioMeta) => void;
+    onUpdated?: (updated: PortfolioMeta, weeklyReportPortfolioId?: string | null) => void;
     onDeleted?: () => void;
 };
 
-const PortfolioSettingsDialog = ({ portfolio, open, onOpenChange, onDeleted, onUpdated }: PortfolioSettingsDialogProps) => {
+const PortfolioSettingsDialog = ({
+    portfolio,
+    portfolios,
+    weeklyReportPortfolio,
+    open,
+    onOpenChange,
+    onDeleted,
+    onUpdated,
+}: PortfolioSettingsDialogProps) => {
     const [name, setName] = useState(portfolio?.name || '');
     const [baseCurrency, setBaseCurrency] = useState(portfolio?.baseCurrency || CURRENCIES[0]);
-    const [weeklyReportEnabled, setWeeklyReportEnabled] = useState<boolean>(Boolean(portfolio?.weeklyReportEnabled));
+    const [selectedWeeklyPortfolioId, setSelectedWeeklyPortfolioId] = useState<string | null>(
+        weeklyReportPortfolio?.id ?? null
+    );
+    const [weeklySelectionMode, setWeeklySelectionMode] = useState<'view' | 'select'>(
+        weeklyReportPortfolio ? 'view' : 'select'
+    );
+    const [pendingRemoval, setPendingRemoval] = useState(false);
     const [error, setError] = useState('');
     const [confirmingDelete, setConfirmingDelete] = useState(false);
     const [pending, startTransition] = useTransition();
+
+    const initialWeeklyPortfolioId = useMemo(() => weeklyReportPortfolio?.id ?? null, [weeklyReportPortfolio?.id]);
 
     useEffect(() => {
         if (!open) return;
         /* eslint-disable react-hooks/set-state-in-effect */
         setName(portfolio?.name || '');
         setBaseCurrency(portfolio?.baseCurrency || CURRENCIES[0]);
-        setWeeklyReportEnabled(Boolean(portfolio?.weeklyReportEnabled));
+        setSelectedWeeklyPortfolioId(initialWeeklyPortfolioId);
+        setWeeklySelectionMode(initialWeeklyPortfolioId ? 'view' : 'select');
+        setPendingRemoval(false);
         setError('');
         setConfirmingDelete(false);
         /* eslint-enable react-hooks/set-state-in-effect */
-    }, [open, portfolio?.baseCurrency, portfolio?.name, portfolio?.weeklyReportEnabled]);
+    }, [
+        open,
+        portfolio?.baseCurrency,
+        portfolio?.name,
+        initialWeeklyPortfolioId,
+        portfolio?.weeklyReportEnabled,
+    ]);
 
     const canSave = Boolean(portfolio && name.trim().length > 1 && baseCurrency);
 
@@ -69,31 +95,36 @@ const PortfolioSettingsDialog = ({ portfolio, open, onOpenChange, onDeleted, onU
                 }
             }
 
-            const wasWeeklyEnabled = Boolean(portfolio.weeklyReportEnabled);
-            if (weeklyReportEnabled && !wasWeeklyEnabled) {
-                const res = await setWeeklyReportPortfolioAction(portfolio.id);
-                if (!res?.success) {
-                    setError(res?.error || 'Unable to enable weekly reports.');
-                    return;
+            const intendedWeeklyPortfolioId = pendingRemoval
+                ? null
+                : weeklySelectionMode === 'select'
+                ? selectedWeeklyPortfolioId || null
+                : initialWeeklyPortfolioId;
+
+            if (intendedWeeklyPortfolioId !== initialWeeklyPortfolioId) {
+                if (intendedWeeklyPortfolioId) {
+                    const res = await setWeeklyReportPortfolioAction(intendedWeeklyPortfolioId);
+                    if (!res?.success) {
+                        setError(res?.error || 'Unable to enable weekly reports.');
+                        return;
+                    }
+                } else {
+                    const res = await clearWeeklyReportSelectionAction();
+                    if (!res?.success) {
+                        setError(res?.error || 'Unable to disable weekly reports.');
+                        return;
+                    }
                 }
-                updatedMeta.weeklyReportEnabled = true;
-            } else if (!weeklyReportEnabled && wasWeeklyEnabled) {
-                const res = await clearWeeklyReportSelectionAction();
-                if (!res?.success) {
-                    setError(res?.error || 'Unable to disable weekly reports.');
-                    return;
-                }
-                updatedMeta.weeklyReportEnabled = false;
-            } else {
-                updatedMeta.weeklyReportEnabled = weeklyReportEnabled;
             }
+
+            updatedMeta.weeklyReportEnabled = Boolean(intendedWeeklyPortfolioId === portfolio.id);
 
             onUpdated?.({
                 id: updatedMeta.id,
                 name: updatedMeta.name,
                 baseCurrency: updatedMeta.baseCurrency,
                 weeklyReportEnabled: updatedMeta.weeklyReportEnabled,
-            });
+            }, intendedWeeklyPortfolioId);
             onOpenChange(false);
         });
     };
@@ -150,20 +181,68 @@ const PortfolioSettingsDialog = ({ portfolio, open, onOpenChange, onDeleted, onU
                             </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="weekly-report">Weekly AI report</Label>
-                            <div className="flex items-center justify-between rounded-md border border-gray-800 bg-gray-900/50 px-3 py-2">
-                                <div className="flex flex-col">
-                                    <span className="text-sm text-gray-200">Send weekly digest for this portfolio</span>
-                                    <span className="text-xs text-gray-500">Only one portfolio can be selected at a time.</span>
-                                </div>
-                                <input
-                                    id="weekly-report"
-                                    type="checkbox"
-                                    className="h-4 w-4 accent-yellow-500"
-                                    checked={weeklyReportEnabled}
-                                    onChange={(e) => setWeeklyReportEnabled(e.target.checked)}
-                                    disabled={disabled}
-                                />
+                            <Label htmlFor="weekly-report">Weekly AI reports</Label>
+                            <div className="space-y-3 rounded-md border border-gray-800 bg-gray-900/50 px-3 py-3">
+                                {weeklySelectionMode === 'select' ? (
+                                    <div className="space-y-2">
+                                        <p className="text-sm text-gray-300">Select the portfolio</p>
+                                        <Select
+                                            value={selectedWeeklyPortfolioId ?? ''}
+                                            onValueChange={(value) => {
+                                                setSelectedWeeklyPortfolioId(value || null);
+                                                setPendingRemoval(false);
+                                            }}
+                                            disabled={disabled}
+                                        >
+                                            <SelectTrigger className="bg-gray-900 text-gray-100">
+                                                <SelectValue placeholder="Select the portfolio" />
+                                            </SelectTrigger>
+                                            <SelectContent className="bg-gray-900 text-gray-100">
+                                                {portfolios.map((p) => (
+                                                    <SelectItem key={p.id} value={p.id}>
+                                                        {p.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <p className="text-xs text-gray-500">Only one portfolio can be selected at a time.</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-gray-300">
+                                            {pendingRemoval
+                                                ? 'Weekly AI reports will be disabled after saving.'
+                                                : weeklyReportPortfolio?.id === portfolio?.id
+                                                ? 'This portfolio is currently used for weekly AI reports.'
+                                                : `Weekly AI reports are currently sent for ${weeklyReportPortfolio?.name}.`}
+                                        </p>
+                                        <div className="flex flex-wrap gap-2">
+                                            <Button
+                                                variant="outline"
+                                                className="border-gray-700 text-gray-100"
+                                                onClick={() => {
+                                                    setWeeklySelectionMode('select');
+                                                    setSelectedWeeklyPortfolioId(initialWeeklyPortfolioId);
+                                                    setPendingRemoval(false);
+                                                }}
+                                                disabled={disabled}
+                                            >
+                                                Change the portfolio
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                className="border border-gray-800 bg-gray-900 text-gray-200"
+                                                onClick={() => {
+                                                    setPendingRemoval(true);
+                                                    setSelectedWeeklyPortfolioId(null);
+                                                }}
+                                                disabled={disabled}
+                                            >
+                                                Remove
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
