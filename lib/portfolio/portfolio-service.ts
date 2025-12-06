@@ -39,7 +39,14 @@ export interface PortfolioSummary {
 
 export type PortfolioPerformancePoint = {
     date: string; // ISO date string (YYYY-MM-DD)
-    value: number; // portfolio market value in base currency
+    portfolioValue: number; // portfolio market value in base currency
+    investedCapital: number; // cumulative invested amount in base currency
+    unrealizedPnL: number; // portfolioValue - investedCapital
+    /**
+     * Legacy alias used by ratio helpers; equal to portfolioValue.
+     * Keep it populated so existing metrics continue to work.
+     */
+    value: number;
 };
 
 export type PortfolioPerformanceRange = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | 'YTD' | 'MAX';
@@ -52,6 +59,37 @@ export type PortfolioLean = {
     createdAt?: Date;
     updatedAt?: Date;
 };
+
+export async function convertToBaseCurrency(
+    amount: number,
+    fromCurrency: string,
+    baseCurrency: string,
+    fxCache?: Map<string, number>
+): Promise<number> {
+    const normalizedFrom = fromCurrency?.trim().toUpperCase();
+    const normalizedBase = baseCurrency?.trim().toUpperCase();
+
+    if (!normalizedFrom || !normalizedBase) return amount;
+    if (normalizedFrom === normalizedBase) return amount;
+
+    const rate = await getFxRate(normalizedFrom, normalizedBase, fxCache);
+    return amount * (rate || 1);
+}
+
+/*
+Example walkthrough for clarity:
+10 AAPL shares priced at 278.78 USD each → 2,787.80 USD.
+If the portfolio base currency is EUR and fx(USD→EUR) = 0.92, the same holding is valued at
+2,787.80 * 0.92 ≈ 2,564.78 EUR. USD and EUR bases therefore show different numeric totals.
+*/
+
+if (process.env.NODE_ENV === 'test-metrics') {
+    // Identity conversion sanity check (no network call because currencies match)
+    void (async () => {
+        const identity = await convertToBaseCurrency(123.45, 'USD', 'USD');
+        console.assert(identity === 123.45, 'convertToBaseCurrency identity sanity');
+    })();
+}
 
 const BENCHMARK_SYMBOL = '^GSPC';
 
@@ -95,36 +133,21 @@ const emptyRatios: PortfolioRatios = {
     totalReturnPct: null,
 };
 
-const getFxRatesForCurrencies = async (currencies: string[], baseCurrency: string) => {
-    const normalizedBase = baseCurrency.toUpperCase();
-    const rates: Record<string, number> = { [normalizedBase]: 1 };
-
-    await Promise.all(
-        currencies.map(async (currency) => {
-            const normalized = currency.toUpperCase();
-            if (normalized === normalizedBase) {
-                rates[normalized] = 1;
-                return;
-            }
-
-            if (rates[normalized] !== undefined) return;
-
-            const rate = await getFxRate(normalized, normalizedBase);
-            rates[normalized] = rate;
-        })
-    );
-
-    return rates;
-};
-
 export async function getPortfolioRatios(userId: string, portfolioId: string): Promise<PortfolioRatios> {
     try {
+        await connectToDatabase();
+        const portfolio = await Portfolio.findOne({ _id: portfolioId, userId }).lean();
+        if (!portfolio) return emptyRatios;
+
+        const baseCurrency = (portfolio.baseCurrency || 'USD').toUpperCase();
+        const fxCache = new Map<string, number>();
+
         let range: PortfolioPerformanceRange = '1Y';
-        let points = await getPortfolioPerformanceSeries(userId, portfolioId, range, { allowFallbackFlatSeries: false });
+        let points = await getPortfolioPerformanceSeries(userId, portfolioId, range);
 
         if (!points || points.length < 2) {
             range = 'MAX';
-            points = await getPortfolioPerformanceSeries(userId, portfolioId, range, { allowFallbackFlatSeries: false });
+            points = await getPortfolioPerformanceSeries(userId, portfolioId, range);
         }
 
         if (!points || points.length < 2) {
@@ -134,7 +157,15 @@ export async function getPortfolioRatios(userId: string, portfolioId: string): P
         const startDate = startOfDay(new Date(points[0].date));
         const endDate = startOfDay(new Date(points[points.length - 1].date));
 
-        const benchmarkCloses = await fetchDailyCloses(BENCHMARK_SYMBOL, startDate, endDate);
+        const benchmarkClosesRaw = await fetchDailyCloses(BENCHMARK_SYMBOL, startDate, endDate);
+        const benchmarkCloses: Record<string, number> = {};
+        await Promise.all(
+            Object.entries(benchmarkClosesRaw).map(async ([date, close]) => {
+                // Finnhub benchmark closes are USD; convert for base currency comparisons.
+                benchmarkCloses[date] = await convertToBaseCurrency(close, 'USD', baseCurrency, fxCache);
+            })
+        );
+
         const benchmarkPoints: PerformancePoint[] = computeBenchmarkSeries(
             benchmarkCloses,
             points.map((p) => p.date)
@@ -162,9 +193,7 @@ export async function getPortfolioSummary(userId: string, portfolioId: string): 
     const transactions = await Transaction.find({ userId, portfolioId }).sort({ tradeDate: 1 }).lean();
 
     const baseCurrency = (portfolio.baseCurrency || 'USD').toUpperCase();
-    const currencies = new Set<string>(transactions.map((tx) => (tx.currency || baseCurrency).toUpperCase()));
-    currencies.add(baseCurrency);
-    const fxRates = await getFxRatesForCurrencies(Array.from(currencies), baseCurrency);
+    const fxCache = new Map<string, number>();
 
     const aggregated: Record<
         string,
@@ -179,11 +208,13 @@ export async function getPortfolioSummary(userId: string, portfolioId: string): 
     for (const tx of transactions) {
         const symbol = tx.symbol.toUpperCase();
         const txCurrency = (tx.currency || baseCurrency).toUpperCase();
-        const fxRateCandidate = txCurrency === baseCurrency ? 1 : fxRates[txCurrency];
-        const fallbackFxRate = typeof tx.fxRateToBase === 'number' && tx.fxRateToBase > 0 ? tx.fxRateToBase : 1;
-        const fxRate = typeof fxRateCandidate === 'number' && fxRateCandidate > 0 ? fxRateCandidate : fallbackFxRate;
         const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
-        const totalValue = tx.price * Math.abs(tx.quantity) * fxRate;
+        const totalValue = await convertToBaseCurrency(
+            tx.price * Math.abs(tx.quantity),
+            txCurrency,
+            baseCurrency,
+            fxCache
+        );
 
         if (!aggregated[symbol]) {
             aggregated[symbol] = { symbol, quantity: 0, totalCost: 0, currency: txCurrency };
@@ -215,8 +246,7 @@ export async function getPortfolioSummary(userId: string, portfolioId: string): 
             continue;
         }
         const positionCurrency = entry.currency || baseCurrency;
-        const fxRate = positionCurrency === baseCurrency ? 1 : fxRates[positionCurrency] ?? 1;
-        const priceInBase = currentPrice * fxRate;
+        const priceInBase = await convertToBaseCurrency(currentPrice, positionCurrency, baseCurrency, fxCache);
         const avgPrice = entry.quantity > 0 ? entry.totalCost / entry.quantity : 0;
         const currentValue = entry.quantity * priceInBase;
         const pnlAbs = currentValue - entry.totalCost;
@@ -316,7 +346,7 @@ const getRangeStartDate = (range: PortfolioPerformanceRange, today: Date): Date 
 };
 
 const fetchDailyCloses = async (symbol: string, from: Date, to: Date): Promise<Record<string, number>> => {
-    const token = process.env.FINNHUB_API_KEY ?? '';
+    const token = process.env.FINNHUB_API_KEY ?? process.env.NEXT_PUBLIC_FINNHUB_API_KEY ?? '';
     if (!token) {
         console.error('getPortfolioPerformanceSeries: FINNHUB API key missing');
         return {};
@@ -354,8 +384,7 @@ const fetchDailyCloses = async (symbol: string, from: Date, to: Date): Promise<R
 export async function getPortfolioPerformanceSeries(
     userId: string,
     portfolioId: string,
-    range: PortfolioPerformanceRange,
-    options?: { allowFallbackFlatSeries?: boolean }
+    range: PortfolioPerformanceRange
 ): Promise<PortfolioPerformancePoint[]> {
     if (!userId || !portfolioId) {
         throw new Error('Missing user or portfolio id');
@@ -369,14 +398,10 @@ export async function getPortfolioPerformanceSeries(
     }
 
     const transactions = await Transaction.find({ userId, portfolioId }).sort({ tradeDate: 1 }).lean();
-    if (!transactions || transactions.length === 0) {
-        return [];
-    }
+    if (transactions.length === 0) return [];
 
     const baseCurrency = (portfolio.baseCurrency || 'USD').toUpperCase();
-    const currencies = new Set<string>(transactions.map((tx) => (tx.currency || baseCurrency).toUpperCase()));
-    currencies.add(baseCurrency);
-    const fxRates = await getFxRatesForCurrencies(Array.from(currencies), baseCurrency);
+    const fxCache = new Map<string, number>();
 
     const today = startOfDay(new Date());
     const earliestTxDate = startOfDay(new Date(transactions[0].tradeDate));
@@ -384,14 +409,15 @@ export async function getPortfolioPerformanceSeries(
     const rangeStartRaw = getRangeStartDate(range, today);
     const startDate = range === 'MAX' ? earliestTxDate : startDateAfterEarliest(rangeStartRaw, earliestTxDate);
 
-    const dateCursor = new Date(startDate);
     const dateStrings: string[] = [];
+    const dateCursor = new Date(startDate);
     while (dateCursor <= today) {
         dateStrings.push(normalizeDateString(dateCursor));
         dateCursor.setUTCDate(dateCursor.getUTCDate() + 1);
     }
 
     const symbols = Array.from(new Set(transactions.map((tx) => tx.symbol.toUpperCase())));
+    const snapshots = symbols.length > 0 ? await getSnapshotsForSymbols(symbols) : {};
 
     const priceMaps: Record<string, Record<string, number>> = {};
     await Promise.all(
@@ -400,81 +426,113 @@ export async function getPortfolioPerformanceSeries(
         })
     );
 
-    type TxSummary = { date: Date; quantity: number };
-    const txsBySymbol: Record<string, { currency: string; txs: TxSummary[] }> = {};
+    type TxEvent = {
+        date: Date;
+        symbol: string;
+        quantityChange: number;
+        tradeValueBase: number;
+        currency: string;
+    };
+
+    const txEvents: TxEvent[] = [];
     for (const tx of transactions) {
         const symbol = tx.symbol.toUpperCase();
+        const currency = (tx.currency || baseCurrency).toUpperCase();
         const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
-        const txCurrency = (tx.currency || baseCurrency).toUpperCase();
-        if (!txsBySymbol[symbol]) txsBySymbol[symbol] = { currency: txCurrency, txs: [] };
-        txsBySymbol[symbol].txs.push({ date: startOfDay(new Date(tx.tradeDate)), quantity: signedQty });
-        if (!txsBySymbol[symbol].currency) {
-            txsBySymbol[symbol].currency = txCurrency;
+        const tradeNotional = tx.price * Math.abs(tx.quantity);
+        const tradeValueBase = await convertToBaseCurrency(tradeNotional, currency, baseCurrency, fxCache);
+
+        txEvents.push({
+            date: startOfDay(new Date(tx.tradeDate)),
+            symbol,
+            quantityChange: signedQty,
+            tradeValueBase: tx.type === 'SELL' ? -tradeValueBase : tradeValueBase,
+            currency,
+        });
+    }
+
+    txEvents.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    const symbolCurrencies: Record<string, string> = {};
+    txEvents.forEach((tx) => {
+        if (!symbolCurrencies[tx.symbol]) {
+            symbolCurrencies[tx.symbol] = tx.currency;
         }
-    }
+    });
 
-    Object.values(txsBySymbol).forEach((entry) => entry.txs.sort((a, b) => a.date.getTime() - b.date.getTime()));
+    const stateBySymbol: Record<
+        string,
+        { quantity: number; lastPrice: number | null; fxMultiplier: number; snapshotPrice?: number }
+    > = {};
 
-    type SymbolState = { idx: number; quantity: number; txs: TxSummary[]; lastPrice: number | null; fxRate: number };
-    const stateBySymbol: Record<string, SymbolState> = {};
-    for (const symbol of symbols) {
-        const txGroup = txsBySymbol[symbol];
-        const symbolCurrency = txGroup?.currency || baseCurrency;
-        const fxRate = symbolCurrency === baseCurrency ? 1 : fxRates[symbolCurrency] ?? 1;
-        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txGroup?.txs || [], lastPrice: null, fxRate };
-    }
+    await Promise.all(
+        symbols.map(async (symbol) => {
+            const currency = symbolCurrencies[symbol] || baseCurrency;
+            const fxMultiplier = await convertToBaseCurrency(1, currency, baseCurrency, fxCache);
+            const snapshotPrice = snapshots[symbol]?.currentPrice;
+            stateBySymbol[symbol] = {
+                quantity: 0,
+                lastPrice: snapshotPrice ?? null,
+                fxMultiplier,
+                snapshotPrice: snapshotPrice ?? undefined,
+            };
+        })
+    );
 
+    let txIdx = 0;
+    let investedCapital = 0;
     const points: PortfolioPerformancePoint[] = [];
 
     for (const dateStr of dateStrings) {
         const currentDate = startOfDay(new Date(dateStr));
+
+        while (txIdx < txEvents.length && txEvents[txIdx].date.getTime() <= currentDate.getTime()) {
+            const event = txEvents[txIdx];
+            investedCapital += event.tradeValueBase;
+
+            const state = stateBySymbol[event.symbol];
+            if (state) {
+                state.quantity += event.quantityChange;
+            }
+
+            txIdx += 1;
+        }
+
         let totalValue = 0;
 
         for (const symbol of symbols) {
             const state = stateBySymbol[symbol];
-            const txs = state?.txs ?? [];
-
-            // Apply all transactions up to and including the current date
-            while (state.idx < txs.length && txs[state.idx].date.getTime() <= currentDate.getTime()) {
-                state.quantity += txs[state.idx].quantity;
-                state.idx += 1;
-            }
-
-            // If we have no holdings and no known price yet, skip this symbol entirely
-            if (state.quantity === 0 && state.lastPrice == null) {
-                continue;
-            }
+            if (!state) continue;
 
             const priceOnDate = priceMaps[symbol]?.[dateStr];
             if (typeof priceOnDate === 'number') {
                 state.lastPrice = priceOnDate;
+            } else if (state.lastPrice == null && typeof state.snapshotPrice === 'number') {
+                state.lastPrice = state.snapshotPrice;
             }
 
-            if (typeof state.lastPrice !== 'number') {
-                // Still no usable price for this symbol, skip contribution for this date
-                continue;
-            }
+            if (state.quantity <= 0 || typeof state.lastPrice !== 'number') continue;
 
-            totalValue += state.quantity * state.lastPrice * (state.fxRate || 1);
+            totalValue += state.quantity * state.lastPrice * (state.fxMultiplier || 1);
         }
 
-        points.push({ date: dateStr, value: totalValue });
+        const portfolioValue = totalValue;
+        points.push({
+            date: dateStr,
+            portfolioValue,
+            investedCapital,
+            unrealizedPnL: portfolioValue - investedCapital,
+            value: portfolioValue,
+        });
     }
 
-    const allowFallbackFlatSeries = options?.allowFallbackFlatSeries ?? true;
-    // Defensive fallback: if we failed to compute any non-zero points (e.g., missing historical prices),
-    // return a flat series at the current portfolio value so the chart remains usable. This can be
-    // revisited when more robust pricing data is available.
-    const hasNonZero = points.some((p) => p.value > 0);
+    const hasValuedPoints = points.some((p) => p.portfolioValue > 0);
 
-    if (!hasNonZero && allowFallbackFlatSeries) {
-        const summary = await getPortfolioSummary(userId, portfolioId);
-        const currentValue = summary.totals.currentValue;
-
-        return dateStrings.map((dateStr) => ({
-            date: dateStr,
-            value: currentValue,
-        }));
+    if (!hasValuedPoints) {
+        console.warn(
+            `getPortfolioPerformanceSeries: no valued points computed for portfolio ${portfolioId} in range ${range}`
+        );
+        return [];
     }
 
     return points;

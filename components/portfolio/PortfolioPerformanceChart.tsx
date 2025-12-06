@@ -37,7 +37,14 @@ const PortfolioPerformanceChart = ({
     loading = false,
     error = '',
 }: PortfolioPerformanceChartProps) => {
-    const chartData = useMemo(() => data.map((p) => ({ ...p, value: Number(p.value || 0) })), [data]);
+    const chartData = useMemo(
+        () =>
+            data.map((p) => ({
+                ...p,
+                portfolioValue: Number(p.portfolioValue ?? p.value ?? 0),
+            })),
+        [data]
+    );
 
     return (
         <div className="mt-4 flex flex-col gap-4">
@@ -97,7 +104,13 @@ const PortfolioPerformanceChart = ({
                                 formatter={(value: number) => formatCurrency(value, baseCurrency)}
                                 labelFormatter={(label) => label}
                             />
-                            <Line type="monotone" dataKey="value" stroke="#facc15" strokeWidth={2} dot={false} />
+                            <Line
+                                type="monotone"
+                                dataKey="portfolioValue"
+                                stroke="#facc15"
+                                strokeWidth={2}
+                                dot={false}
+                            />
                         </LineChart>
                     </ResponsiveContainer>
                 )}
