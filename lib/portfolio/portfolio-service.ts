@@ -316,7 +316,7 @@ const getRangeStartDate = (range: PortfolioPerformanceRange, today: Date): Date 
 };
 
 const fetchDailyCloses = async (symbol: string, from: Date, to: Date): Promise<Record<string, number>> => {
-    const token = process.env.FINNHUB_API_KEY ?? '';
+    const token = process.env.FINNHUB_API_KEY ?? process.env.NEXT_PUBLIC_FINNHUB_API_KEY ?? '';
     if (!token) {
         console.error('getPortfolioPerformanceSeries: FINNHUB API key missing');
         return {};

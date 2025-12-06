@@ -36,17 +36,20 @@ const stddev = (values: number[]) => Math.sqrt(variance(values));
 
 const computeTotalReturnPct = (points: PerformancePoint[]): number | null => {
     if (points.length < 2) return null;
-    const first = points[0].value;
-    const last = points[points.length - 1].value;
-    if (first === 0) return null;
-    return ((last / first - 1) * 100);
+    const firstNonZero = points.find((p) => Number.isFinite(p.value) && p.value > 0);
+    const last = points[points.length - 1];
+    if (!firstNonZero || !last || firstNonZero.value === 0) return null;
+    return (last.value / firstNonZero.value - 1) * 100;
 };
 
 export const computePortfolioRatios = (
     portfolioPoints: PerformancePoint[],
     benchmarkPoints: PerformancePoint[]
 ): PortfolioRatios => {
-    if (portfolioPoints.length < 2 || benchmarkPoints.length < 2) {
+    const filteredPortfolio = portfolioPoints.filter((p) => Number.isFinite(p.value) && p.value > 0);
+    const filteredBenchmark = benchmarkPoints.filter((p) => Number.isFinite(p.value) && p.value > 0);
+
+    if (filteredPortfolio.length < 2 || filteredBenchmark.length < 2) {
         return {
             beta: null,
             sharpe: null,
@@ -56,7 +59,7 @@ export const computePortfolioRatios = (
     }
 
     const benchmarkByDate: Record<string, number> = {};
-    benchmarkPoints.forEach((point) => {
+    filteredBenchmark.forEach((point) => {
         if (typeof point.value === 'number') {
             benchmarkByDate[point.date] = point.value;
         }
@@ -64,11 +67,11 @@ export const computePortfolioRatios = (
 
     const alignedPortfolioReturns: number[] = [];
     const alignedBenchmarkReturns: number[] = [];
-    const portfolioReturns = toDailyReturns(portfolioPoints);
+    const portfolioReturns = toDailyReturns(filteredPortfolio);
 
-    for (let i = 1; i < portfolioPoints.length; i++) {
-        const prevDate = portfolioPoints[i - 1].date;
-        const currDate = portfolioPoints[i].date;
+    for (let i = 1; i < filteredPortfolio.length; i++) {
+        const prevDate = filteredPortfolio[i - 1].date;
+        const currDate = filteredPortfolio[i].date;
         const portfolioReturn = portfolioReturns[i - 1];
         const benchPrev = benchmarkByDate[prevDate];
         const benchCurr = benchmarkByDate[currDate];
@@ -90,10 +93,8 @@ export const computePortfolioRatios = (
 
     const validPortfolioReturns = portfolioReturns.filter((r): r is number => r != null && Number.isFinite(r));
 
-    const benchmarkReturnPct = computeTotalReturnPct(
-        benchmarkPoints.filter((p) => typeof p.value === 'number')
-    );
-    const totalReturnPct = computeTotalReturnPct(portfolioPoints);
+    const benchmarkReturnPct = computeTotalReturnPct(filteredBenchmark);
+    const totalReturnPct = computeTotalReturnPct(filteredPortfolio);
 
     let sharpe: number | null = null;
     if (validPortfolioReturns.length > 1) {
