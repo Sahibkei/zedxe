@@ -103,6 +103,7 @@ export async function getSymbolSnapshot(symbol: string): Promise<{
     company?: string;
     currentPrice?: number;
     changePercent?: number;
+    currency?: string;
     marketCap?: number;
 }> {
     const token = process.env.FINNHUB_API_KEY ?? NEXT_PUBLIC_FINNHUB_API_KEY;
@@ -111,7 +112,13 @@ export async function getSymbolSnapshot(symbol: string): Promise<{
     }
 
     const cleanSymbol = symbol.toUpperCase();
-    type FinnhubProfileResponse = { name?: string; ticker?: string; exchange?: string; marketCapitalization?: number };
+    type FinnhubProfileResponse = {
+        name?: string;
+        ticker?: string;
+        exchange?: string;
+        marketCapitalization?: number;
+        currency?: string;
+    };
     type FinnhubQuoteResponse = { c?: number; dp?: number };
     const [profile, quote] = await Promise.all([
         fetchJSON<FinnhubProfileResponse>(`${FINNHUB_BASE_URL}/stock/profile2?symbol=${encodeURIComponent(cleanSymbol)}&token=${token}`, 900),
@@ -123,6 +130,7 @@ export async function getSymbolSnapshot(symbol: string): Promise<{
         company: profile?.name || cleanSymbol,
         currentPrice: typeof quote?.c === 'number' ? quote.c : undefined,
         changePercent: typeof quote?.dp === 'number' ? quote.dp : undefined,
+        currency: profile?.currency,
         marketCap: typeof profile?.marketCapitalization === 'number' ? profile.marketCapitalization * 1_000_000 : undefined,
     };
 }

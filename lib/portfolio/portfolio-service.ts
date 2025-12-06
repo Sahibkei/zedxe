@@ -4,6 +4,13 @@ import { Transaction, type TransactionDocument } from '@/database/models/transac
 import { getSnapshotsForSymbols } from '@/lib/actions/finnhub.actions';
 import { fetchJSON } from '@/lib/actions/finnhub.actions';
 import { getFxRate } from '@/lib/finnhub/fx';
+import {
+    computeBenchmarkSeries,
+    computePortfolioRatios,
+    type PerformancePoint,
+    type PortfolioRatios,
+} from '@/lib/portfolio/metrics';
+export type { PortfolioRatios } from '@/lib/portfolio/metrics';
 
 export interface PositionSummary {
     symbol: string;
@@ -21,13 +28,6 @@ export interface PortfolioTotals {
     currentValue: number;
     dayChangeValue: number;
     dayChangePct: number;
-}
-
-export interface PortfolioRatios {
-    beta: number | null;
-    sharpe: number | null;
-    benchmarkReturn: number | null;
-    totalReturnPct: number | null;
 }
 
 export interface PortfolioSummary {
@@ -54,35 +54,6 @@ export type PortfolioLean = {
 };
 
 const BENCHMARK_SYMBOL = '^GSPC';
-
-const toDailyReturns = (points: PortfolioPerformancePoint[]): (number | null)[] => {
-    const returns: (number | null)[] = [];
-    for (let i = 1; i < points.length; i++) {
-        const prev = points[i - 1].value;
-        const curr = points[i].value;
-
-        if (prev === 0) {
-            // Preserve index but mark as unusable
-            returns.push(null);
-        } else {
-            returns.push(curr / prev - 1);
-        }
-    }
-    return returns;
-};
-
-const mean = (values: number[]): number => {
-    if (!values.length) return 0;
-    return values.reduce((acc, v) => acc + v, 0) / values.length;
-};
-
-const variance = (values: number[]): number => {
-    if (!values.length) return 0;
-    const m = mean(values);
-    return mean(values.map((v) => (v - m) ** 2));
-};
-
-const stddev = (values: number[]): number => Math.sqrt(variance(values));
 
 const mapPortfolio = (portfolio: { _id: unknown; name: string; baseCurrency: string; weeklyReportEnabled?: boolean; createdAt?: Date; updatedAt?: Date }): PortfolioLean => ({
     id: String(portfolio._id),
@@ -120,8 +91,24 @@ export async function clearWeeklyReportSelection(userId: string) {
 const emptyRatios: PortfolioRatios = {
     beta: null,
     sharpe: null,
-    benchmarkReturn: null,
+    benchmarkReturnPct: null,
     totalReturnPct: null,
+};
+
+const convertToBaseCurrency = async (
+    amount: number,
+    fromCurrency: string,
+    baseCurrency: string,
+    cache: Map<string, number>
+) => {
+    if (!amount || fromCurrency === baseCurrency) return amount;
+    const key = `${fromCurrency}->${baseCurrency}`;
+    if (cache.has(key)) {
+        return amount * (cache.get(key) ?? 1);
+    }
+    const rate = await getFxRate(fromCurrency, baseCurrency);
+    cache.set(key, rate);
+    return amount * rate;
 };
 
 const getFxRatesForCurrencies = async (currencies: string[], baseCurrency: string) => {
@@ -160,73 +147,16 @@ export async function getPortfolioRatios(userId: string, portfolioId: string): P
             return emptyRatios;
         }
 
-        const portfolioReturns = toDailyReturns(points);
-        if (!portfolioReturns.length) {
-            return emptyRatios;
-        }
-
         const startDate = startOfDay(new Date(points[0].date));
         const endDate = startOfDay(new Date(points[points.length - 1].date));
 
         const benchmarkCloses = await fetchDailyCloses(BENCHMARK_SYMBOL, startDate, endDate);
+        const benchmarkPoints: PerformancePoint[] = computeBenchmarkSeries(
+            benchmarkCloses,
+            points.map((p) => p.date)
+        );
 
-        const rpAligned: number[] = [];
-        const rbAligned: number[] = [];
-
-        for (let i = 1; i < points.length; i++) {
-            const prevDateStr = points[i - 1].date;
-            const currDateStr = points[i].date;
-
-            const benchPrev = benchmarkCloses[prevDateStr];
-            const benchCurr = benchmarkCloses[currDateStr];
-
-            if (typeof benchPrev !== 'number' || typeof benchCurr !== 'number' || benchPrev === 0) continue;
-
-            const benchReturn = benchCurr / benchPrev - 1;
-            const portfolioReturn = portfolioReturns[i - 1];
-
-            if (portfolioReturn == null || !Number.isFinite(portfolioReturn)) continue;
-
-            rpAligned.push(portfolioReturn);
-            rbAligned.push(benchReturn);
-        }
-
-        const alignedCount = rpAligned.length;
-        const benchmarkVariance = variance(rbAligned);
-
-        let beta: number | null = null;
-        let sharpe: number | null = null;
-
-        if (alignedCount >= 30 && benchmarkVariance > 0) {
-            const meanP = mean(rpAligned);
-            const meanB = mean(rbAligned);
-            const covPB = mean(rpAligned.map((r, idx) => r * rbAligned[idx])) - meanP * meanB;
-            beta = covPB / benchmarkVariance;
-
-            const sdR = stddev(rpAligned);
-            if (sdR > 0) {
-                const sharpeDaily = meanP / sdR;
-                // TODO: Allow configuring a risk-free rate when available.
-                sharpe = sharpeDaily * Math.sqrt(252);
-            }
-        }
-
-        const benchmarkReturn = rbAligned.length
-            ? rbAligned.reduce((acc, r) => acc * (1 + r), 1) - 1
-            : null;
-
-        const firstValue = points[0].value;
-        const lastValue = points[points.length - 1].value;
-        const totalReturnPct = firstValue > 0 ? lastValue / firstValue - 1 : null;
-
-        const ratios: PortfolioRatios = {
-            beta: Number.isFinite(beta ?? NaN) ? beta : null,
-            sharpe: Number.isFinite(sharpe ?? NaN) ? sharpe : null,
-            benchmarkReturn: Number.isFinite(benchmarkReturn ?? NaN) ? benchmarkReturn : null,
-            totalReturnPct: Number.isFinite(totalReturnPct ?? NaN) ? totalReturnPct : null,
-        };
-
-        return ratios;
+        return computePortfolioRatios(points, benchmarkPoints);
     } catch (error) {
         console.error('getPortfolioRatios error:', error);
         return emptyRatios;
@@ -248,6 +178,7 @@ export async function getPortfolioSummary(userId: string, portfolioId: string): 
     const transactions = await Transaction.find({ userId, portfolioId }).sort({ tradeDate: 1 }).lean();
 
     const baseCurrency = (portfolio.baseCurrency || 'USD').toUpperCase();
+    const fxCache = new Map<string, number>();
     const currencies = new Set<string>(transactions.map((tx) => (tx.currency || baseCurrency).toUpperCase()));
     currencies.add(baseCurrency);
     const fxRates = await getFxRatesForCurrencies(Array.from(currencies), baseCurrency);
@@ -300,9 +231,8 @@ export async function getPortfolioSummary(userId: string, portfolioId: string): 
             // TODO: show N/A in UI when price is missing instead of skipping
             continue;
         }
-        const positionCurrency = entry.currency || baseCurrency;
-        const fxRate = positionCurrency === baseCurrency ? 1 : fxRates[positionCurrency] ?? 1;
-        const priceInBase = currentPrice * fxRate;
+        const priceCurrency = snapshot?.currency?.toUpperCase?.() || 'USD';
+        const priceInBase = await convertToBaseCurrency(currentPrice, priceCurrency, baseCurrency, fxCache);
         const avgPrice = entry.quantity > 0 ? entry.totalCost / entry.quantity : 0;
         const currentValue = entry.quantity * priceInBase;
         const pnlAbs = currentValue - entry.totalCost;
@@ -376,19 +306,19 @@ const getRangeStartDate = (range: PortfolioPerformanceRange, today: Date): Date 
             start.setUTCDate(start.getUTCDate() - 1);
             break;
         case '1W':
-            start.setUTCDate(start.getUTCDate() - 6);
+            start.setUTCDate(start.getUTCDate() - 7);
             break;
         case '1M':
-            start.setUTCDate(start.getUTCDate() - 29);
+            start.setUTCMonth(start.getUTCMonth() - 1);
             break;
         case '3M':
-            start.setUTCDate(start.getUTCDate() - 89);
+            start.setUTCMonth(start.getUTCMonth() - 3);
             break;
         case '6M':
-            start.setUTCDate(start.getUTCDate() - 179);
+            start.setUTCMonth(start.getUTCMonth() - 6);
             break;
         case '1Y':
-            start.setUTCDate(start.getUTCDate() - 364);
+            start.setUTCFullYear(start.getUTCFullYear() - 1);
             break;
         case 'YTD':
             start.setUTCMonth(0, 1);
@@ -462,7 +392,6 @@ export async function getPortfolioPerformanceSeries(
     const baseCurrency = (portfolio.baseCurrency || 'USD').toUpperCase();
     const currencies = new Set<string>(transactions.map((tx) => (tx.currency || baseCurrency).toUpperCase()));
     currencies.add(baseCurrency);
-    const fxRates = await getFxRatesForCurrencies(Array.from(currencies), baseCurrency);
 
     const today = startOfDay(new Date());
     const earliestTxDate = startOfDay(new Date(transactions[0].tradeDate));
@@ -478,6 +407,11 @@ export async function getPortfolioPerformanceSeries(
     }
 
     const symbols = Array.from(new Set(transactions.map((tx) => tx.symbol.toUpperCase())));
+    const snapshots = symbols.length > 0 ? await getSnapshotsForSymbols(symbols) : {};
+    const symbolCurrencies = symbols.map((sym) => snapshots[sym]?.currency?.toUpperCase?.() || 'USD');
+    symbolCurrencies.forEach((code) => currencies.add(code));
+
+    const fxRates = await getFxRatesForCurrencies(Array.from(currencies), baseCurrency);
 
     const priceMaps: Record<string, Record<string, number>> = {};
     await Promise.all(
@@ -541,7 +475,10 @@ export async function getPortfolioPerformanceSeries(
                 continue;
             }
 
-            totalValue += state.quantity * state.lastPrice * (state.fxRate || 1);
+            const priceCurrency = snapshots[symbol]?.currency?.toUpperCase?.() || 'USD';
+            const fxRate = priceCurrency === baseCurrency ? 1 : fxRates[priceCurrency] ?? 1;
+
+            totalValue += state.quantity * state.lastPrice * fxRate;
         }
 
         points.push({ date: dateStr, value: totalValue });
