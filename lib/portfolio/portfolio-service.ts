@@ -38,8 +38,11 @@ export interface PortfolioSummary {
 }
 
 export type PortfolioPerformancePoint = {
-    date: string; // ISO date string (YYYY-MM-DD)
-    value: number; // portfolio market value in base currency
+    date: string; // ISO yyyy-mm-dd
+    portfolioValue: number; // total portfolio value in base currency
+    investedCapital: number;
+    unrealizedPnL: number;
+    value: number; // legacy alias == portfolioValue
 };
 
 export type PortfolioPerformanceRange = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | 'YTD' | 'MAX';
@@ -400,14 +403,23 @@ export async function getPortfolioPerformanceSeries(
         })
     );
 
-    type TxSummary = { date: Date; quantity: number };
+    type TxSummary = { date: Date; quantity: number; cost: number };
     const txsBySymbol: Record<string, { currency: string; txs: TxSummary[] }> = {};
     for (const tx of transactions) {
         const symbol = tx.symbol.toUpperCase();
         const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
         const txCurrency = (tx.currency || baseCurrency).toUpperCase();
+        const fxRateCandidate = txCurrency === baseCurrency ? 1 : fxRates[txCurrency];
+        const fallbackFxRate = typeof tx.fxRateToBase === 'number' && tx.fxRateToBase > 0 ? tx.fxRateToBase : 1;
+        const fxRate = typeof fxRateCandidate === 'number' && fxRateCandidate > 0 ? fxRateCandidate : fallbackFxRate;
+        const totalValueBase = tx.price * Math.abs(tx.quantity) * fxRate;
+
         if (!txsBySymbol[symbol]) txsBySymbol[symbol] = { currency: txCurrency, txs: [] };
-        txsBySymbol[symbol].txs.push({ date: startOfDay(new Date(tx.tradeDate)), quantity: signedQty });
+        txsBySymbol[symbol].txs.push({
+            date: startOfDay(new Date(tx.tradeDate)),
+            quantity: signedQty,
+            cost: tx.type === 'SELL' ? -totalValueBase : totalValueBase,
+        });
         if (!txsBySymbol[symbol].currency) {
             txsBySymbol[symbol].currency = txCurrency;
         }
@@ -415,13 +427,27 @@ export async function getPortfolioPerformanceSeries(
 
     Object.values(txsBySymbol).forEach((entry) => entry.txs.sort((a, b) => a.date.getTime() - b.date.getTime()));
 
-    type SymbolState = { idx: number; quantity: number; txs: TxSummary[]; lastPrice?: number; fxRate: number };
+    type SymbolState = {
+        idx: number;
+        quantity: number;
+        totalCost: number;
+        txs: TxSummary[];
+        lastPrice?: number;
+        fxRate: number;
+    };
     const stateBySymbol: Record<string, SymbolState> = {};
     for (const symbol of symbols) {
         const txGroup = txsBySymbol[symbol];
         const symbolCurrency = txGroup?.currency || baseCurrency;
         const fxRate = symbolCurrency === baseCurrency ? 1 : fxRates[symbolCurrency] ?? 1;
-        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txGroup?.txs ?? [], lastPrice: undefined, fxRate };
+        stateBySymbol[symbol] = {
+            idx: 0,
+            quantity: 0,
+            totalCost: 0,
+            txs: txGroup?.txs ?? [],
+            lastPrice: undefined,
+            fxRate,
+        };
     }
 
     const series: PortfolioPerformancePoint[] = [];
@@ -429,6 +455,7 @@ export async function getPortfolioPerformanceSeries(
     for (const dateStr of dateStrings) {
         const currentDate = startOfDay(new Date(dateStr));
         let totalValue = 0;
+        let totalInvested = 0;
 
         for (const symbol of symbols) {
             const state = stateBySymbol[symbol];
@@ -436,6 +463,7 @@ export async function getPortfolioPerformanceSeries(
 
             while (state.idx < txs.length && txs[state.idx].date.getTime() <= currentDate.getTime()) {
                 state.quantity += txs[state.idx].quantity;
+                state.totalCost += txs[state.idx].cost;
                 state.idx += 1;
             }
 
@@ -448,10 +476,22 @@ export async function getPortfolioPerformanceSeries(
                 continue;
             }
 
-            totalValue += state.quantity * state.lastPrice * (state.fxRate || 1);
+            const positionValue = state.quantity * state.lastPrice * (state.fxRate || 1);
+            const invested = Math.max(state.totalCost, 0);
+
+            totalValue += positionValue;
+            totalInvested += invested;
         }
 
-        series.push({ date: dateStr, value: totalValue });
+        const unrealizedPnL = totalValue - totalInvested;
+
+        series.push({
+            date: dateStr,
+            portfolioValue: totalValue,
+            investedCapital: totalInvested,
+            unrealizedPnL,
+            value: totalValue,
+        });
     }
 
     if (process.env.NODE_ENV !== 'production') {

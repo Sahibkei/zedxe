@@ -37,7 +37,10 @@ const PortfolioPerformanceChart = ({
     loading = false,
     error = '',
 }: PortfolioPerformanceChartProps) => {
-    const chartData = useMemo(() => data.map((p) => ({ ...p, value: Number(p.value || 0) })), [data]);
+    const chartData = useMemo(
+        () => data.map((p) => ({ ...p, value: Number(p.portfolioValue ?? p.value ?? 0) })),
+        [data]
+    );
 
     const { minValue, maxValue } = useMemo(() => {
         if (!data || data.length === 0) {
