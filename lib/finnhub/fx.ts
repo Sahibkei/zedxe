@@ -16,7 +16,7 @@ export async function getFxRate(from: string, to: string): Promise<number> {
         return rateCache.get(cacheKey) as number;
     }
 
-    const token = process.env.FINNHUB_API_KEY ?? '';
+    const token = process.env.FINNHUB_API_KEY ?? process.env.NEXT_PUBLIC_FINNHUB_API_KEY ?? '';
     if (!token) {
         console.warn('getFxRate: FINNHUB API key missing');
         return 1;
