@@ -355,7 +355,7 @@ export async function getPortfolioPerformanceSeries(
     userId: string,
     portfolioId: string,
     range: PortfolioPerformanceRange,
-    options?: { allowFallbackFlatSeries?: boolean }
+    _options?: { allowFallbackFlatSeries?: boolean }
 ): Promise<PortfolioPerformancePoint[]> {
     if (!userId || !portfolioId) {
         throw new Error('Missing user or portfolio id');
@@ -415,16 +415,16 @@ export async function getPortfolioPerformanceSeries(
 
     Object.values(txsBySymbol).forEach((entry) => entry.txs.sort((a, b) => a.date.getTime() - b.date.getTime()));
 
-    type SymbolState = { idx: number; quantity: number; txs: TxSummary[]; lastPrice: number | null; fxRate: number };
+    type SymbolState = { idx: number; quantity: number; txs: TxSummary[]; lastPrice?: number; fxRate: number };
     const stateBySymbol: Record<string, SymbolState> = {};
     for (const symbol of symbols) {
         const txGroup = txsBySymbol[symbol];
         const symbolCurrency = txGroup?.currency || baseCurrency;
         const fxRate = symbolCurrency === baseCurrency ? 1 : fxRates[symbolCurrency] ?? 1;
-        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txGroup?.txs || [], lastPrice: null, fxRate };
+        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txGroup?.txs ?? [], lastPrice: undefined, fxRate };
     }
 
-    const points: PortfolioPerformancePoint[] = [];
+    const series: PortfolioPerformancePoint[] = [];
 
     for (const dateStr of dateStrings) {
         const currentDate = startOfDay(new Date(dateStr));
@@ -434,15 +434,9 @@ export async function getPortfolioPerformanceSeries(
             const state = stateBySymbol[symbol];
             const txs = state?.txs ?? [];
 
-            // Apply all transactions up to and including the current date
             while (state.idx < txs.length && txs[state.idx].date.getTime() <= currentDate.getTime()) {
                 state.quantity += txs[state.idx].quantity;
                 state.idx += 1;
-            }
-
-            // If we have no holdings and no known price yet, skip this symbol entirely
-            if (state.quantity === 0 && state.lastPrice == null) {
-                continue;
             }
 
             const priceOnDate = priceMaps[symbol]?.[dateStr];
@@ -450,34 +444,27 @@ export async function getPortfolioPerformanceSeries(
                 state.lastPrice = priceOnDate;
             }
 
-            if (typeof state.lastPrice !== 'number') {
-                // Still no usable price for this symbol, skip contribution for this date
+            if (typeof state.lastPrice !== 'number' || state.quantity === 0) {
                 continue;
             }
 
             totalValue += state.quantity * state.lastPrice * (state.fxRate || 1);
         }
 
-        points.push({ date: dateStr, value: totalValue });
+        series.push({ date: dateStr, value: totalValue });
     }
 
-    const allowFallbackFlatSeries = options?.allowFallbackFlatSeries ?? true;
-    // Defensive fallback: if we failed to compute any non-zero points (e.g., missing historical prices),
-    // return a flat series at the current portfolio value so the chart remains usable. This can be
-    // revisited when more robust pricing data is available.
-    const hasNonZero = points.some((p) => p.value > 0);
-
-    if (!hasNonZero && allowFallbackFlatSeries) {
-        const summary = await getPortfolioSummary(userId, portfolioId);
-        const currentValue = summary.totals.currentValue;
-
-        return dateStrings.map((dateStr) => ({
-            date: dateStr,
-            value: currentValue,
-        }));
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(
+            '[getPortfolioPerformanceSeries] sample',
+            series.slice(0, 10).map((p) => ({
+                date: p.date,
+                value: p.portfolioValue ?? p.value,
+            }))
+        );
     }
 
-    return points;
+    return series;
 }
 
 const startDateAfterEarliest = (candidate: Date, earliest: Date) => {
