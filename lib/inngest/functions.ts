@@ -304,110 +304,131 @@ export const sendWeeklyPortfolioReport = inngest.createFunction(
             return Portfolio.find({ weeklyReportEnabled: true }).lean();
         });
 
-        if (!portfolios || portfolios.length === 0) {
-            return { success: true, processed: 0 };
+        type WeeklyPortfolio = { _id: unknown; userId: string };
+
+        const weeklyPortfolios: WeeklyPortfolio[] = Array.isArray(portfolios)
+            ? (portfolios as WeeklyPortfolio[])
+            : [];
+
+        if (!Array.isArray(portfolios)) {
+            console.warn("weekly-portfolio-report: unexpected portfolios payload", { type: typeof portfolios });
         }
 
-        const weeklyPortfolios = portfolios as { _id: unknown; userId: string }[];
+        if (weeklyPortfolios.length === 0) {
+            return { success: true, processed: 0, sent: 0, skipped: 0 };
+        }
 
-        const results = await step.forEach(
-            'process-weekly-portfolios',
-            weeklyPortfolios,
-            async (portfolio, { step }) => {
-                const portfolioId = String((portfolio as { _id: unknown })._id);
-                const userId = (portfolio as { userId: string }).userId;
+        const results: { portfolioId: string; status: 'sent' | 'skipped'; reason?: string }[] = [];
 
-                const user = await step.run('load-user', async () => getUserById(userId));
-                if (!user?.email) return { portfolioId, status: 'skipped', reason: 'missing-user' } as const;
+        for (let index = 0; index < weeklyPortfolios.length; index++) {
+            const portfolio = weeklyPortfolios[index];
+            const portfolioId = String((portfolio as { _id: unknown })._id);
+            const userId = (portfolio as { userId: string }).userId;
 
-                const summary = await step.run('load-portfolio-summary', async () => {
-                    try {
-                        return await getPortfolioSummary(user.id, portfolioId);
-                    } catch (error) {
-                        console.error('weekly report summary error', portfolioId, error);
-                        return null;
-                    }
-                });
-                if (!summary) return { portfolioId, status: 'skipped', reason: 'summary-error' } as const;
+            const user = await step.run(`load-user-${index}`, async () => getUserById(userId));
+            if (!user?.email) {
+                results.push({ portfolioId, status: 'skipped', reason: 'missing-user' });
+                continue;
+            }
 
-                const performance = await step.run('load-portfolio-performance', async () => {
-                    try {
-                        return await getPortfolioPerformanceSeries(user.id, portfolioId, '3M', { allowFallbackFlatSeries: true });
-                    } catch (error) {
-                        console.error('weekly report performance error', portfolioId, error);
-                        return [] as Awaited<ReturnType<typeof getPortfolioPerformanceSeries>>;
-                    }
-                });
-
-                const topPositions = [...(summary.positions || [])]
-                    .sort((a, b) => b.currentValue - a.currentValue)
-                    .slice(0, 5)
-                    .map((p) => ({
-                        symbol: p.symbol,
-                        weightPct: p.weightPct,
-                        pnlPct: p.pnlPct,
-                        currentValue: p.currentValue,
-                    }));
-
-                const perfChange =
-                    performance.length >= 2 && performance[0].value !== 0
-                        ? performance[performance.length - 1].value / performance[0].value - 1
-                        : null;
-
-                let biggestDailyMove: number | null = null;
-                for (let i = 1; i < performance.length; i++) {
-                    const prev = performance[i - 1].value;
-                    const curr = performance[i].value;
-                    if (prev === 0) continue;
-                    const move = curr / prev - 1;
-                    if (biggestDailyMove === null || Math.abs(move) > Math.abs(biggestDailyMove)) {
-                        biggestDailyMove = move;
-                    }
+            const summary = await step.run(`load-portfolio-summary-${index}`, async () => {
+                try {
+                    return await getPortfolioSummary(user.id, portfolioId);
+                } catch (error) {
+                    console.error('weekly report summary error', portfolioId, error);
+                    return null;
                 }
+            });
 
-                const reportData = {
-                    baseCurrency: summary.portfolio.baseCurrency,
-                    totals: summary.totals,
-                    ratios: summary.ratios,
-                    performance: {
-                        startDate: performance[0]?.date,
-                        endDate: performance.at(-1)?.date,
-                        changePct: perfChange,
-                        biggestDailyMove,
-                    },
-                    topPositions,
-                };
+            if (!summary) {
+                results.push({ portfolioId, status: 'skipped', reason: 'summary-error' });
+                continue;
+            }
 
-                const prompt = WEEKLY_PORTFOLIO_REPORT_PROMPT
-                    .replace('{{portfolioName}}', summary.portfolio.name)
-                    .replace('{{portfolioData}}', JSON.stringify(reportData, null, 2));
+            const performance = await step.run(`load-portfolio-performance-${index}`, async () => {
+                try {
+                    return await getPortfolioPerformanceSeries(user.id, portfolioId, '3M', { allowFallbackFlatSeries: true });
+                } catch (error) {
+                    console.error('weekly report performance error', portfolioId, error);
+                    return [] as Awaited<ReturnType<typeof getPortfolioPerformanceSeries>>;
+                }
+            });
 
-                const response = await step.ai.infer(`weekly-report-${portfolioId}`, {
-                    model: step.ai.models.gemini({ model: 'gemini-2.5-flash-lite' }),
-                    body: { contents: [{ role: 'user', parts: [{ text: prompt }] }] },
-                });
+            const topPositions = [...(summary.positions || [])]
+                .sort((a, b) => b.currentValue - a.currentValue)
+                .slice(0, 5)
+                .map((p) => ({
+                    symbol: p.symbol,
+                    weightPct: p.weightPct,
+                    pnlPct: p.pnlPct,
+                    currentValue: p.currentValue,
+                }));
 
-                const part = response.candidates?.[0]?.content?.parts?.[0];
-                const reportContent =
-                    (part && 'text' in part ? (part as { text?: string }).text : null) ||
-                    '<p class="mobile-text dark-text-secondary" style="margin:0; font-size:15px; line-height:1.6; color:#CCDADC;">We could not generate a detailed summary this week, but your portfolio is being tracked.</p>';
+            const perfChange =
+                performance.length >= 2 && performance[0].value !== 0
+                    ? performance[performance.length - 1].value / performance[0].value - 1
+                    : null;
 
-                await step.run('send-weekly-report-email', async () => {
+            let biggestDailyMove: number | null = null;
+            for (let i = 1; i < performance.length; i++) {
+                const prev = performance[i - 1].value;
+                const curr = performance[i].value;
+                if (prev === 0) continue;
+                const move = curr / prev - 1;
+                if (biggestDailyMove === null || Math.abs(move) > Math.abs(biggestDailyMove)) {
+                    biggestDailyMove = move;
+                }
+            }
+
+            const reportData = {
+                baseCurrency: summary.portfolio.baseCurrency,
+                totals: summary.totals,
+                ratios: summary.ratios,
+                performance: {
+                    startDate: performance[0]?.date,
+                    endDate: performance.at(-1)?.date,
+                    changePct: perfChange,
+                    biggestDailyMove,
+                },
+                topPositions,
+            };
+
+            const prompt = WEEKLY_PORTFOLIO_REPORT_PROMPT
+                .replace('{{portfolioName}}', summary.portfolio.name)
+                .replace('{{portfolioData}}', JSON.stringify(reportData, null, 2));
+
+            const response = await step.ai.infer(`weekly-report-${portfolioId}`, {
+                model: step.ai.models.gemini({ model: 'gemini-2.5-flash-lite' }),
+                body: { contents: [{ role: 'user', parts: [{ text: prompt }] }] },
+            });
+
+            const part = response.candidates?.[0]?.content?.parts?.[0];
+            const reportContent =
+                (part && 'text' in part ? (part as { text?: string }).text : null) ||
+                '<p class="mobile-text dark-text-secondary" style="margin:0; font-size:15px; line-height:1.6; color:#CCDADC;">We could not generate a detailed summary this week, but your portfolio is being tracked.</p>';
+
+            const status = await step.run(`send-weekly-report-email-${index}`, async () => {
+                try {
                     await sendWeeklyReportEmail({
                         email: user.email,
                         name: user.name,
                         portfolioName: summary.portfolio.name,
                         reportHtml: reportContent,
                     });
-                });
+                    return { portfolioId, status: 'sent' as const };
+                } catch (error) {
+                    console.error('weekly report email error', portfolioId, error);
+                    return { portfolioId, status: 'skipped' as const, reason: 'email-error' };
+                }
+            });
 
-                return { portfolioId, status: 'sent' } as const;
-            },
-        );
+            results.push(status);
+        }
 
+        const processed = results.length;
         const sent = results.filter((r) => r.status === 'sent').length;
-        const skipped = results.length - sent;
+        const skipped = results.filter((r) => r.status === 'skipped').length;
 
-        return { success: true, processed: results.length, sent, skipped };
+        return { success: true, processed, sent, skipped } as const;
     }
 );
