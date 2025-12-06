@@ -3,7 +3,7 @@ import { Portfolio, type PortfolioDocument } from '@/database/models/portfolio.m
 import { Transaction, type TransactionDocument } from '@/database/models/transaction.model';
 import { getSnapshotsForSymbols } from '@/lib/actions/finnhub.actions';
 import { fetchJSON } from '@/lib/actions/finnhub.actions';
-import { getFxRate } from '@/lib/finnhub/fx';
+import { getFxRateLatest } from '@/lib/finnhub/fx';
 import {
     computeBenchmarkSeries,
     computePortfolioRatios,
@@ -38,8 +38,11 @@ export interface PortfolioSummary {
 }
 
 export type PortfolioPerformancePoint = {
-    date: string; // ISO date string (YYYY-MM-DD)
-    value: number; // portfolio market value in base currency
+    date: string; // ISO yyyy-mm-dd
+    portfolioValue: number; // total portfolio value in base currency
+    investedCapital: number;
+    unrealizedPnL: number;
+    value: number; // legacy alias == portfolioValue
 };
 
 export type PortfolioPerformanceRange = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | 'YTD' | 'MAX';
@@ -109,7 +112,7 @@ const getFxRatesForCurrencies = async (currencies: string[], baseCurrency: strin
 
             if (rates[normalized] !== undefined) return;
 
-            const rate = await getFxRate(normalized, normalizedBase);
+            const rate = await getFxRateLatest(normalized, normalizedBase);
             rates[normalized] = rate;
         })
     );
@@ -316,7 +319,7 @@ const getRangeStartDate = (range: PortfolioPerformanceRange, today: Date): Date 
 };
 
 const fetchDailyCloses = async (symbol: string, from: Date, to: Date): Promise<Record<string, number>> => {
-    const token = process.env.FINNHUB_API_KEY ?? '';
+    const token = process.env.FINNHUB_API_KEY ?? process.env.NEXT_PUBLIC_FINNHUB_API_KEY ?? '';
     if (!token) {
         console.error('getPortfolioPerformanceSeries: FINNHUB API key missing');
         return {};
@@ -355,7 +358,7 @@ export async function getPortfolioPerformanceSeries(
     userId: string,
     portfolioId: string,
     range: PortfolioPerformanceRange,
-    options?: { allowFallbackFlatSeries?: boolean }
+    _options?: { allowFallbackFlatSeries?: boolean }
 ): Promise<PortfolioPerformancePoint[]> {
     if (!userId || !portfolioId) {
         throw new Error('Missing user or portfolio id');
@@ -400,14 +403,23 @@ export async function getPortfolioPerformanceSeries(
         })
     );
 
-    type TxSummary = { date: Date; quantity: number };
+    type TxSummary = { date: Date; quantity: number; cost: number };
     const txsBySymbol: Record<string, { currency: string; txs: TxSummary[] }> = {};
     for (const tx of transactions) {
         const symbol = tx.symbol.toUpperCase();
         const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
         const txCurrency = (tx.currency || baseCurrency).toUpperCase();
+        const fxRateCandidate = txCurrency === baseCurrency ? 1 : fxRates[txCurrency];
+        const fallbackFxRate = typeof tx.fxRateToBase === 'number' && tx.fxRateToBase > 0 ? tx.fxRateToBase : 1;
+        const fxRate = typeof fxRateCandidate === 'number' && fxRateCandidate > 0 ? fxRateCandidate : fallbackFxRate;
+        const totalValueBase = tx.price * Math.abs(tx.quantity) * fxRate;
+
         if (!txsBySymbol[symbol]) txsBySymbol[symbol] = { currency: txCurrency, txs: [] };
-        txsBySymbol[symbol].txs.push({ date: startOfDay(new Date(tx.tradeDate)), quantity: signedQty });
+        txsBySymbol[symbol].txs.push({
+            date: startOfDay(new Date(tx.tradeDate)),
+            quantity: signedQty,
+            cost: tx.type === 'SELL' ? -totalValueBase : totalValueBase,
+        });
         if (!txsBySymbol[symbol].currency) {
             txsBySymbol[symbol].currency = txCurrency;
         }
@@ -415,34 +427,44 @@ export async function getPortfolioPerformanceSeries(
 
     Object.values(txsBySymbol).forEach((entry) => entry.txs.sort((a, b) => a.date.getTime() - b.date.getTime()));
 
-    type SymbolState = { idx: number; quantity: number; txs: TxSummary[]; lastPrice: number | null; fxRate: number };
+    type SymbolState = {
+        idx: number;
+        quantity: number;
+        totalCost: number;
+        txs: TxSummary[];
+        lastPrice?: number;
+        fxRate: number;
+    };
     const stateBySymbol: Record<string, SymbolState> = {};
     for (const symbol of symbols) {
         const txGroup = txsBySymbol[symbol];
         const symbolCurrency = txGroup?.currency || baseCurrency;
         const fxRate = symbolCurrency === baseCurrency ? 1 : fxRates[symbolCurrency] ?? 1;
-        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txGroup?.txs || [], lastPrice: null, fxRate };
+        stateBySymbol[symbol] = {
+            idx: 0,
+            quantity: 0,
+            totalCost: 0,
+            txs: txGroup?.txs ?? [],
+            lastPrice: undefined,
+            fxRate,
+        };
     }
 
-    const points: PortfolioPerformancePoint[] = [];
+    const series: PortfolioPerformancePoint[] = [];
 
     for (const dateStr of dateStrings) {
         const currentDate = startOfDay(new Date(dateStr));
         let totalValue = 0;
+        let totalInvested = 0;
 
         for (const symbol of symbols) {
             const state = stateBySymbol[symbol];
             const txs = state?.txs ?? [];
 
-            // Apply all transactions up to and including the current date
             while (state.idx < txs.length && txs[state.idx].date.getTime() <= currentDate.getTime()) {
                 state.quantity += txs[state.idx].quantity;
+                state.totalCost += txs[state.idx].cost;
                 state.idx += 1;
-            }
-
-            // If we have no holdings and no known price yet, skip this symbol entirely
-            if (state.quantity === 0 && state.lastPrice == null) {
-                continue;
             }
 
             const priceOnDate = priceMaps[symbol]?.[dateStr];
@@ -450,34 +472,39 @@ export async function getPortfolioPerformanceSeries(
                 state.lastPrice = priceOnDate;
             }
 
-            if (typeof state.lastPrice !== 'number') {
-                // Still no usable price for this symbol, skip contribution for this date
+            if (typeof state.lastPrice !== 'number' || state.quantity === 0) {
                 continue;
             }
 
-            totalValue += state.quantity * state.lastPrice * (state.fxRate || 1);
+            const positionValue = state.quantity * state.lastPrice * (state.fxRate || 1);
+            const invested = Math.max(state.totalCost, 0);
+
+            totalValue += positionValue;
+            totalInvested += invested;
         }
 
-        points.push({ date: dateStr, value: totalValue });
-    }
+        const unrealizedPnL = totalValue - totalInvested;
 
-    const allowFallbackFlatSeries = options?.allowFallbackFlatSeries ?? true;
-    // Defensive fallback: if we failed to compute any non-zero points (e.g., missing historical prices),
-    // return a flat series at the current portfolio value so the chart remains usable. This can be
-    // revisited when more robust pricing data is available.
-    const hasNonZero = points.some((p) => p.value > 0);
-
-    if (!hasNonZero && allowFallbackFlatSeries) {
-        const summary = await getPortfolioSummary(userId, portfolioId);
-        const currentValue = summary.totals.currentValue;
-
-        return dateStrings.map((dateStr) => ({
+        series.push({
             date: dateStr,
-            value: currentValue,
-        }));
+            portfolioValue: totalValue,
+            investedCapital: totalInvested,
+            unrealizedPnL,
+            value: totalValue,
+        });
     }
 
-    return points;
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(
+            '[getPortfolioPerformanceSeries] sample',
+            series.slice(0, 10).map((p) => ({
+                date: p.date,
+                value: p.portfolioValue ?? p.value,
+            }))
+        );
+    }
+
+    return series;
 }
 
 const startDateAfterEarliest = (candidate: Date, earliest: Date) => {

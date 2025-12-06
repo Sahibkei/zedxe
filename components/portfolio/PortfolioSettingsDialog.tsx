@@ -17,6 +17,7 @@ import {
     clearWeeklyReportSelectionAction,
     deletePortfolio,
     setWeeklyReportPortfolioAction,
+    updatePortfolioBaseCurrency,
     updatePortfolioMeta,
 } from '@/lib/portfolio/actions';
 import { CURRENCIES } from '@/lib/constants';
@@ -82,10 +83,24 @@ const PortfolioSettingsDialog = ({
         if (!portfolio) return;
         startTransition(async () => {
             setError('');
-            const updatesNeeded = name.trim() !== portfolio.name || baseCurrency !== portfolio.baseCurrency;
+            const nameChanged = name.trim() !== portfolio.name;
+            const baseChanged = baseCurrency !== portfolio.baseCurrency;
+            const updatesNeeded = nameChanged || baseChanged;
             let updatedMeta = { ...portfolio, name: portfolio.name, baseCurrency: portfolio.baseCurrency };
             if (updatesNeeded) {
-                const res = await updatePortfolioMeta({ id: portfolio.id, name: name.trim(), baseCurrency });
+                let res:
+                    | Awaited<ReturnType<typeof updatePortfolioMeta>>
+                    | Awaited<ReturnType<typeof updatePortfolioBaseCurrency>>
+                    | null = null;
+
+                if (nameChanged && baseChanged) {
+                    res = await updatePortfolioMeta({ id: portfolio.id, name: name.trim(), baseCurrency });
+                } else if (baseChanged) {
+                    res = await updatePortfolioBaseCurrency(portfolio.id, baseCurrency);
+                } else if (nameChanged) {
+                    res = await updatePortfolioMeta({ id: portfolio.id, name: name.trim() });
+                }
+
                 if (res?.success && res.portfolio) {
                     updatedMeta = { ...res.portfolio };
                     setError('');
