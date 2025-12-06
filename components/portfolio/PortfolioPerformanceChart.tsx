@@ -39,6 +39,42 @@ const PortfolioPerformanceChart = ({
 }: PortfolioPerformanceChartProps) => {
     const chartData = useMemo(() => data.map((p) => ({ ...p, value: Number(p.value || 0) })), [data]);
 
+    const { minValue, maxValue } = useMemo(() => {
+        if (!data || data.length === 0) {
+            return { minValue: 0, maxValue: 0 };
+        }
+
+        const values = data
+            .map((p) => Number(p.portfolioValue ?? p.value ?? 0))
+            .filter((v) => Number.isFinite(v));
+
+        if (values.length === 0) {
+            return { minValue: 0, maxValue: 0 };
+        }
+
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+
+        if (process.env.NODE_ENV !== 'production') {
+            // Log only first few points for debugging
+            // eslint-disable-next-line no-console
+            console.log('[PortfolioPerformanceChart] sample data', data.slice(0, 10));
+            // eslint-disable-next-line no-console
+            console.log('[PortfolioPerformanceChart] min/max', { min, max });
+        }
+
+        return { minValue: min, maxValue: max };
+    }, [data]);
+
+    const yDomain = useMemo(() => {
+        if (minValue === maxValue) {
+            const padding = minValue === 0 ? 1 : Math.abs(minValue) * 0.01 || 1;
+            return [minValue - padding, maxValue + padding];
+        }
+
+        return [minValue, maxValue];
+    }, [maxValue, minValue]);
+
     return (
         <div className="mt-4 flex flex-col gap-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -91,6 +127,7 @@ const PortfolioPerformanceChart = ({
                                 tickLine={false}
                                 axisLine={{ stroke: '#1f2937' }}
                                 tickFormatter={(value: number) => formatCurrency(value, baseCurrency)}
+                                domain={yDomain}
                             />
                             <Tooltip
                                 contentStyle={{ backgroundColor: '#0b1224', borderColor: '#1f2937', color: '#e5e7eb' }}
