@@ -32,6 +32,12 @@ export async function getFxRate(from: string, to: string): Promise<number> {
             return rate;
         }
         console.warn(`getFxRate: missing quote for ${quote} using base ${base}`);
+        const inverseRate = data?.quote?.[base];
+        if (typeof inverseRate === 'number' && inverseRate > 0 && data?.base && data.base !== base && data.base === quote) {
+            const inverted = 1 / inverseRate;
+            rateCache.set(cacheKey, inverted);
+            return inverted;
+        }
     } catch (error) {
         console.warn('getFxRate: error fetching rate', { from: base, to: quote, error });
     }

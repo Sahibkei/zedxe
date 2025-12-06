@@ -394,6 +394,7 @@ export async function getPortfolioPerformanceSeries(
     currencies.add(baseCurrency);
 
     const today = startOfDay(new Date());
+    const todayStr = normalizeDateString(today);
     const earliestTxDate = startOfDay(new Date(transactions[0].tradeDate));
 
     const rangeStartRaw = getRangeStartDate(range, today);
@@ -416,7 +417,12 @@ export async function getPortfolioPerformanceSeries(
     const priceMaps: Record<string, Record<string, number>> = {};
     await Promise.all(
         symbols.map(async (symbol) => {
-            priceMaps[symbol] = await fetchDailyCloses(symbol, startDate, today);
+            const closes = await fetchDailyCloses(symbol, startDate, today);
+            const snapshotPrice = snapshots[symbol]?.currentPrice;
+            if (typeof snapshotPrice === 'number' && !closes[todayStr]) {
+                closes[todayStr] = snapshotPrice;
+            }
+            priceMaps[symbol] = closes;
         })
     );
 
@@ -435,13 +441,20 @@ export async function getPortfolioPerformanceSeries(
 
     Object.values(txsBySymbol).forEach((entry) => entry.txs.sort((a, b) => a.date.getTime() - b.date.getTime()));
 
-    type SymbolState = { idx: number; quantity: number; txs: TxSummary[]; lastPrice: number | null; fxRate: number };
+    type SymbolState = {
+        idx: number;
+        quantity: number;
+        txs: TxSummary[];
+        lastPrice: number | null;
+        fxRate: number;
+    };
     const stateBySymbol: Record<string, SymbolState> = {};
     for (const symbol of symbols) {
         const txGroup = txsBySymbol[symbol];
         const symbolCurrency = txGroup?.currency || baseCurrency;
         const fxRate = symbolCurrency === baseCurrency ? 1 : fxRates[symbolCurrency] ?? 1;
-        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txGroup?.txs || [], lastPrice: null, fxRate };
+        const initialPrice = priceMaps[symbol]?.[dateStrings[0]] ?? snapshots[symbol]?.currentPrice ?? null;
+        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txGroup?.txs || [], lastPrice: initialPrice, fxRate };
     }
 
     const points: PortfolioPerformancePoint[] = [];
