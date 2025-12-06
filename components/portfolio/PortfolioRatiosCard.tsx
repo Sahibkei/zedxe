@@ -17,9 +17,8 @@ const PortfolioRatiosCard = ({ ratios }: { ratios: PortfolioRatios }) => {
 
     const formatPercent = (value: number | null, decimals = 2) => {
         if (value == null) return 'N/A';
-        const formatted = (value * 100).toFixed(decimals);
         const sign = value > 0 ? '+' : '';
-        return `${sign}${formatted}%`;
+        return `${sign}${value.toFixed(decimals)}%`;
     };
 
     return (
@@ -28,7 +27,7 @@ const PortfolioRatiosCard = ({ ratios }: { ratios: PortfolioRatios }) => {
             <div className="mt-4 divide-y divide-gray-800">
                 <RatioRow label="Beta" value={formatNumber(ratios.beta)} />
                 <RatioRow label="Sharpe Ratio" value={formatNumber(ratios.sharpe)} />
-                <RatioRow label="Benchmark Return" value={formatPercent(ratios.benchmarkReturn)} />
+                <RatioRow label="Benchmark Return" value={formatPercent(ratios.benchmarkReturnPct)} />
                 <RatioRow label="Total Return %" value={formatPercent(ratios.totalReturnPct)} />
             </div>
         </div>

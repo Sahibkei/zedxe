@@ -57,6 +57,8 @@ const PortfolioPageClient = ({
     const [error, setError] = useState('');
     const [performanceRange, setPerformanceRange] = useState<PortfolioPerformanceRange>(initialPerformanceRange);
     const [performancePoints, setPerformancePoints] = useState<PortfolioPerformancePoint[]>(initialPerformancePoints);
+    const [performanceLoading, setPerformanceLoading] = useState(false);
+    const [performanceError, setPerformanceError] = useState('');
 
     useEffect(() => {
         if (!summary && selectedPortfolioId) {
@@ -89,6 +91,8 @@ const PortfolioPageClient = ({
                 const data = await getPortfolioSummaryAction(portfolioId);
                 setSummary(data);
                 setError('');
+                setPerformanceLoading(true);
+                setPerformanceError('');
                 const res = await getPortfolioPerformanceAction(portfolioId, DEFAULT_PERFORMANCE_RANGE);
                 if (res.success) {
                     setPerformancePoints(res.points);
@@ -96,12 +100,16 @@ const PortfolioPageClient = ({
                 } else {
                     setPerformancePoints([]);
                     setPerformanceRange(DEFAULT_PERFORMANCE_RANGE);
+                    setPerformanceError(res.error || 'Unable to load performance.');
                 }
             } catch (e) {
                 console.error('Failed to load portfolio summary', e);
                 setError('Unable to load portfolio summary.');
                 setPerformancePoints([]);
                 setPerformanceRange(DEFAULT_PERFORMANCE_RANGE);
+                setPerformanceError('Unable to load performance.');
+            } finally {
+                setPerformanceLoading(false);
             }
         });
     };
@@ -190,12 +198,34 @@ const PortfolioPageClient = ({
             setPerformancePoints([]);
             setPerformanceRange(DEFAULT_PERFORMANCE_RANGE);
         }
+        setPerformanceError('');
+        setPerformanceLoading(false);
     };
 
     const handleOpenTransactionForSymbol = (symbol: string) => {
         if (!selectedPortfolioId) return;
         setTransactionDefaultSymbol(symbol);
         setTransactionDialogOpen(true);
+    };
+
+    const handlePerformanceRangeChange = async (range: PortfolioPerformanceRange) => {
+        if (!selectedPortfolioId || range === performanceRange) return;
+        setPerformanceLoading(true);
+        setPerformanceError('');
+        try {
+            const res = await getPortfolioPerformanceAction(selectedPortfolioId, range);
+            if (res.success) {
+                setPerformancePoints(res.points);
+                setPerformanceRange(range);
+            } else {
+                setPerformanceError(res.error || 'Unable to load performance.');
+            }
+        } catch (e) {
+            console.error('Failed to load performance series', e);
+            setPerformanceError('Unable to load this range right now.');
+        } finally {
+            setPerformanceLoading(false);
+        }
     };
 
     const hasPortfolios = portfolios.length > 0;
@@ -271,10 +301,12 @@ const PortfolioPageClient = ({
                         </div>
                         {loadingSummary && <p className="mt-2 text-sm text-gray-400">Refreshing portfolio...</p>}
                         <PortfolioPerformanceChart
-                            portfolioId={selectedPortfolioId}
+                            data={performancePoints}
                             baseCurrency={baseCurrency}
-                            initialRange={performanceRange}
-                            initialPoints={performancePoints}
+                            selectedRange={performanceRange}
+                            onRangeChange={handlePerformanceRangeChange}
+                            loading={performanceLoading || loadingSummary}
+                            error={performanceError}
                         />
                     </div>
 
@@ -303,7 +335,7 @@ const PortfolioPageClient = ({
                 <div className="space-y-4">
                     <PortfolioAllocationPie positions={positions} />
                     <PortfolioRatiosCard
-                        ratios={summary?.ratios || { beta: null, sharpe: null, benchmarkReturn: null, totalReturnPct: null }}
+                        ratios={summary?.ratios || { beta: null, sharpe: null, benchmarkReturnPct: null, totalReturnPct: null }}
                     />
                 </div>
             </div>
