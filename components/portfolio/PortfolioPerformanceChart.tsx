@@ -1,19 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { useMemo } from 'react';
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { Button } from '@/components/ui/button';
-import { getPortfolioPerformanceAction } from '@/lib/portfolio/actions';
 import type { PortfolioPerformancePoint, PortfolioPerformanceRange } from '@/lib/portfolio/portfolio-service';
 
 const RANGE_OPTIONS: PortfolioPerformanceRange[] = ['1D', '1W', '1M', '3M', '6M', '1Y', 'YTD', 'MAX'];
 
 export type PortfolioPerformanceChartProps = {
-    portfolioId: string;
+    data: PortfolioPerformancePoint[];
     baseCurrency: string;
-    initialRange: PortfolioPerformanceRange;
-    initialPoints: PortfolioPerformancePoint[];
+    selectedRange: PortfolioPerformanceRange;
+    onRangeChange?: (range: PortfolioPerformanceRange) => void;
+    loading?: boolean;
+    error?: string;
 };
 
 const formatCurrency = (value: number, currency: string) => {
@@ -29,43 +30,14 @@ const formatCurrency = (value: number, currency: string) => {
 };
 
 const PortfolioPerformanceChart = ({
-    portfolioId,
+    data,
     baseCurrency,
-    initialRange,
-    initialPoints,
+    selectedRange,
+    onRangeChange,
+    loading = false,
+    error = '',
 }: PortfolioPerformanceChartProps) => {
-    const [selectedRange, setSelectedRange] = useState<PortfolioPerformanceRange>(initialRange);
-    const [points, setPoints] = useState<PortfolioPerformancePoint[]>(initialPoints);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-
-    useEffect(() => {
-        setSelectedRange(initialRange);
-        setPoints(initialPoints);
-        setError('');
-    }, [portfolioId, initialRange, initialPoints]);
-
-    const chartData = useMemo(() => points.map((p) => ({ ...p, value: Number(p.value || 0) })), [points]);
-
-    const handleRangeChange = async (range: PortfolioPerformanceRange) => {
-        if (range === selectedRange || !portfolioId) return;
-        setLoading(true);
-        setError('');
-        try {
-            const res = await getPortfolioPerformanceAction(portfolioId, range);
-            if (res.success) {
-                setPoints(res.points);
-                setSelectedRange(range);
-            } else {
-                setError(res.error);
-            }
-        } catch (e) {
-            console.error('Failed to load performance series', e);
-            setError('Unable to load this range right now.');
-        } finally {
-            setLoading(false);
-        }
-    };
+    const chartData = useMemo(() => data.map((p) => ({ ...p, value: Number(p.value || 0) })), [data]);
 
     return (
         <div className="mt-4 flex flex-col gap-4">
@@ -87,8 +59,8 @@ const PortfolioPerformanceChart = ({
                                         ? 'bg-yellow-500 text-black hover:bg-yellow-400'
                                         : 'border-gray-700 text-gray-200 hover:bg-gray-800'
                                 }
-                                onClick={() => handleRangeChange(range)}
-                                disabled={loading}
+                                onClick={() => onRangeChange?.(range)}
+                                disabled={loading || !onRangeChange}
                             >
                                 {range}
                             </Button>
@@ -100,15 +72,20 @@ const PortfolioPerformanceChart = ({
             <div className="h-72 w-full rounded-lg border border-gray-800 bg-gray-900/60 p-4">
                 {loading ? (
                     <div className="flex h-full items-center justify-center text-sm text-gray-400">Loading performance...</div>
-                ) : chartData.length === 0 ? (
-                    <div className="flex h-full items-center justify-center text-sm text-gray-400">
-                        No data for this range yet
+                ) : chartData.length < 2 ? (
+                    <div className="flex h-full items-center justify-center text-center text-sm text-gray-400">
+                        Not enough data to render a chart yet
                     </div>
                 ) : (
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={chartData} margin={{ left: 12, right: 12, top: 12, bottom: 12 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                            <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 12 }} tickLine={false} axisLine={{ stroke: '#1f2937' }} />
+                            <XAxis
+                                dataKey="date"
+                                tick={{ fill: '#9ca3af', fontSize: 12 }}
+                                tickLine={false}
+                                axisLine={{ stroke: '#1f2937' }}
+                            />
                             <YAxis
                                 tick={{ fill: '#9ca3af', fontSize: 12 }}
                                 tickLine={false}
