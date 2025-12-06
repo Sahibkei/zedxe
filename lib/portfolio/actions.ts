@@ -109,6 +109,44 @@ export async function updatePortfolioMeta({
     }
 }
 
+export async function updatePortfolioBaseCurrency(portfolioId: string, baseCurrency: string) {
+    try {
+        const session = await requireSession();
+        const currency = normalizeCurrency(baseCurrency);
+
+        if (!portfolioId || !currency) {
+            return { success: false, error: 'Portfolio and currency are required.' } as const;
+        }
+
+        await connectToDatabase();
+
+        const updated = await Portfolio.findOneAndUpdate(
+            { _id: portfolioId, userId: session.user.id },
+            { baseCurrency: currency },
+            { new: true }
+        ).lean();
+
+        if (!updated) {
+            return { success: false, error: 'Portfolio not found.' } as const;
+        }
+
+        revalidatePath(PORTFOLIO_PATH);
+
+        return {
+            success: true,
+            portfolio: {
+                id: String(updated._id),
+                name: updated.name,
+                baseCurrency: updated.baseCurrency,
+                weeklyReportEnabled: updated.weeklyReportEnabled,
+            },
+        } as const;
+    } catch (error) {
+        console.error('updatePortfolioBaseCurrency error:', error);
+        return { success: false, error: 'Failed to update base currency.' } as const;
+    }
+}
+
 export async function deletePortfolio(id: string) {
     try {
         const session = await requireSession();

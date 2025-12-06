@@ -3,7 +3,7 @@ import { Portfolio, type PortfolioDocument } from '@/database/models/portfolio.m
 import { Transaction, type TransactionDocument } from '@/database/models/transaction.model';
 import { getSnapshotsForSymbols } from '@/lib/actions/finnhub.actions';
 import { fetchJSON } from '@/lib/actions/finnhub.actions';
-import { getFxRate } from '@/lib/finnhub/fx';
+import { getFxRateLatest } from '@/lib/finnhub/fx';
 import {
     computeBenchmarkSeries,
     computePortfolioRatios,
@@ -109,7 +109,7 @@ const getFxRatesForCurrencies = async (currencies: string[], baseCurrency: strin
 
             if (rates[normalized] !== undefined) return;
 
-            const rate = await getFxRate(normalized, normalizedBase);
+            const rate = await getFxRateLatest(normalized, normalizedBase);
             rates[normalized] = rate;
         })
     );
@@ -316,7 +316,7 @@ const getRangeStartDate = (range: PortfolioPerformanceRange, today: Date): Date 
 };
 
 const fetchDailyCloses = async (symbol: string, from: Date, to: Date): Promise<Record<string, number>> => {
-    const token = process.env.FINNHUB_API_KEY ?? '';
+    const token = process.env.FINNHUB_API_KEY ?? process.env.NEXT_PUBLIC_FINNHUB_API_KEY ?? '';
     if (!token) {
         console.error('getPortfolioPerformanceSeries: FINNHUB API key missing');
         return {};
