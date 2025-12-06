@@ -7,16 +7,19 @@ export type PortfolioRatios = {
     totalReturnPct: number | null;
 };
 
-const toDailyReturns = (points: PerformancePoint[]): Array<number | null> => {
-    const returns: Array<number | null> = [];
+export const computeDailyReturns = (
+    points: PerformancePoint[]
+): Array<{ date: string; return: number }> => {
+    const returns: Array<{ date: string; return: number }> = [];
     for (let i = 1; i < points.length; i++) {
-        const prev = points[i - 1].value;
-        const curr = points[i].value;
-        if (prev === 0) {
-            returns.push(null);
-            continue;
-        }
-        returns.push(curr / prev - 1);
+        const prev = points[i - 1];
+        const curr = points[i];
+
+        if (!Number.isFinite(prev.value) || !Number.isFinite(curr.value)) continue;
+        if (prev.value <= 0 || curr.value <= 0) continue;
+
+        const simpleReturn = (curr.value - prev.value) / prev.value;
+        returns.push({ date: curr.date, return: simpleReturn });
     }
     return returns;
 };
@@ -34,19 +37,29 @@ const variance = (values: number[]) => {
 
 const stddev = (values: number[]) => Math.sqrt(variance(values));
 
-const computeTotalReturnPct = (points: PerformancePoint[]): number | null => {
+export const computeTotalReturnPct = (points: PerformancePoint[]): number | null => {
     if (points.length < 2) return null;
-    const first = points[0].value;
-    const last = points[points.length - 1].value;
-    if (first === 0) return null;
-    return ((last / first - 1) * 100);
+
+    const valid = points.filter((p) => Number.isFinite(p.value) && p.value > 0);
+    if (valid.length < 2) return null;
+
+    const first = valid[0];
+    const last = valid[valid.length - 1];
+    if (!first || !last) return null;
+
+    return ((last.value - first.value) / first.value) * 100;
 };
 
 export const computePortfolioRatios = (
     portfolioPoints: PerformancePoint[],
     benchmarkPoints: PerformancePoint[]
 ): PortfolioRatios => {
-    if (portfolioPoints.length < 2 || benchmarkPoints.length < 2) {
+    // Benchmark and portfolio series are expected to be aligned by date strings (YYYY-MM-DD).
+    // Any gaps are naturally skipped when returns cannot be paired on the same day.
+    const filteredPortfolio = portfolioPoints.filter((p) => Number.isFinite(p.value) && p.value > 0);
+    const filteredBenchmark = benchmarkPoints.filter((p) => Number.isFinite(p.value) && p.value > 0);
+
+    if (filteredPortfolio.length < 2 || filteredBenchmark.length < 2) {
         return {
             beta: null,
             sharpe: null,
@@ -55,57 +68,38 @@ export const computePortfolioRatios = (
         };
     }
 
-    const benchmarkByDate: Record<string, number> = {};
-    benchmarkPoints.forEach((point) => {
-        if (typeof point.value === 'number') {
-            benchmarkByDate[point.date] = point.value;
-        }
-    });
+    const portfolioReturns = computeDailyReturns(filteredPortfolio);
+    const benchmarkReturns = computeDailyReturns(filteredBenchmark);
+
+    const benchmarkReturnsByDate = new Map<string, number>();
+    benchmarkReturns.forEach((item) => benchmarkReturnsByDate.set(item.date, item.return));
 
     const alignedPortfolioReturns: number[] = [];
     const alignedBenchmarkReturns: number[] = [];
-    const portfolioReturns = toDailyReturns(portfolioPoints);
 
-    for (let i = 1; i < portfolioPoints.length; i++) {
-        const prevDate = portfolioPoints[i - 1].date;
-        const currDate = portfolioPoints[i].date;
-        const portfolioReturn = portfolioReturns[i - 1];
-        const benchPrev = benchmarkByDate[prevDate];
-        const benchCurr = benchmarkByDate[currDate];
-
-        if (
-            portfolioReturn == null ||
-            !Number.isFinite(portfolioReturn) ||
-            typeof benchPrev !== 'number' ||
-            typeof benchCurr !== 'number' ||
-            benchPrev === 0
-        ) {
-            continue;
-        }
-
-        const benchReturn = benchCurr / benchPrev - 1;
-        alignedPortfolioReturns.push(portfolioReturn);
-        alignedBenchmarkReturns.push(benchReturn);
+    for (const { date, return: pReturn } of portfolioReturns) {
+        const bReturn = benchmarkReturnsByDate.get(date);
+        if (bReturn == null || !Number.isFinite(pReturn) || !Number.isFinite(bReturn)) continue;
+        alignedPortfolioReturns.push(pReturn);
+        alignedBenchmarkReturns.push(bReturn);
     }
 
-    const validPortfolioReturns = portfolioReturns.filter((r): r is number => r != null && Number.isFinite(r));
-
-    const benchmarkReturnPct = computeTotalReturnPct(
-        benchmarkPoints.filter((p) => typeof p.value === 'number')
-    );
-    const totalReturnPct = computeTotalReturnPct(portfolioPoints);
+    const benchmarkReturnPct = computeTotalReturnPct(filteredBenchmark);
+    const totalReturnPct = computeTotalReturnPct(filteredPortfolio);
 
     let sharpe: number | null = null;
-    if (validPortfolioReturns.length > 1) {
-        const sd = stddev(validPortfolioReturns);
+    if (portfolioReturns.length > 1) {
+        const portfolioReturnValues = portfolioReturns.map((r) => r.return);
+        const sd = stddev(portfolioReturnValues);
         if (sd > 0) {
-            const meanReturn = mean(validPortfolioReturns);
+            const meanReturn = mean(portfolioReturnValues);
+            // Risk-free rate assumed to be 0%; annualized with 252 trading days.
             sharpe = (meanReturn / sd) * Math.sqrt(252);
         }
     }
 
     let beta: number | null = null;
-    if (alignedBenchmarkReturns.length > 1) {
+    if (alignedBenchmarkReturns.length >= 30) {
         const benchVariance = variance(alignedBenchmarkReturns);
         if (benchVariance > 0) {
             const meanP = mean(alignedPortfolioReturns);
@@ -138,3 +132,17 @@ export const computeBenchmarkSeries = (
         })
         .filter((p): p is PerformancePoint => Boolean(p));
 };
+
+// Lightweight inline sanity tests that can be executed manually with NODE_ENV=test-metrics
+// to validate core calculations without a full test runner.
+if (process.env.NODE_ENV === 'test-metrics') {
+    const sampleSeries: PerformancePoint[] = [
+        { date: '2024-01-01', value: 100 },
+        { date: '2024-01-02', value: 110 },
+        { date: '2024-01-03', value: 105 },
+    ];
+
+    console.assert(computeTotalReturnPct(sampleSeries)?.toFixed(2) === '5.00', 'total return sanity');
+    const returns = computeDailyReturns(sampleSeries).map((r) => r.return.toFixed(4));
+    console.assert(returns[0] === '0.1000' && returns[1] === '-0.0455', 'daily return sanity');
+}

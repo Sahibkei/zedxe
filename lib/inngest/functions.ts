@@ -347,7 +347,7 @@ export const sendWeeklyPortfolioReport = inngest.createFunction(
 
             const performance = await step.run(`load-portfolio-performance-${index}`, async () => {
                 try {
-                    return await getPortfolioPerformanceSeries(user.id, portfolioId, '3M', { allowFallbackFlatSeries: true });
+                    return await getPortfolioPerformanceSeries(user.id, portfolioId, '3M');
                 } catch (error) {
                     console.error('weekly report performance error', portfolioId, error);
                     return [] as Awaited<ReturnType<typeof getPortfolioPerformanceSeries>>;
