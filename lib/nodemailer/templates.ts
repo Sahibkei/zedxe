@@ -188,24 +188,24 @@ export const WEEKLY_PORTFOLIO_EMAIL_TEMPLATE = `<!DOCTYPE html>
         }
     </style>
 </head>
-<body style="margin: 0; padding: 0; background-color: #050505; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #050505;">
+<body style="margin: 0; padding: 0; background-color: #020617; color: #F9FAFB; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #020617; color: #F9FAFB;">
         <tr>
             <td align="center" style="padding: 40px 20px;">
-                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="email-container" style="max-width: 640px; background-color: #141414; border-radius: 12px; border: 1px solid #30333A;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="email-container" style="max-width: 640px; background-color: #141414; color: #F9FAFB; border-radius: 12px; border: 1px solid #30333A;">
                     <tr>
                         <td align="left" class="mobile-header-padding" style="padding: 36px 36px 12px 36px;">
                             <img src="https://ik.imagekit.io/a6fkjou7d/logo.png?updatedAt=1756378431634" alt="Signalist Logo" width="150" style="max-width: 100%; height: auto;">
                         </td>
                     </tr>
                     <tr>
-                        <td class="mobile-padding" style="padding: 0 36px 32px 36px;">
-                            <h1 class="mobile-title dark-text" style="margin: 0 0 16px 0; font-size: 24px; font-weight: 600; color: #FDD458;">Hi {{name}}, here is your weekly update for {{portfolioName}}</h1>
-                            <p class="mobile-text dark-text-secondary" style="margin: 0 0 20px 0; font-size: 15px; line-height: 1.6; color: #CCDADC;">A Gemini summary of how your portfolio performed this week, plus quick next steps.</p>
-                            <div class="dark-info-box" style="background-color: #1b1c20; border: 1px solid #30333A; border-radius: 10px; padding: 20px;">
+                        <td class="mobile-padding" style="padding: 0 36px 32px 36px; color: #E5E7EB;">
+                            <h1 class="mobile-title dark-text" style="margin: 0 0 16px 0; font-size: 24px; font-weight: 600; color: #FFFFFF;">Hi {{name}}, here is your weekly update for {{portfolioName}}</h1>
+                            <p class="mobile-text dark-text-secondary" style="margin: 0 0 20px 0; font-size: 15px; line-height: 1.6; color: #E5E7EB;">A Gemini summary of how your portfolio performed this week, plus quick next steps.</p>
+                            <div class="dark-info-box" style="background-color: #1b1c20; border: 1px solid #30333A; border-radius: 10px; padding: 20px; color: #E5E7EB;">
                                 {{reportContent}}
                             </div>
-                            <p class="mobile-text dark-text-muted" style="margin: 24px 0 0 0; font-size: 13px; line-height: 1.6; color: #9ca3af;">You received this update because weekly reports are enabled for this portfolio. You can change this anytime in portfolio settings.</p>
+                            <p class="mobile-text dark-text-muted" style="margin: 24px 0 0 0; font-size: 13px; line-height: 1.6; color: #E5E7EB;">You received this update because weekly reports are enabled for this portfolio. You can change this anytime in portfolio settings.</p>
                         </td>
                     </tr>
                 </table>
