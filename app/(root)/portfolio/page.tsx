@@ -1,4 +1,5 @@
 import PortfolioPageClient from '@/components/portfolio/PortfolioPageClient';
+import { listCryptoSnapshotsAction } from '@/lib/crypto/actions';
 import { getPortfolioPerformanceAction, getPortfolioSummaryAction, getUserPortfoliosAction } from '@/lib/portfolio/actions';
 import type { PortfolioPerformancePoint, PortfolioPerformanceRange } from '@/lib/portfolio/portfolio-service';
 
@@ -9,6 +10,7 @@ const PortfolioPage = async () => {
     const first = portfolios[0];
     const summary = first ? await getPortfolioSummaryAction(first.id) : null;
     let initialPerformancePoints: PortfolioPerformancePoint[] = [];
+    const initialCryptoSnapshots = await listCryptoSnapshotsAction();
 
     if (summary) {
         const res = await getPortfolioPerformanceAction(summary.portfolio.id, DEFAULT_PERFORMANCE_RANGE);
@@ -23,6 +25,7 @@ const PortfolioPage = async () => {
             initialSummary={summary}
             initialPerformanceRange={DEFAULT_PERFORMANCE_RANGE}
             initialPerformancePoints={initialPerformancePoints}
+            initialCryptoSnapshots={initialCryptoSnapshots}
         />
     );
 };
