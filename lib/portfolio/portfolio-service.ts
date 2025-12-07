@@ -38,8 +38,12 @@ export interface PortfolioSummary {
 }
 
 export type PortfolioPerformancePoint = {
-    date: string; // ISO date string (YYYY-MM-DD)
-    value: number; // portfolio market value in base currency
+    date: string; // ISO yyyy-mm-dd
+    portfolioValue: number; // total value in baseCurrency
+    investedCapital: number;
+    unrealizedPnL: number;
+    // Legacy alias used by chart:
+    value: number; // always === portfolioValue
 };
 
 export type PortfolioPerformanceRange = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | 'YTD' | 'MAX';
@@ -131,16 +135,21 @@ export async function getPortfolioRatios(userId: string, portfolioId: string): P
             return emptyRatios;
         }
 
-        const startDate = startOfDay(new Date(points[0].date));
-        const endDate = startOfDay(new Date(points[points.length - 1].date));
+        const performancePoints: PerformancePoint[] = points.map((p) => ({
+            date: p.date,
+            value: p.portfolioValue,
+        }));
+
+        const startDate = startOfDay(new Date(performancePoints[0].date));
+        const endDate = startOfDay(new Date(performancePoints[performancePoints.length - 1].date));
 
         const benchmarkCloses = await fetchDailyCloses(BENCHMARK_SYMBOL, startDate, endDate);
         const benchmarkPoints: PerformancePoint[] = computeBenchmarkSeries(
             benchmarkCloses,
-            points.map((p) => p.date)
+            performancePoints.map((p) => p.date)
         );
 
-        return computePortfolioRatios(points, benchmarkPoints);
+        return computePortfolioRatios(performancePoints, benchmarkPoints);
     } catch (error) {
         console.error('getPortfolioRatios error:', error);
         return emptyRatios;
@@ -374,13 +383,34 @@ export async function getPortfolioPerformanceSeries(
     }
 
     const baseCurrency = (portfolio.baseCurrency || 'USD').toUpperCase();
-    const currencies = new Set<string>(transactions.map((tx) => (tx.currency || baseCurrency).toUpperCase()));
+    const holdingsBySymbol: Record<string, { quantity: number; currency: string }> = {};
+    for (const tx of transactions) {
+        const symbol = tx.symbol.toUpperCase();
+        const txCurrency = (tx.currency || baseCurrency).toUpperCase();
+        const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
+
+        if (!holdingsBySymbol[symbol]) {
+            holdingsBySymbol[symbol] = { quantity: 0, currency: txCurrency };
+        }
+
+        holdingsBySymbol[symbol].quantity += signedQty;
+        holdingsBySymbol[symbol].currency = holdingsBySymbol[symbol].currency || txCurrency;
+    }
+
+    const holdings = Object.entries(holdingsBySymbol)
+        .filter(([, data]) => data.quantity > 0)
+        .map(([symbol, data]) => ({ symbol, quantity: data.quantity, currency: data.currency.toUpperCase() }));
+
+    if (!holdings.length) {
+        return [];
+    }
+
+    const currencies = new Set<string>(holdings.map((h) => (h.currency || baseCurrency).toUpperCase()));
     currencies.add(baseCurrency);
     const fxRates = await getFxRatesForCurrencies(Array.from(currencies), baseCurrency);
 
     const today = startOfDay(new Date());
     const earliestTxDate = startOfDay(new Date(transactions[0].tradeDate));
-
     const rangeStartRaw = getRangeStartDate(range, today);
     const startDate = range === 'MAX' ? earliestTxDate : startDateAfterEarliest(rangeStartRaw, earliestTxDate);
 
@@ -391,88 +421,58 @@ export async function getPortfolioPerformanceSeries(
         dateCursor.setUTCDate(dateCursor.getUTCDate() + 1);
     }
 
-    const symbols = Array.from(new Set(transactions.map((tx) => tx.symbol.toUpperCase())));
-
     const priceMaps: Record<string, Record<string, number>> = {};
     await Promise.all(
-        symbols.map(async (symbol) => {
+        holdings.map(async ({ symbol }) => {
             priceMaps[symbol] = await fetchDailyCloses(symbol, startDate, today);
         })
     );
 
-    type TxSummary = { date: Date; quantity: number };
-    const txsBySymbol: Record<string, { currency: string; txs: TxSummary[] }> = {};
-    for (const tx of transactions) {
-        const symbol = tx.symbol.toUpperCase();
-        const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
-        const txCurrency = (tx.currency || baseCurrency).toUpperCase();
-        if (!txsBySymbol[symbol]) txsBySymbol[symbol] = { currency: txCurrency, txs: [] };
-        txsBySymbol[symbol].txs.push({ date: startOfDay(new Date(tx.tradeDate)), quantity: signedQty });
-        if (!txsBySymbol[symbol].currency) {
-            txsBySymbol[symbol].currency = txCurrency;
-        }
-    }
-
-    Object.values(txsBySymbol).forEach((entry) => entry.txs.sort((a, b) => a.date.getTime() - b.date.getTime()));
-
-    type SymbolState = { idx: number; quantity: number; txs: TxSummary[]; lastPrice: number | null; fxRate: number };
-    const stateBySymbol: Record<string, SymbolState> = {};
-    for (const symbol of symbols) {
-        const txGroup = txsBySymbol[symbol];
-        const symbolCurrency = txGroup?.currency || baseCurrency;
-        const fxRate = symbolCurrency === baseCurrency ? 1 : fxRates[symbolCurrency] ?? 1;
-        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txGroup?.txs || [], lastPrice: null, fxRate };
-    }
-
     const points: PortfolioPerformancePoint[] = [];
+    const lastKnownCloseBySymbol: Record<string, number | undefined> = {};
 
     for (const dateStr of dateStrings) {
-        const currentDate = startOfDay(new Date(dateStr));
-        let totalValue = 0;
+        let portfolioValue = 0;
+        let hasAnyPrice = false;
 
-        for (const symbol of symbols) {
-            const state = stateBySymbol[symbol];
-            const txs = state?.txs ?? [];
+        for (const holding of holdings) {
+            let close = priceMaps[holding.symbol]?.[dateStr];
 
-            // Apply all transactions up to and including the current date
-            while (state.idx < txs.length && txs[state.idx].date.getTime() <= currentDate.getTime()) {
-                state.quantity += txs[state.idx].quantity;
-                state.idx += 1;
+            if (typeof close !== 'number') {
+                close = lastKnownCloseBySymbol[holding.symbol];
             }
 
-            // If we have no holdings and no known price yet, skip this symbol entirely
-            if (state.quantity === 0 && state.lastPrice == null) {
+            if (typeof close !== 'number') {
                 continue;
             }
 
-            const priceOnDate = priceMaps[symbol]?.[dateStr];
-            if (typeof priceOnDate === 'number') {
-                state.lastPrice = priceOnDate;
-            }
+            lastKnownCloseBySymbol[holding.symbol] = close;
+            const fxRate = holding.currency === baseCurrency ? 1 : fxRates[holding.currency] ?? 1;
 
-            if (typeof state.lastPrice !== 'number') {
-                // Still no usable price for this symbol, skip contribution for this date
-                continue;
-            }
-
-            totalValue += state.quantity * state.lastPrice * (state.fxRate || 1);
+            portfolioValue += holding.quantity * close * fxRate;
+            hasAnyPrice = true;
         }
 
-        points.push({ date: dateStr, value: totalValue });
+        if (hasAnyPrice) {
+            points.push({
+                date: dateStr,
+                portfolioValue,
+                investedCapital: 0, // TODO: compute real invested capital in a later iteration
+                unrealizedPnL: 0, // TODO: compute real unrealized PnL in a later iteration
+                value: portfolioValue,
+            });
+        }
     }
 
-    const allowFallbackFlatSeries = options?.allowFallbackFlatSeries ?? true;
-    // Defensive fallback: if we failed to compute any non-zero points (e.g., missing historical prices),
-    // return a flat series at the current portfolio value so the chart remains usable. This can be
-    // revisited when more robust pricing data is available.
-    const hasNonZero = points.some((p) => p.value > 0);
-
-    if (!hasNonZero && allowFallbackFlatSeries) {
+    if (points.length === 0 && options?.allowFallbackFlatSeries) {
         const summary = await getPortfolioSummary(userId, portfolioId);
         const currentValue = summary.totals.currentValue;
 
         return dateStrings.map((dateStr) => ({
             date: dateStr,
+            portfolioValue: currentValue,
+            investedCapital: 0,
+            unrealizedPnL: 0,
             value: currentValue,
         }));
     }
