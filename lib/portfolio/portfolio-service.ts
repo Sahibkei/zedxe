@@ -315,6 +315,19 @@ const getRangeStartDate = (range: PortfolioPerformanceRange, today: Date): Date 
     return startOfDay(start);
 };
 
+const buildDateStrings = (startDate: Date, endDate: Date): string[] => {
+    const dateCursor = startOfDay(startDate);
+    const end = startOfDay(endDate);
+    const dateStrings: string[] = [];
+
+    while (dateCursor <= end) {
+        dateStrings.push(normalizeDateString(dateCursor));
+        dateCursor.setUTCDate(dateCursor.getUTCDate() + 1);
+    }
+
+    return dateStrings;
+};
+
 const fetchDailyCloses = async (symbol: string, from: Date, to: Date): Promise<Record<string, number>> => {
     const token = process.env.FINNHUB_API_KEY ?? '';
     if (!token) {
@@ -351,6 +364,36 @@ const fetchDailyCloses = async (symbol: string, from: Date, to: Date): Promise<R
     }
 };
 
+const fetchPricesForSymbols = async (symbols: string[], startDate: Date, endDate: Date) => {
+    const priceMaps: Record<string, Record<string, number>> = {};
+
+    await Promise.all(
+        symbols.map(async (symbol) => {
+            priceMaps[symbol] = await fetchDailyCloses(symbol, startDate, endDate);
+        })
+    );
+
+    return priceMaps;
+};
+
+const findLastKnownClose = (
+    priceMap: Record<string, number>,
+    dateStr: string,
+    dateStrings: string[],
+    maxDaysBack?: number
+): number | undefined => {
+    const targetIndex = dateStrings.indexOf(dateStr);
+    if (targetIndex === -1) return undefined;
+
+    const minIndex = typeof maxDaysBack === 'number' ? Math.max(0, targetIndex - maxDaysBack) : 0;
+    for (let i = targetIndex; i >= minIndex; i--) {
+        const candidate = priceMap[dateStrings[i]];
+        if (typeof candidate === 'number') return candidate;
+    }
+
+    return undefined;
+};
+
 export async function getPortfolioPerformanceSeries(
     userId: string,
     portfolioId: string,
@@ -374,107 +417,75 @@ export async function getPortfolioPerformanceSeries(
     }
 
     const baseCurrency = (portfolio.baseCurrency || 'USD').toUpperCase();
-    const currencies = new Set<string>(transactions.map((tx) => (tx.currency || baseCurrency).toUpperCase()));
-    currencies.add(baseCurrency);
-    const fxRates = await getFxRatesForCurrencies(Array.from(currencies), baseCurrency);
+    type Holding = { symbol: string; netQuantity: number; tradeCurrency: string; earliestTradeDate: Date };
+    const holdingsMap: Record<string, Holding> = {};
 
-    const today = startOfDay(new Date());
-    const earliestTxDate = startOfDay(new Date(transactions[0].tradeDate));
-
-    const rangeStartRaw = getRangeStartDate(range, today);
-    const startDate = range === 'MAX' ? earliestTxDate : startDateAfterEarliest(rangeStartRaw, earliestTxDate);
-
-    const dateCursor = new Date(startDate);
-    const dateStrings: string[] = [];
-    while (dateCursor <= today) {
-        dateStrings.push(normalizeDateString(dateCursor));
-        dateCursor.setUTCDate(dateCursor.getUTCDate() + 1);
-    }
-
-    const symbols = Array.from(new Set(transactions.map((tx) => tx.symbol.toUpperCase())));
-
-    const priceMaps: Record<string, Record<string, number>> = {};
-    await Promise.all(
-        symbols.map(async (symbol) => {
-            priceMaps[symbol] = await fetchDailyCloses(symbol, startDate, today);
-        })
-    );
-
-    type TxSummary = { date: Date; quantity: number };
-    const txsBySymbol: Record<string, { currency: string; txs: TxSummary[] }> = {};
     for (const tx of transactions) {
         const symbol = tx.symbol.toUpperCase();
-        const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
-        const txCurrency = (tx.currency || baseCurrency).toUpperCase();
-        if (!txsBySymbol[symbol]) txsBySymbol[symbol] = { currency: txCurrency, txs: [] };
-        txsBySymbol[symbol].txs.push({ date: startOfDay(new Date(tx.tradeDate)), quantity: signedQty });
-        if (!txsBySymbol[symbol].currency) {
-            txsBySymbol[symbol].currency = txCurrency;
+        const quantity = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
+        const tradeCurrency = (tx.currency || baseCurrency).toUpperCase();
+        const tradeDate = startOfDay(new Date(tx.tradeDate));
+
+        if (!holdingsMap[symbol]) {
+            holdingsMap[symbol] = {
+                symbol,
+                netQuantity: 0,
+                tradeCurrency,
+                earliestTradeDate: tradeDate,
+            };
+        }
+
+        holdingsMap[symbol].netQuantity += quantity;
+        if (tradeDate < holdingsMap[symbol].earliestTradeDate) {
+            holdingsMap[symbol].earliestTradeDate = tradeDate;
+        }
+        if (!holdingsMap[symbol].tradeCurrency) {
+            holdingsMap[symbol].tradeCurrency = tradeCurrency;
         }
     }
 
-    Object.values(txsBySymbol).forEach((entry) => entry.txs.sort((a, b) => a.date.getTime() - b.date.getTime()));
-
-    type SymbolState = { idx: number; quantity: number; txs: TxSummary[]; lastPrice: number | null; fxRate: number };
-    const stateBySymbol: Record<string, SymbolState> = {};
-    for (const symbol of symbols) {
-        const txGroup = txsBySymbol[symbol];
-        const symbolCurrency = txGroup?.currency || baseCurrency;
-        const fxRate = symbolCurrency === baseCurrency ? 1 : fxRates[symbolCurrency] ?? 1;
-        stateBySymbol[symbol] = { idx: 0, quantity: 0, txs: txGroup?.txs || [], lastPrice: null, fxRate };
+    const holdings = Object.values(holdingsMap).filter((holding) => holding.netQuantity > 0);
+    if (holdings.length === 0) {
+        return [];
     }
 
-    const points: PortfolioPerformancePoint[] = [];
+    const earliestActiveTrade = holdings.reduce((min, h) => (h.earliestTradeDate < min ? h.earliestTradeDate : min), holdings[0].earliestTradeDate);
 
-    for (const dateStr of dateStrings) {
-        const currentDate = startOfDay(new Date(dateStr));
+    const today = startOfDay(new Date());
+    const rawRangeStart = getRangeStartDate(range, today);
+    const rangeStart = range === 'MAX' ? earliestActiveTrade : startDateAfterEarliest(rawRangeStart, earliestActiveTrade);
+    const dateStrings = buildDateStrings(rangeStart, today);
+
+    const tradeCurrencies = Array.from(new Set(holdings.map((h) => h.tradeCurrency)));
+    tradeCurrencies.push(baseCurrency);
+    const fxRates = await getFxRatesForCurrencies(tradeCurrencies, baseCurrency);
+
+    const symbols = holdings.map((h) => h.symbol);
+    const symbolPrices = await fetchPricesForSymbols(symbols, rangeStart, today);
+
+    const points: PortfolioPerformancePoint[] = dateStrings.map((dateStr) => {
         let totalValue = 0;
 
-        for (const symbol of symbols) {
-            const state = stateBySymbol[symbol];
-            const txs = state?.txs ?? [];
+        for (const holding of holdings) {
+            const priceMap = symbolPrices[holding.symbol] || {};
+            const close = priceMap[dateStr] ?? findLastKnownClose(priceMap, dateStr, dateStrings);
+            if (typeof close !== 'number') continue;
 
-            // Apply all transactions up to and including the current date
-            while (state.idx < txs.length && txs[state.idx].date.getTime() <= currentDate.getTime()) {
-                state.quantity += txs[state.idx].quantity;
-                state.idx += 1;
-            }
-
-            // If we have no holdings and no known price yet, skip this symbol entirely
-            if (state.quantity === 0 && state.lastPrice == null) {
-                continue;
-            }
-
-            const priceOnDate = priceMaps[symbol]?.[dateStr];
-            if (typeof priceOnDate === 'number') {
-                state.lastPrice = priceOnDate;
-            }
-
-            if (typeof state.lastPrice !== 'number') {
-                // Still no usable price for this symbol, skip contribution for this date
-                continue;
-            }
-
-            totalValue += state.quantity * state.lastPrice * (state.fxRate || 1);
+            const fxRate = holding.tradeCurrency === baseCurrency ? 1 : fxRates[holding.tradeCurrency] ?? 1;
+            totalValue += holding.netQuantity * close * fxRate;
         }
 
-        points.push({ date: dateStr, value: totalValue });
-    }
+        return { date: dateStr, value: totalValue };
+    });
 
     const allowFallbackFlatSeries = options?.allowFallbackFlatSeries ?? true;
-    // Defensive fallback: if we failed to compute any non-zero points (e.g., missing historical prices),
-    // return a flat series at the current portfolio value so the chart remains usable. This can be
-    // revisited when more robust pricing data is available.
     const hasNonZero = points.some((p) => p.value > 0);
 
     if (!hasNonZero && allowFallbackFlatSeries) {
         const summary = await getPortfolioSummary(userId, portfolioId);
         const currentValue = summary.totals.currentValue;
 
-        return dateStrings.map((dateStr) => ({
-            date: dateStr,
-            value: currentValue,
-        }));
+        return dateStrings.map((dateStr) => ({ date: dateStr, value: currentValue }));
     }
 
     return points;
