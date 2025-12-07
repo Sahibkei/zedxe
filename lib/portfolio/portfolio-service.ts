@@ -437,7 +437,6 @@ export async function getPortfolioPerformanceSeries(
     , activeEntries[0].earliestTradeDate);
 
     const { startDate, endDate, dateStrings } = buildDateRange(range, earliestActiveTradeDate);
-    const dateIndexMap = new Map<string, number>(dateStrings.map((date, index) => [date, index]));
 
     const priceMaps: Record<string, Record<string, number>> = {};
     await Promise.all(
@@ -450,18 +449,24 @@ export async function getPortfolioPerformanceSeries(
     const fxRates = await getFxRatesForCurrencies(Array.from(currencies), baseCurrency);
 
     const points: PortfolioPerformancePoint[] = [];
+    const lastCloseBySymbol: Record<string, number | undefined> = {};
     const hasPositions = Object.keys(activeHoldings).length > 0;
     const startDateStr = dateStrings[0] ?? normalizeDateString(startDate);
     const endDateStr = dateStrings[dateStrings.length - 1] ?? normalizeDateString(endDate);
 
     const logAndReturn = (items: PortfolioPerformancePoint[]) => {
         if (process.env.NODE_ENV !== 'production') {
+            const allEqual = items.every((p) => p.portfolioValue === (items[0]?.portfolioValue ?? 0));
             console.log(
-                '[getPortfolioPerformanceSeries] portfolioId=%s range=%s points=%d sample=%o',
+                '[getPortfolioPerformanceSeries] portfolioId=%s range=%s points=%d first=%o last=%o allEqual=%s',
                 portfolioId,
                 range,
                 items.length,
-                items.slice(0, 5).map((p) => ({ date: p.date, value: p.value ?? p.portfolioValue }))
+                items[0] ? { date: items[0].date, value: items[0].value ?? items[0].portfolioValue } : null,
+                items[items.length - 1]
+                    ? { date: items[items.length - 1].date, value: items[items.length - 1].value ?? items[items.length - 1].portfolioValue }
+                    : null,
+                allEqual
             );
         }
         return items;
@@ -475,18 +480,17 @@ export async function getPortfolioPerformanceSeries(
             const qty = holding.quantity;
             if (!qty) continue;
 
-            const symbolPrices = priceMaps[symbol];
-            let close = symbolPrices?.[dateStr];
+            const symbolPrices = priceMaps[symbol] ?? {};
+            let close = symbolPrices[dateStr];
             if (typeof close !== 'number') {
-                close = findLastKnownClose(symbolPrices ?? {}, dateStr, dateStrings, dateIndexMap);
+                close = lastCloseBySymbol[symbol];
             }
             if (typeof close !== 'number') continue;
 
-            const fxRateCandidate = holding.currency === baseCurrency ? 1 : fxRates[holding.currency];
-            if (typeof fxRateCandidate !== 'number' || fxRateCandidate <= 0) continue;
-
-            const fxRate = fxRateCandidate;
+            const fxRateCandidate = holding.currency === baseCurrency ? 1 : fxRates[holding.currency] ?? 1;
+            const fxRate = typeof fxRateCandidate === 'number' && fxRateCandidate > 0 ? fxRateCandidate : 1;
             hasAnyPrice = true;
+            lastCloseBySymbol[symbol] = close;
             portfolioValue += qty * close * fxRate;
         }
 
@@ -546,26 +550,6 @@ export async function getPortfolioPerformanceSeries(
     }
 
     return logAndReturn(points);
-}
-
-function findLastKnownClose(
-    priceMap: Record<string, number>,
-    dateStr: string,
-    dateStrings: string[],
-    dateIndexMap: Map<string, number>
-): number | undefined {
-    const startIndex = dateIndexMap.get(dateStr);
-    if (startIndex === undefined) return undefined;
-
-    for (let i = startIndex - 1; i >= 0; i--) {
-        const prevDate = dateStrings[i];
-        const price = priceMap[prevDate];
-        if (typeof price === 'number') {
-            return price;
-        }
-    }
-
-    return undefined;
 }
 
 export type { PortfolioDocument, TransactionDocument };
