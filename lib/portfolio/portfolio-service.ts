@@ -37,9 +37,11 @@ export interface PortfolioSummary {
     ratios: PortfolioRatios;
 }
 
+// Represents a single plotted point for the performance chart. Additional fields like invested capital or PnL
+// are not currently included and default to zero elsewhere in the UI when requested.
 export type PortfolioPerformancePoint = {
     date: string; // ISO date string (YYYY-MM-DD)
-    value: number; // portfolio market value in base currency
+    value: number; // portfolio mark-to-market value in base currency for the given date
 };
 
 export type PortfolioPerformanceRange = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y' | 'YTD' | 'MAX';
@@ -478,6 +480,7 @@ export async function getPortfolioPerformanceSeries(
         return { date: dateStr, value: totalValue };
     });
 
+    // When true (default), a flat line at the current portfolio value is returned if every computed point is zero.
     const allowFallbackFlatSeries = options?.allowFallbackFlatSeries ?? true;
     const hasNonZero = points.some((p) => p.value > 0);
 
