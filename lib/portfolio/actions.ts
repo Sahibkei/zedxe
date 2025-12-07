@@ -15,7 +15,6 @@ import {
     setWeeklyReportPortfolio,
     clearWeeklyReportSelection,
     type PortfolioLean,
-    type PortfolioPerformancePoint,
     type PortfolioPerformanceRange,
     type PortfolioSummary,
 } from './portfolio-service';
@@ -196,11 +195,11 @@ export async function getPortfolioSummaryAction(portfolioId: string): Promise<Po
 export async function getPortfolioPerformanceAction(
     portfolioId: string,
     range: PortfolioPerformanceRange
-): Promise<{ success: true; points: PortfolioPerformancePoint[] } | { success: false; error: string }> {
+): Promise<{ success: true; series: Awaited<ReturnType<typeof getPortfolioPerformanceSeries>> } | { success: false; error: string }> {
     const session = await requireSession();
     try {
-        const points = await getPortfolioPerformanceSeries(session.user.id, portfolioId, range);
-        return { success: true, points } as const;
+        const series = await getPortfolioPerformanceSeries(session.user.id, portfolioId, range);
+        return { success: true, series } as const;
     } catch (error) {
         console.error('getPortfolioPerformanceAction error:', error);
         return { success: false, error: 'Unable to load performance data.' } as const;

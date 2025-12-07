@@ -350,7 +350,7 @@ export const sendWeeklyPortfolioReport = inngest.createFunction(
                     return await getPortfolioPerformanceSeries(user.id, portfolioId, '3M', { allowFallbackFlatSeries: true });
                 } catch (error) {
                     console.error('weekly report performance error', portfolioId, error);
-                    return [] as Awaited<ReturnType<typeof getPortfolioPerformanceSeries>>;
+                    return null;
                 }
             });
 
@@ -365,14 +365,17 @@ export const sendWeeklyPortfolioReport = inngest.createFunction(
                 }));
 
             const perfChange =
-                performance.length >= 2 && performance[0].value !== 0
-                    ? performance[performance.length - 1].value / performance[0].value - 1
+                performance && performance.points.length >= 2 && performance.points[0].portfolioValue !== 0
+                    ? performance.points[performance.points.length - 1].portfolioValue /
+                          performance.points[0].portfolioValue -
+                      1
                     : null;
 
             let biggestDailyMove: number | null = null;
-            for (let i = 1; i < performance.length; i++) {
-                const prev = performance[i - 1].value;
-                const curr = performance[i].value;
+            const perfPoints = performance?.points ?? [];
+            for (let i = 1; i < perfPoints.length; i++) {
+                const prev = perfPoints[i - 1].portfolioValue;
+                const curr = perfPoints[i].portfolioValue;
                 if (prev === 0) continue;
                 const move = curr / prev - 1;
                 if (biggestDailyMove === null || Math.abs(move) > Math.abs(biggestDailyMove)) {
@@ -385,8 +388,8 @@ export const sendWeeklyPortfolioReport = inngest.createFunction(
                 totals: summary.totals,
                 ratios: summary.ratios,
                 performance: {
-                    startDate: performance[0]?.date,
-                    endDate: performance.at(-1)?.date,
+                    startDate: perfPoints[0]?.date,
+                    endDate: perfPoints.at(-1)?.date,
                     changePct: perfChange,
                     biggestDailyMove,
                 },

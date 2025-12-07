@@ -13,10 +13,10 @@ import { Button } from '@/components/ui/button';
 import { getPortfolioPerformanceAction, getPortfolioSummaryAction, getUserPortfoliosAction } from '@/lib/portfolio/actions';
 import type {
     PortfolioLean,
-    PortfolioPerformancePoint,
     PortfolioPerformanceRange,
     PortfolioSummary,
 } from '@/lib/portfolio/portfolio-service';
+import type { PortfolioPerformanceSeries } from '@/lib/portfolio/performance';
 import { Settings2 } from 'lucide-react';
 
 const formatCurrency = (value: number, currency: string) => {
@@ -38,12 +38,12 @@ const PortfolioPageClient = ({
     initialPortfolios,
     initialSummary,
     initialPerformanceRange,
-    initialPerformancePoints,
+    initialPerformanceSeries,
 }: {
     initialPortfolios: PortfolioLean[];
     initialSummary: PortfolioSummary | null;
     initialPerformanceRange: PortfolioPerformanceRange;
-    initialPerformancePoints: PortfolioPerformancePoint[];
+    initialPerformanceSeries: PortfolioPerformanceSeries | null;
 }) => {
     const [portfolios, setPortfolios] = useState<PortfolioLean[]>(initialPortfolios);
     const [summary, setSummary] = useState<PortfolioSummary | null>(initialSummary);
@@ -56,7 +56,7 @@ const PortfolioPageClient = ({
     const [loadingSummary, startTransition] = useTransition();
     const [error, setError] = useState('');
     const [performanceRange, setPerformanceRange] = useState<PortfolioPerformanceRange>(initialPerformanceRange);
-    const [performancePoints, setPerformancePoints] = useState<PortfolioPerformancePoint[]>(initialPerformancePoints);
+    const [performanceSeries, setPerformanceSeries] = useState<PortfolioPerformanceSeries | null>(initialPerformanceSeries);
     const [performanceLoading, setPerformanceLoading] = useState(false);
     const [performanceError, setPerformanceError] = useState('');
 
@@ -95,17 +95,17 @@ const PortfolioPageClient = ({
                 setPerformanceError('');
                 const res = await getPortfolioPerformanceAction(portfolioId, DEFAULT_PERFORMANCE_RANGE);
                 if (res.success) {
-                    setPerformancePoints(res.points);
+                    setPerformanceSeries(res.series);
                     setPerformanceRange(DEFAULT_PERFORMANCE_RANGE);
                 } else {
-                    setPerformancePoints([]);
+                    setPerformanceSeries(null);
                     setPerformanceRange(DEFAULT_PERFORMANCE_RANGE);
                     setPerformanceError(res.error || 'Unable to load performance.');
                 }
             } catch (e) {
                 console.error('Failed to load portfolio summary', e);
                 setError('Unable to load portfolio summary.');
-                setPerformancePoints([]);
+                setPerformanceSeries(null);
                 setPerformanceRange(DEFAULT_PERFORMANCE_RANGE);
                 setPerformanceError('Unable to load performance.');
             } finally {
@@ -195,7 +195,7 @@ const PortfolioPageClient = ({
         } else {
             setSelectedPortfolioId('');
             setSummary(null);
-            setPerformancePoints([]);
+            setPerformanceSeries(null);
             setPerformanceRange(DEFAULT_PERFORMANCE_RANGE);
         }
         setPerformanceError('');
@@ -215,7 +215,7 @@ const PortfolioPageClient = ({
         try {
             const res = await getPortfolioPerformanceAction(selectedPortfolioId, range);
             if (res.success) {
-                setPerformancePoints(res.points);
+                setPerformanceSeries(res.series);
                 setPerformanceRange(range);
             } else {
                 setPerformanceError(res.error || 'Unable to load performance.');
@@ -301,7 +301,7 @@ const PortfolioPageClient = ({
                         </div>
                         {loadingSummary && <p className="mt-2 text-sm text-gray-400">Refreshing portfolio...</p>}
                         <PortfolioPerformanceChart
-                            data={performancePoints}
+                            series={performanceSeries}
                             baseCurrency={baseCurrency}
                             selectedRange={performanceRange}
                             onRangeChange={handlePerformanceRangeChange}

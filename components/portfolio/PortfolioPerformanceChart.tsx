@@ -4,12 +4,13 @@ import { useMemo } from 'react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { Button } from '@/components/ui/button';
-import type { PortfolioPerformancePoint, PortfolioPerformanceRange } from '@/lib/portfolio/portfolio-service';
+import type { PortfolioPerformanceRange } from '@/lib/portfolio/portfolio-service';
+import type { PortfolioPerformanceSeries } from '@/lib/portfolio/performance';
 
 const RANGE_OPTIONS: PortfolioPerformanceRange[] = ['1D', '1W', '1M', '3M', '6M', '1Y', 'YTD', 'MAX'];
 
 export type PortfolioPerformanceChartProps = {
-    data: PortfolioPerformancePoint[];
+    series: PortfolioPerformanceSeries | null;
     baseCurrency: string;
     selectedRange: PortfolioPerformanceRange;
     onRangeChange?: (range: PortfolioPerformanceRange) => void;
@@ -30,14 +31,30 @@ const formatCurrency = (value: number, currency: string) => {
 };
 
 const PortfolioPerformanceChart = ({
-    data,
+    series,
     baseCurrency,
     selectedRange,
     onRangeChange,
     loading = false,
     error = '',
 }: PortfolioPerformanceChartProps) => {
-    const chartData = useMemo(() => data.map((p) => ({ ...p, value: Number(p.value || 0) })), [data]);
+    const points = series?.points ?? [];
+    const chartData = useMemo(
+        () => points.map((p) => ({ ...p, portfolioValue: Number(p.portfolioValue || 0) })),
+        [points]
+    );
+
+    const totalReturnLabel = useMemo(() => {
+        if (!series || points.length < 2) return '—';
+        const pct = series.totalReturnPct;
+        const sign = pct > 0 ? '+' : '';
+        return `${sign}${pct.toFixed(2)}%`;
+    }, [series, points.length]);
+
+    const totalReturnClass = useMemo(() => {
+        if (!series || points.length < 2) return 'text-gray-400';
+        return series.totalReturnPct >= 0 ? 'text-green-400' : 'text-red-400';
+    }, [series, points.length]);
 
     return (
         <div className="mt-4 flex flex-col gap-4">
@@ -45,6 +62,15 @@ const PortfolioPerformanceChart = ({
                 <div>
                     <p className="text-sm text-gray-400">Performance</p>
                     {error && <p className="text-xs text-red-400">{error}</p>}
+                </div>
+                <div className="flex items-center gap-3 text-sm text-gray-300">
+                    <div className="text-right">
+                        <p className="text-xs uppercase tracking-wide text-gray-400">Total Return</p>
+                        <p className={`text-base font-semibold ${totalReturnClass}`}>
+                            {totalReturnLabel}
+                        </p>
+                    </div>
+                    <div className="h-8 w-px bg-gray-800" aria-hidden />
                 </div>
                 <div className="flex flex-wrap gap-2">
                     {RANGE_OPTIONS.map((range) => {
@@ -94,10 +120,14 @@ const PortfolioPerformanceChart = ({
                             />
                             <Tooltip
                                 contentStyle={{ backgroundColor: '#0b1224', borderColor: '#1f2937', color: '#e5e7eb' }}
-                                formatter={(value: number) => formatCurrency(value, baseCurrency)}
+                                formatter={(value: number, _name: string, payload) => {
+                                    const ret = payload?.payload?.returnPct;
+                                    const pctLabel = Number.isFinite(ret) ? `${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%` : '';
+                                    return [`${formatCurrency(value, baseCurrency)} ${pctLabel ? `(${pctLabel})` : ''}`, 'Value'];
+                                }}
                                 labelFormatter={(label) => label}
                             />
-                            <Line type="monotone" dataKey="value" stroke="#facc15" strokeWidth={2} dot={false} />
+                            <Line type="monotone" dataKey="portfolioValue" stroke="#facc15" strokeWidth={2} dot={false} />
                         </LineChart>
                     </ResponsiveContainer>
                 )}
