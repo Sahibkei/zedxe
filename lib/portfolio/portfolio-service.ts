@@ -373,6 +373,7 @@ const buildDateRange = (range: PortfolioPerformanceRange, earliestActiveTradeDat
     return { startDate, endDate, dateStrings };
 };
 
+// Computes an index-style mark-to-market series for the portfolio's current net holdings over the selected range.
 export async function getPortfolioPerformanceSeries(
     userId: string,
     portfolioId: string,
@@ -432,9 +433,10 @@ export async function getPortfolioPerformanceSeries(
     }
 
     const activeEntries = Object.values(activeHoldings);
-    const earliestActiveTradeDate = activeEntries.reduce((min, entry) =>
-        entry.earliestTradeDate < min ? entry.earliestTradeDate : min
-    , activeEntries[0].earliestTradeDate);
+    const earliestActiveTradeDate = activeEntries.reduce(
+        (min, entry) => (entry.earliestTradeDate < min ? entry.earliestTradeDate : min),
+        activeEntries[0].earliestTradeDate
+    );
 
     const { startDate, endDate, dateStrings } = buildDateRange(range, earliestActiveTradeDate);
 
@@ -453,6 +455,7 @@ export async function getPortfolioPerformanceSeries(
     const hasPositions = Object.keys(activeHoldings).length > 0;
     const startDateStr = dateStrings[0] ?? normalizeDateString(startDate);
     const endDateStr = dateStrings[dateStrings.length - 1] ?? normalizeDateString(endDate);
+    const activeSymbols = Object.keys(activeHoldings);
 
     const logAndReturn = (items: PortfolioPerformancePoint[]) => {
         if (process.env.NODE_ENV !== 'production') {
@@ -476,7 +479,8 @@ export async function getPortfolioPerformanceSeries(
         let portfolioValue = 0;
         let hasAnyPrice = false;
 
-        for (const [symbol, holding] of Object.entries(activeHoldings)) {
+        for (const symbol of activeSymbols) {
+            const holding = activeHoldings[symbol];
             const qty = holding.quantity;
             if (!qty) continue;
 
@@ -517,31 +521,73 @@ export async function getPortfolioPerformanceSeries(
         const single = points[0];
         const expanded: PortfolioPerformancePoint[] = [];
 
-        expanded.push({ ...single, date: startDateStr });
-        expanded.push({ ...single, date: endDateStr });
+        if (single.date !== startDateStr) {
+            expanded.push({ ...single, date: startDateStr });
+        }
+
+        expanded.push(single);
+
+        if (single.date !== endDateStr) {
+            expanded.push({ ...single, date: endDateStr });
+        }
+
+        if (expanded.length === 1) {
+            expanded.push({ ...single, date: endDateStr });
+        }
 
         return logAndReturn(expanded);
     }
 
     if (hasPositions && points.length === 0) {
-        const summary = await getPortfolioSummary(userId, portfolioId);
-        const currentValue = summary?.totals?.currentValue ?? 0;
+        const snapshots = await getSnapshotsForSymbols(activeSymbols);
+        let fallbackValue = 0;
+        let hasFallbackPrice = false;
 
-        if (currentValue > 0) {
+        for (const symbol of activeSymbols) {
+            const holding = activeHoldings[symbol];
+            const qty = holding.quantity;
+            if (!qty) continue;
+
+            const symbolPrices = priceMaps[symbol] ?? {};
+            let close = symbolPrices[endDateStr];
+            if (typeof close !== 'number') {
+                const datedPrices = Object.entries(symbolPrices).sort(([a], [b]) => a.localeCompare(b));
+                if (datedPrices.length > 0) {
+                    close = datedPrices[datedPrices.length - 1][1];
+                }
+            }
+            if (typeof close !== 'number') {
+                const snapshot = snapshots?.[symbol];
+                if (typeof snapshot?.currentPrice === 'number') {
+                    close = snapshot.currentPrice;
+                }
+            }
+
+            if (typeof close !== 'number') {
+                continue;
+            }
+
+            const fxRateCandidate = holding.currency === baseCurrency ? 1 : fxRates[holding.currency] ?? 1;
+            const fxRate = typeof fxRateCandidate === 'number' && fxRateCandidate > 0 ? fxRateCandidate : 1;
+            fallbackValue += qty * close * fxRate;
+            hasFallbackPrice = true;
+        }
+
+        if (hasFallbackPrice && fallbackValue > 0) {
             const fallback: PortfolioPerformancePoint[] = [
                 {
                     date: startDateStr,
-                    portfolioValue: currentValue,
+                    portfolioValue: fallbackValue,
                     investedCapital: 0,
                     unrealizedPnL: 0,
-                    value: currentValue,
+                    value: fallbackValue,
                 },
                 {
                     date: endDateStr,
-                    portfolioValue: currentValue,
+                    portfolioValue: fallbackValue,
                     investedCapital: 0,
                     unrealizedPnL: 0,
-                    value: currentValue,
+                    value: fallbackValue,
                 },
             ];
 
