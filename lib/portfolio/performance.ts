@@ -4,6 +4,8 @@
  * Models used:
  * - Portfolio (database/models/portfolio.model.ts): provides baseCurrency + ownership metadata
  * - Transaction (database/models/transaction.model.ts): BUY/SELL events with quantity/price per symbol
+ *   (when no historical transactions exist, we fall back to the current holdings snapshot derived from
+ *   aggregated transaction quantities so the chart still renders a meaningful equity curve)
  *
  * Price utilities re-used:
  * - fetchJSON from lib/actions/finnhub.actions.ts for Finnhub candle requests
@@ -138,21 +140,11 @@ export async function getPortfolioPerformanceSeries(
     }
 
     const transactions = await Transaction.find({ userId, portfolioId }).sort({ tradeDate: 1 }).lean();
-    if (!transactions || transactions.length === 0) {
-        return {
-            portfolioId,
-            timeframe: range,
-            points: [],
-            currentValue: 0,
-            startingValue: 0,
-            totalReturnPct: 0,
-        };
-    }
 
     const today = startOfDay(new Date());
-    const earliestTxDate = startOfDay(new Date(transactions[0].tradeDate));
+    const earliestTxDate = transactions.length > 0 ? startOfDay(new Date(transactions[0].tradeDate)) : today;
     const rangeStartRaw = getRangeStartDate(range, today);
-    const startDate = range === 'MAX' ? earliestTxDate : startDateAfterEarliest(rangeStartRaw, earliestTxDate);
+    const startDate = range === 'MAX' && transactions.length > 0 ? earliestTxDate : startDateAfterEarliest(rangeStartRaw, earliestTxDate);
 
     const dateCursor = new Date(startDate);
     const dateStrings: string[] = [];
@@ -171,11 +163,13 @@ export async function getPortfolioPerformanceSeries(
 
     type TxSummary = { date: Date; quantity: number };
     const txsBySymbol: Record<string, TxSummary[]> = {};
+    const holdingsSnapshot: Record<string, number> = {};
     for (const tx of transactions) {
         const symbol = tx.symbol.toUpperCase();
         const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
         if (!txsBySymbol[symbol]) txsBySymbol[symbol] = [];
         txsBySymbol[symbol].push({ date: startOfDay(new Date(tx.tradeDate)), quantity: signedQty });
+        holdingsSnapshot[symbol] = (holdingsSnapshot[symbol] || 0) + signedQty;
     }
 
     Object.values(txsBySymbol).forEach((entry) => entry.sort((a, b) => a.date.getTime() - b.date.getTime()));
@@ -224,6 +218,64 @@ export async function getPortfolioPerformanceSeries(
     const allowFallbackFlatSeries = options?.allowFallbackFlatSeries ?? true;
     const hasNonZero = rawPoints.some((p) => p.portfolioValue > 0);
 
+    const buildFromHoldingsSnapshot = (): PortfolioPerformanceSeries => {
+        const snapshotSymbols = Object.entries(holdingsSnapshot)
+            .filter(([, qty]) => qty > 0)
+            .map(([sym]) => sym);
+
+        if (snapshotSymbols.length === 0) {
+            return {
+                portfolioId,
+                timeframe: range,
+                points: [],
+                currentValue: 0,
+                startingValue: 0,
+                totalReturnPct: 0,
+            };
+        }
+
+        const rawSnapshotPoints: Array<{ date: string; portfolioValue: number }> = [];
+        const state: Record<string, { qty: number; lastPrice: number | null }> = {};
+        for (const sym of snapshotSymbols) {
+            state[sym] = { qty: holdingsSnapshot[sym], lastPrice: null };
+        }
+
+        for (const dateStr of dateStrings) {
+            let totalValue = 0;
+            for (const sym of snapshotSymbols) {
+                const priceOnDate = priceMaps[sym]?.[dateStr];
+                if (typeof priceOnDate === 'number') {
+                    state[sym].lastPrice = priceOnDate;
+                }
+
+                if (typeof state[sym].lastPrice !== 'number') continue;
+
+                totalValue += state[sym].qty * state[sym].lastPrice;
+            }
+            rawSnapshotPoints.push({ date: dateStr, portfolioValue: totalValue });
+        }
+
+        const firstNonZeroSnapshot = rawSnapshotPoints.find((p) => p.portfolioValue > 0)?.portfolioValue ?? 0;
+        const pointsWithReturnsSnapshot: PortfolioPerformancePoint[] = rawSnapshotPoints.map((p) => ({
+            date: p.date,
+            portfolioValue: p.portfolioValue,
+            returnPct: computeReturnPct(p.portfolioValue, firstNonZeroSnapshot || p.portfolioValue || 0),
+        }));
+
+        const startingValueSnapshot = pointsWithReturnsSnapshot[0]?.portfolioValue ?? 0;
+        const currentValueSnapshot = pointsWithReturnsSnapshot[pointsWithReturnsSnapshot.length - 1]?.portfolioValue ?? 0;
+        const totalReturnPctSnapshot = computeReturnPct(currentValueSnapshot, startingValueSnapshot || firstNonZeroSnapshot || 0);
+
+        return {
+            portfolioId,
+            timeframe: range,
+            points: pointsWithReturnsSnapshot,
+            currentValue: currentValueSnapshot,
+            startingValue: startingValueSnapshot,
+            totalReturnPct: totalReturnPctSnapshot,
+        };
+    };
+
     const pointsWithReturns: PortfolioPerformancePoint[] = [];
     const firstNonZero = rawPoints.find((p) => p.portfolioValue > 0)?.portfolioValue ?? rawPoints[0]?.portfolioValue ?? 0;
 
@@ -233,17 +285,25 @@ export async function getPortfolioPerformanceSeries(
         pointsWithReturns.push({ date: point.date, portfolioValue: point.portfolioValue, returnPct: pct });
     }
 
-    if (!hasNonZero && allowFallbackFlatSeries) {
-        const fallbackValue = pointsWithReturns[pointsWithReturns.length - 1]?.portfolioValue ?? 0;
-        const fallbackPoints = pointsWithReturns.map((p) => ({ ...p, portfolioValue: fallbackValue, returnPct: 0 }));
-        return {
-            portfolioId,
-            timeframe: range,
-            points: fallbackPoints,
-            currentValue: fallbackValue,
-            startingValue: fallbackValue,
-            totalReturnPct: 0,
-        };
+    if (!hasNonZero) {
+        // If transactions-based series has no value (e.g., missing history), fall back to the holdings snapshot first
+        const snapshotSeries = buildFromHoldingsSnapshot();
+        if (snapshotSeries.points.length > 0) {
+            return snapshotSeries;
+        }
+
+        if (allowFallbackFlatSeries && pointsWithReturns.length > 0) {
+            const fallbackValue = pointsWithReturns[pointsWithReturns.length - 1]?.portfolioValue ?? 0;
+            const fallbackPoints = pointsWithReturns.map((p) => ({ ...p, portfolioValue: fallbackValue, returnPct: 0 }));
+            return {
+                portfolioId,
+                timeframe: range,
+                points: fallbackPoints,
+                currentValue: fallbackValue,
+                startingValue: fallbackValue,
+                totalReturnPct: 0,
+            };
+        }
     }
 
     const startingValue = pointsWithReturns[0]?.portfolioValue ?? 0;
