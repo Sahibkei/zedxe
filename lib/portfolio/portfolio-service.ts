@@ -322,12 +322,66 @@ const fetchDailyCloses = async (symbol: string, from: Date, to: Date): Promise<R
     }
 };
 
+const addDays = (value: Date, days: number) => {
+    const d = startOfDay(new Date(value));
+    d.setUTCDate(d.getUTCDate() + days);
+    return d;
+};
+
+const buildDateRange = (range: PortfolioPerformanceRange, earliestActiveTradeDate: Date) => {
+    const today = startOfDay(new Date());
+    let startCandidate = today;
+
+    switch (range) {
+        case '1D':
+            startCandidate = addDays(today, -1);
+            break;
+        case '1W':
+            startCandidate = addDays(today, -7);
+            break;
+        case '1M':
+            startCandidate = addDays(today, -30);
+            break;
+        case '3M':
+            startCandidate = addDays(today, -90);
+            break;
+        case '6M':
+            startCandidate = addDays(today, -180);
+            break;
+        case '1Y':
+            startCandidate = addDays(today, -365);
+            break;
+        case 'YTD':
+            startCandidate = startOfDay(new Date(Date.UTC(today.getUTCFullYear(), 0, 1)));
+            break;
+        case 'MAX':
+        default:
+            startCandidate = earliestActiveTradeDate;
+            break;
+    }
+
+    const startDate = startCandidate < earliestActiveTradeDate ? earliestActiveTradeDate : startCandidate;
+    const endDate = today;
+
+    const dateStrings: string[] = [];
+    const dateCursor = new Date(startDate);
+    while (dateCursor <= endDate) {
+        dateStrings.push(normalizeDateString(dateCursor));
+        dateCursor.setUTCDate(dateCursor.getUTCDate() + 1);
+    }
+
+    return { startDate, endDate, dateStrings };
+};
+
 export async function getPortfolioPerformanceSeries(
     userId: string,
     portfolioId: string,
     _range: PortfolioPerformanceRange,
     _options?: { allowFallbackFlatSeries?: boolean }
 ): Promise<PortfolioPerformancePoint[]> {
+    // Compute an index-style performance series using current net holdings priced over the requested date range.
+    // This deliberately ignores historical cash flows/PNL (investedCapital and unrealizedPnL are placeholders) and
+    // focuses on returning a usable time series so the chart can render.
     if (!userId || !portfolioId) {
         throw new Error('Missing user or portfolio id');
     }
@@ -344,69 +398,75 @@ export async function getPortfolioPerformanceSeries(
         return [];
     }
 
-    const earliestTxDate = startOfDay(new Date(transactions[0].tradeDate));
-    const today = startOfDay(new Date());
+    const baseCurrency = (portfolio.baseCurrency || 'USD').toUpperCase();
 
-    const dateStrings: string[] = [];
-    const dateCursor = new Date(earliestTxDate);
-    while (dateCursor <= today) {
-        dateStrings.push(normalizeDateString(dateCursor));
-        dateCursor.setUTCDate(dateCursor.getUTCDate() + 1);
+    const holdingsAggregated: Record<string, { quantity: number; currency: string; earliestTradeDate: Date }> = {};
+    for (const tx of transactions) {
+        const symbol = tx.symbol.toUpperCase();
+        const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
+        const txCurrency = (tx.currency || baseCurrency).toUpperCase();
+        const tradeDate = startOfDay(new Date(tx.tradeDate));
+
+        if (!holdingsAggregated[symbol]) {
+            holdingsAggregated[symbol] = { quantity: 0, currency: txCurrency, earliestTradeDate: tradeDate };
+        }
+
+        holdingsAggregated[symbol].quantity += signedQty;
+        holdingsAggregated[symbol].currency = holdingsAggregated[symbol].currency || txCurrency;
+        if (tradeDate < holdingsAggregated[symbol].earliestTradeDate) {
+            holdingsAggregated[symbol].earliestTradeDate = tradeDate;
+        }
     }
 
-    const dateIndexMap = new Map<string, number>(dateStrings.map((date, index) => [date, index]));
+    const activeHoldings = Object.entries(holdingsAggregated)
+        .filter(([, data]) => data.quantity > 0)
+        .reduce<Record<string, { quantity: number; currency: string; earliestTradeDate: Date }>>((acc, [symbol, data]) => {
+            acc[symbol] = data;
+            return acc;
+        }, {});
 
-    const symbols = Array.from(new Set(transactions.map((tx) => tx.symbol.toUpperCase())));
+    if (Object.keys(activeHoldings).length === 0) {
+        return [];
+    }
+
+    const activeEntries = Object.values(activeHoldings);
+    const earliestActiveTradeDate = activeEntries.reduce((min, entry) =>
+        entry.earliestTradeDate < min ? entry.earliestTradeDate : min
+    , activeEntries[0].earliestTradeDate);
+
+    const { startDate, endDate, dateStrings } = buildDateRange(_range, earliestActiveTradeDate);
+    const dateIndexMap = new Map<string, number>(dateStrings.map((date, index) => [date, index]));
 
     const priceMaps: Record<string, Record<string, number>> = {};
     await Promise.all(
-        symbols.map(async (symbol) => {
-            priceMaps[symbol] = await fetchDailyCloses(symbol, earliestTxDate, today);
+        Object.keys(activeHoldings).map(async (symbol) => {
+            priceMaps[symbol] = await fetchDailyCloses(symbol, startDate, endDate);
         })
     );
 
-    const positionBySymbol = new Map<string, number>();
-    const lastTradePriceBySymbol = new Map<string, number>();
-    let txIndex = 0;
+    const currencies = new Set<string>([baseCurrency, ...Object.values(activeHoldings).map((h) => h.currency)]);
+    const fxRates = await getFxRatesForCurrencies(Array.from(currencies), baseCurrency);
+
     const points: PortfolioPerformancePoint[] = [];
 
     for (const dateStr of dateStrings) {
-        const currentDate = startOfDay(new Date(dateStr));
-
-        while (
-            txIndex < transactions.length &&
-            startOfDay(new Date(transactions[txIndex].tradeDate)).getTime() <= currentDate.getTime()
-        ) {
-            const tx = transactions[txIndex];
-            const symbol = tx.symbol.toUpperCase();
-            const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
-
-            const prev = positionBySymbol.get(symbol) ?? 0;
-            positionBySymbol.set(symbol, prev + signedQty);
-            lastTradePriceBySymbol.set(symbol, tx.price);
-
-            txIndex += 1;
-        }
-
         let portfolioValue = 0;
 
-        for (const [symbol, qty] of positionBySymbol) {
+        for (const [symbol, holding] of Object.entries(activeHoldings)) {
+            const qty = holding.quantity;
             if (!qty) continue;
 
             const symbolPrices = priceMaps[symbol];
-            const symbolHasPrices = Boolean(symbolPrices && Object.keys(symbolPrices).length > 0);
-
             let close = symbolPrices?.[dateStr];
-            if (typeof close !== 'number' && symbolHasPrices) {
-                close = findLastKnownClose(symbolPrices, dateStr, dateStrings, dateIndexMap);
-            }
             if (typeof close !== 'number') {
-                close = lastTradePriceBySymbol.get(symbol);
+                close = findLastKnownClose(symbolPrices ?? {}, dateStr, dateStrings, dateIndexMap);
             }
             if (typeof close !== 'number') continue;
 
-            const fxRate = 1; // FX placeholder; will be implemented in a later PR
+            const fxRateCandidate = holding.currency === baseCurrency ? 1 : fxRates[holding.currency];
+            if (typeof fxRateCandidate !== 'number' || fxRateCandidate <= 0) continue;
 
+            const fxRate = fxRateCandidate;
             portfolioValue += qty * close * fxRate;
         }
 
@@ -414,8 +474,8 @@ export async function getPortfolioPerformanceSeries(
             points.push({
                 date: dateStr,
                 portfolioValue,
-                investedCapital: 0,
-                unrealizedPnL: 0,
+                investedCapital: 0, // placeholder; will be implemented in a later PR
+                unrealizedPnL: 0, // placeholder; will be implemented in a later PR
                 value: portfolioValue,
             });
         }
@@ -425,21 +485,20 @@ export async function getPortfolioPerformanceSeries(
         return [];
     }
 
-    if (points.length === 1 && transactions.length > 0) {
-        const only = points[0];
-        let firstDate = dateStrings[0] ?? only.date;
+    if (points.length === 1) {
+        const single = points[0];
+        const startDateStr = dateStrings[0] ?? single.date;
+        const endDateStr = dateStrings[dateStrings.length - 1] ?? single.date;
 
-        if (firstDate === only.date) {
-            const firstDateObj = startOfDay(new Date(only.date));
-            firstDateObj.setUTCDate(firstDateObj.getUTCDate() - 1);
-            firstDate = normalizeDateString(firstDateObj);
-        }
-
-        if (firstDate !== only.date) {
-            points.unshift({
-                ...only,
-                date: firstDate,
-            });
+        if (startDateStr !== endDateStr || startDateStr !== single.date) {
+            points.unshift({ ...single, date: startDateStr });
+            if (endDateStr !== single.date) {
+                points.push({ ...single, date: endDateStr });
+            }
+        } else {
+            const prior = new Date(startDate);
+            prior.setUTCDate(prior.getUTCDate() - 1);
+            points.unshift({ ...single, date: normalizeDateString(prior) });
         }
     }
 
