@@ -18,6 +18,7 @@ export interface CryptoHoldingDocument {
 export interface CryptoPortfolioSnapshotDocument extends Document {
     userId: string;
     walletAddress: string;
+    name: string;
     baseCurrency: string;
     totalValueUsd: number;
     holdings: CryptoHoldingDocument[];
@@ -47,6 +48,7 @@ const CryptoPortfolioSnapshotSchema = new Schema<CryptoPortfolioSnapshotDocument
     {
         userId: { type: String, required: true, index: true },
         walletAddress: { type: String, required: true, index: true },
+        name: { type: String, default: '' },
         baseCurrency: { type: String, default: 'USD', uppercase: true, trim: true },
         totalValueUsd: { type: Number, default: 0 },
         holdings: { type: [HoldingSchema], default: [] },
@@ -55,6 +57,7 @@ const CryptoPortfolioSnapshotSchema = new Schema<CryptoPortfolioSnapshotDocument
 );
 
 CryptoPortfolioSnapshotSchema.index({ userId: 1, walletAddress: 1 });
+CryptoPortfolioSnapshotSchema.index({ userId: 1, _id: 1 });
 
 export const CryptoPortfolioSnapshot: Model<CryptoPortfolioSnapshotDocument> =
     (models?.CryptoPortfolioSnapshot as Model<CryptoPortfolioSnapshotDocument>) ||

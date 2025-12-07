@@ -1,5 +1,6 @@
 import PortfolioPageClient from '@/components/portfolio/PortfolioPageClient';
-import { getLatestCryptoPortfolioAction } from '@/lib/crypto/actions';
+import { listCryptoSnapshotsAction } from '@/lib/crypto/actions';
+import type { CryptoPortfolioSnapshotLean } from '@/lib/crypto/portfolio-service';
 import { getPortfolioPerformanceAction, getPortfolioSummaryAction, getUserPortfoliosAction } from '@/lib/portfolio/actions';
 import type { PortfolioPerformancePoint, PortfolioPerformanceRange } from '@/lib/portfolio/portfolio-service';
 
@@ -10,7 +11,12 @@ const PortfolioPage = async () => {
     const first = portfolios[0];
     const summary = first ? await getPortfolioSummaryAction(first.id) : null;
     let initialPerformancePoints: PortfolioPerformancePoint[] = [];
-    const initialCryptoSnapshot = await getLatestCryptoPortfolioAction();
+    let initialCryptoSnapshots: CryptoPortfolioSnapshotLean[] = [];
+    try {
+        initialCryptoSnapshots = await listCryptoSnapshotsAction();
+    } catch (error) {
+        console.error('Failed to load crypto snapshots:', error);
+    }
 
     if (summary) {
         const res = await getPortfolioPerformanceAction(summary.portfolio.id, DEFAULT_PERFORMANCE_RANGE);
@@ -25,7 +31,7 @@ const PortfolioPage = async () => {
             initialSummary={summary}
             initialPerformanceRange={DEFAULT_PERFORMANCE_RANGE}
             initialPerformancePoints={initialPerformancePoints}
-            initialCryptoSnapshot={initialCryptoSnapshot}
+            initialCryptoSnapshots={initialCryptoSnapshots}
         />
     );
 };

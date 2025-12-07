@@ -41,13 +41,13 @@ const PortfolioPageClient = ({
     initialSummary,
     initialPerformanceRange,
     initialPerformancePoints,
-    initialCryptoSnapshot,
+    initialCryptoSnapshots,
 }: {
     initialPortfolios: PortfolioLean[];
     initialSummary: PortfolioSummary | null;
     initialPerformanceRange: PortfolioPerformanceRange;
     initialPerformancePoints: PortfolioPerformancePoint[];
-    initialCryptoSnapshot: CryptoPortfolioSnapshotLean | null;
+    initialCryptoSnapshots: CryptoPortfolioSnapshotLean[];
 }) => {
     const [portfolios, setPortfolios] = useState<PortfolioLean[]>(initialPortfolios);
     const [summary, setSummary] = useState<PortfolioSummary | null>(initialSummary);
@@ -388,7 +388,11 @@ const PortfolioPageClient = ({
                 </Button>
             </div>
 
-            {mode === 'stocks' ? renderStockPortfolios() : <CryptoPortfolioPanel initialSnapshot={initialCryptoSnapshot} />}
+            {mode === 'stocks' ? (
+                renderStockPortfolios()
+            ) : (
+                <CryptoPortfolioPanel initialSnapshots={initialCryptoSnapshots} />
+            )}
 
             {error && <p className="text-sm text-red-400">{error}</p>}
         </div>

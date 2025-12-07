@@ -22,6 +22,7 @@ export type CryptoHolding = {
 export type CryptoPortfolioSnapshotLean = {
     id: string;
     walletAddress: string;
+    name: string;
     baseCurrency: string;
     totalValueUsd: number;
     holdings: CryptoHolding[];
@@ -49,6 +50,7 @@ type MoralisTokenResponse = {
 const mapSnapshot = (doc: CryptoPortfolioSnapshotDocument): CryptoPortfolioSnapshotLean => ({
     id: String(doc._id),
     walletAddress: doc.walletAddress,
+    name: doc.name ?? '',
     baseCurrency: doc.baseCurrency,
     totalValueUsd: doc.totalValueUsd ?? 0,
     holdings:
@@ -114,7 +116,8 @@ const moralisTokenToHolding = (token: MoralisTokenBalance, chainId: SupportedCha
 
 export async function refreshCryptoPortfolioSnapshot(
     userId: string,
-    walletAddress: string
+    walletAddress: string,
+    name?: string
 ): Promise<CryptoPortfolioSnapshotLean> {
     const apiKey = process.env.MORALIS_API_KEY;
     if (!apiKey) {
@@ -160,16 +163,20 @@ export async function refreshCryptoPortfolioSnapshot(
 
     await connectToDatabase();
 
+    const update: Partial<CryptoPortfolioSnapshotDocument> = {
+        walletAddress: normalizedWallet,
+        baseCurrency: 'USD',
+        totalValueUsd,
+        holdings: withAllocation,
+    };
+
+    if (name !== undefined) {
+        update.name = name;
+    }
+
     const doc = await CryptoPortfolioSnapshot.findOneAndUpdate(
         { userId, walletAddress: normalizedWallet },
-        {
-            $set: {
-                walletAddress: normalizedWallet,
-                baseCurrency: 'USD',
-                totalValueUsd,
-                holdings: withAllocation,
-            },
-        },
+        { $set: update },
         { new: true, upsert: true, setDefaultsOnInsert: true }
     );
 
@@ -182,6 +189,68 @@ export async function getLatestCryptoPortfolioSnapshot(userId: string): Promise<
     await connectToDatabase();
     const doc = await CryptoPortfolioSnapshot.findOne({ userId }).sort({ updatedAt: -1 }).lean<CryptoPortfolioSnapshotDocument>();
     if (!doc) return null;
+
+    return mapSnapshot(doc);
+}
+
+export async function listUserCryptoSnapshots(userId: string): Promise<CryptoPortfolioSnapshotLean[]> {
+    if (!userId) return [];
+
+    await connectToDatabase();
+    const docs = await CryptoPortfolioSnapshot.find({ userId })
+        .sort({ updatedAt: -1 })
+        .lean<CryptoPortfolioSnapshotDocument>();
+
+    return docs.map(mapSnapshot);
+}
+
+export async function getCryptoSnapshotById(
+    userId: string,
+    snapshotId: string
+): Promise<CryptoPortfolioSnapshotLean | null> {
+    if (!userId || !snapshotId) return null;
+
+    await connectToDatabase();
+    const doc = await CryptoPortfolioSnapshot.findOne({ userId, _id: snapshotId }).lean<CryptoPortfolioSnapshotDocument>();
+    if (!doc) return null;
+
+    return mapSnapshot(doc);
+}
+
+export async function deleteCryptoSnapshot(userId: string, snapshotId: string): Promise<void> {
+    if (!userId || !snapshotId) return;
+
+    await connectToDatabase();
+    await CryptoPortfolioSnapshot.deleteOne({ userId, _id: snapshotId });
+}
+
+export async function updateCryptoSnapshotMeta(
+    userId: string,
+    snapshotId: string,
+    updates: { name?: string; walletAddress?: string }
+): Promise<CryptoPortfolioSnapshotLean> {
+    if (!userId || !snapshotId) {
+        throw new Error('Missing snapshot identifier.');
+    }
+
+    const normalizedWallet = updates.walletAddress ? normalizeWallet(updates.walletAddress) : undefined;
+
+    await connectToDatabase();
+
+    const doc = await CryptoPortfolioSnapshot.findOneAndUpdate(
+        { userId, _id: snapshotId },
+        {
+            $set: {
+                ...(updates.name !== undefined ? { name: updates.name } : {}),
+                ...(normalizedWallet ? { walletAddress: normalizedWallet } : {}),
+            },
+        },
+        { new: true }
+    ).lean<CryptoPortfolioSnapshotDocument>();
+
+    if (!doc) {
+        throw new Error('Snapshot not found.');
+    }
 
     return mapSnapshot(doc);
 }
