@@ -429,21 +429,27 @@ export async function getPortfolioPerformanceSeries(
     );
 
     const points: PortfolioPerformancePoint[] = [];
+    const lastKnownCloseBySymbol: Record<string, number | undefined> = {};
 
     for (const dateStr of dateStrings) {
         let portfolioValue = 0;
-        let hasPrice = false;
+        let hasAnyPrice = false;
 
         for (const holding of holdings) {
             const close = priceMaps[holding.symbol]?.[dateStr];
-            if (typeof close !== 'number') continue;
+            if (typeof close === 'number') {
+                lastKnownCloseBySymbol[holding.symbol] = close;
+            }
 
-            hasPrice = true;
+            const effectiveClose = lastKnownCloseBySymbol[holding.symbol];
+            if (typeof effectiveClose !== 'number') continue;
+
+            hasAnyPrice = true;
             const fxRate = holding.currency === baseCurrency ? 1 : fxRates[holding.currency] ?? 1;
-            portfolioValue += holding.quantity * close * fxRate;
+            portfolioValue += holding.quantity * effectiveClose * fxRate;
         }
 
-        if (hasPrice) {
+        if (hasAnyPrice) {
             points.push({
                 date: dateStr,
                 portfolioValue,
