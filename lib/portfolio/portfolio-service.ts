@@ -366,6 +366,7 @@ export async function getPortfolioPerformanceSeries(
     );
 
     const positionBySymbol = new Map<string, number>();
+    const lastTradePriceBySymbol = new Map<string, number>();
     let txIndex = 0;
     const points: PortfolioPerformancePoint[] = [];
 
@@ -382,6 +383,7 @@ export async function getPortfolioPerformanceSeries(
 
             const prev = positionBySymbol.get(symbol) ?? 0;
             positionBySymbol.set(symbol, prev + signedQty);
+            lastTradePriceBySymbol.set(symbol, tx.price);
 
             txIndex += 1;
         }
@@ -392,11 +394,14 @@ export async function getPortfolioPerformanceSeries(
             if (!qty) continue;
 
             const symbolPrices = priceMaps[symbol];
-            if (!symbolPrices) continue;
+            const symbolHasPrices = Boolean(symbolPrices && Object.keys(symbolPrices).length > 0);
 
-            let close = symbolPrices[dateStr];
-            if (typeof close !== 'number') {
+            let close = symbolPrices?.[dateStr];
+            if (typeof close !== 'number' && symbolHasPrices) {
                 close = findLastKnownClose(symbolPrices, dateStr, dateStrings, dateIndexMap);
+            }
+            if (typeof close !== 'number') {
+                close = lastTradePriceBySymbol.get(symbol);
             }
             if (typeof close !== 'number') continue;
 
