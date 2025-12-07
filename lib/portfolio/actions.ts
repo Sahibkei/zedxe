@@ -199,7 +199,9 @@ export async function getPortfolioPerformanceAction(
 ): Promise<{ success: true; points: PortfolioPerformancePoint[] } | { success: false; error: string }> {
     const session = await requireSession();
     try {
-        const points = await getPortfolioPerformanceSeries(session.user.id, portfolioId, range);
+        const points = await getPortfolioPerformanceSeries(session.user.id, portfolioId, range, {
+            allowFallbackFlatSeries: true,
+        });
         return { success: true, points } as const;
     } catch (error) {
         console.error('getPortfolioPerformanceAction error:', error);

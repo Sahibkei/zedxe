@@ -376,8 +376,8 @@ const buildDateRange = (range: PortfolioPerformanceRange, earliestActiveTradeDat
 export async function getPortfolioPerformanceSeries(
     userId: string,
     portfolioId: string,
-    _range: PortfolioPerformanceRange,
-    _options?: { allowFallbackFlatSeries?: boolean }
+    range: PortfolioPerformanceRange,
+    options?: { allowFallbackFlatSeries?: boolean }
 ): Promise<PortfolioPerformancePoint[]> {
     // Compute an index-style performance series using current net holdings priced over the requested date range.
     // This deliberately ignores historical cash flows/PNL (investedCapital and unrealizedPnL are placeholders) and
@@ -385,6 +385,8 @@ export async function getPortfolioPerformanceSeries(
     if (!userId || !portfolioId) {
         throw new Error('Missing user or portfolio id');
     }
+
+    const allowFallbackFlatSeries = options?.allowFallbackFlatSeries ?? false;
 
     await connectToDatabase();
 
@@ -434,7 +436,7 @@ export async function getPortfolioPerformanceSeries(
         entry.earliestTradeDate < min ? entry.earliestTradeDate : min
     , activeEntries[0].earliestTradeDate);
 
-    const { startDate, endDate, dateStrings } = buildDateRange(_range, earliestActiveTradeDate);
+    const { startDate, endDate, dateStrings } = buildDateRange(range, earliestActiveTradeDate);
     const dateIndexMap = new Map<string, number>(dateStrings.map((date, index) => [date, index]));
 
     const priceMaps: Record<string, Record<string, number>> = {};
@@ -448,6 +450,22 @@ export async function getPortfolioPerformanceSeries(
     const fxRates = await getFxRatesForCurrencies(Array.from(currencies), baseCurrency);
 
     const points: PortfolioPerformancePoint[] = [];
+    const hasPositions = Object.keys(activeHoldings).length > 0;
+    const startDateStr = dateStrings[0] ?? normalizeDateString(startDate);
+    const endDateStr = dateStrings[dateStrings.length - 1] ?? normalizeDateString(endDate);
+
+    const logAndReturn = (items: PortfolioPerformancePoint[]) => {
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(
+                '[getPortfolioPerformanceSeries] portfolioId=%s range=%s points=%d sample=%o',
+                portfolioId,
+                range,
+                items.length,
+                items.slice(0, 3).map((p) => ({ date: p.date, value: p.value ?? p.portfolioValue }))
+            );
+        }
+        return items;
+    };
 
     for (const dateStr of dateStrings) {
         let portfolioValue = 0;
@@ -481,28 +499,51 @@ export async function getPortfolioPerformanceSeries(
         }
     }
 
-    if (points.length === 0) {
-        return [];
+    if (points.length >= 2) {
+        return logAndReturn(points);
     }
 
-    if (points.length === 1) {
-        const single = points[0];
-        const startDateStr = dateStrings[0] ?? single.date;
-        const endDateStr = dateStrings[dateStrings.length - 1] ?? single.date;
+    if (!allowFallbackFlatSeries) {
+        return logAndReturn(points);
+    }
 
-        if (startDateStr !== endDateStr || startDateStr !== single.date) {
-            points.unshift({ ...single, date: startDateStr });
-            if (endDateStr !== single.date) {
-                points.push({ ...single, date: endDateStr });
-            }
-        } else {
-            const prior = new Date(startDate);
-            prior.setUTCDate(prior.getUTCDate() - 1);
-            points.unshift({ ...single, date: normalizeDateString(prior) });
+    if (hasPositions && points.length === 1) {
+        const single = points[0];
+        const expanded: PortfolioPerformancePoint[] = [];
+
+        expanded.push({ ...single, date: startDateStr });
+        expanded.push({ ...single, date: endDateStr });
+
+        return logAndReturn(expanded);
+    }
+
+    if (hasPositions && points.length === 0) {
+        const summary = await getPortfolioSummary(userId, portfolioId);
+        const currentValue = summary?.totals?.currentValue ?? 0;
+
+        if (currentValue > 0) {
+            const fallback: PortfolioPerformancePoint[] = [
+                {
+                    date: startDateStr,
+                    portfolioValue: currentValue,
+                    investedCapital: 0,
+                    unrealizedPnL: 0,
+                    value: currentValue,
+                },
+                {
+                    date: endDateStr,
+                    portfolioValue: currentValue,
+                    investedCapital: 0,
+                    unrealizedPnL: 0,
+                    value: currentValue,
+                },
+            ];
+
+            return logAndReturn(fallback);
         }
     }
 
-    return points;
+    return logAndReturn(points);
 }
 
 function findLastKnownClose(
