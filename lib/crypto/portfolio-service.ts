@@ -199,7 +199,7 @@ export async function listUserCryptoSnapshots(userId: string): Promise<CryptoPor
     await connectToDatabase();
     const docs = await CryptoPortfolioSnapshot.find({ userId })
         .sort({ updatedAt: -1 })
-        .lean<CryptoPortfolioSnapshotDocument[]>();
+        .lean<CryptoPortfolioSnapshotDocument>();
 
     return docs.map(mapSnapshot);
 }
