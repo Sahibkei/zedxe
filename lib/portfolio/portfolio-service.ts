@@ -381,6 +381,16 @@ export async function getPortfolioPerformanceSeries(
     currencies.add(baseCurrency);
     const fxRates = await getFxRatesForCurrencies(Array.from(currencies), baseCurrency);
 
+    const resolveFxRate = async (currency: string) => {
+        const normalized = currency.toUpperCase();
+        if (normalized === baseCurrency) return 1;
+        const cached = fxRates[normalized];
+        if (typeof cached === 'number' && cached > 0) return cached;
+        const fetched = await getFxRateLatest(normalized, baseCurrency);
+        fxRates[normalized] = fetched;
+        return fetched;
+    };
+
     const today = startOfDay(new Date());
     const earliestTxDate = startOfDay(new Date(transactions[0].tradeDate));
 
@@ -403,15 +413,21 @@ export async function getPortfolioPerformanceSeries(
         })
     );
 
+    const hasHistoricalPrices = Object.values(priceMaps).some((map) => Object.keys(map).length > 0);
+
     type TxSummary = { date: Date; quantity: number; cost: number };
     const txsBySymbol: Record<string, { currency: string; txs: TxSummary[] }> = {};
     for (const tx of transactions) {
         const symbol = tx.symbol.toUpperCase();
         const signedQty = tx.type === 'SELL' ? -Math.abs(tx.quantity) : Math.abs(tx.quantity);
         const txCurrency = (tx.currency || baseCurrency).toUpperCase();
-        const fxRateCandidate = txCurrency === baseCurrency ? 1 : fxRates[txCurrency];
-        const fallbackFxRate = typeof tx.fxRateToBase === 'number' && tx.fxRateToBase > 0 ? tx.fxRateToBase : 1;
-        const fxRate = typeof fxRateCandidate === 'number' && fxRateCandidate > 0 ? fxRateCandidate : fallbackFxRate;
+        const fxRateCandidate = await resolveFxRate(txCurrency);
+        const fxRate =
+            txCurrency === baseCurrency
+                ? 1
+                : typeof tx.fxRateToBase === 'number' && tx.fxRateToBase > 0
+                  ? tx.fxRateToBase
+                  : fxRateCandidate;
         const totalValueBase = tx.price * Math.abs(tx.quantity) * fxRate;
 
         if (!txsBySymbol[symbol]) txsBySymbol[symbol] = { currency: txCurrency, txs: [] };
@@ -439,7 +455,7 @@ export async function getPortfolioPerformanceSeries(
     for (const symbol of symbols) {
         const txGroup = txsBySymbol[symbol];
         const symbolCurrency = txGroup?.currency || baseCurrency;
-        const fxRate = symbolCurrency === baseCurrency ? 1 : fxRates[symbolCurrency] ?? 1;
+        const fxRate = await resolveFxRate(symbolCurrency);
         stateBySymbol[symbol] = {
             idx: 0,
             quantity: 0,
@@ -502,6 +518,49 @@ export async function getPortfolioPerformanceSeries(
                 value: p.portfolioValue ?? p.value,
             }))
         );
+    }
+
+    const hasNonZeroSeries = series.some((point) => Number.isFinite(point.portfolioValue) && point.portfolioValue > 0);
+
+    if ((!hasHistoricalPrices || !hasNonZeroSeries) && symbols.length > 0) {
+        const snapshots = await getSnapshotsForSymbols(symbols);
+        let currentValue = 0;
+        let investedCapital = 0;
+
+        for (const symbol of symbols) {
+            const state = stateBySymbol[symbol];
+            const quantity = state?.quantity ?? 0;
+            if (!quantity || quantity <= 0) continue;
+
+            const snapshotPrice = snapshots[symbol]?.currentPrice;
+            if (typeof snapshotPrice !== 'number' || snapshotPrice <= 0) continue;
+
+            const fxRate = state?.fxRate ?? 1;
+            currentValue += quantity * snapshotPrice * fxRate;
+            investedCapital += Math.max(state?.totalCost ?? 0, 0);
+        }
+
+        if (currentValue > 0) {
+            const fallbackSeries = dateStrings.map((date) => ({
+                date,
+                portfolioValue: currentValue,
+                investedCapital,
+                unrealizedPnL: currentValue - investedCapital,
+                value: currentValue,
+            }));
+
+            if (process.env.NODE_ENV !== 'production') {
+                console.log(
+                    '[getPortfolioPerformanceSeries] sample',
+                    fallbackSeries.slice(0, 10).map((p) => ({
+                        date: p.date,
+                        value: p.portfolioValue ?? p.value,
+                    }))
+                );
+            }
+
+            return fallbackSeries;
+        }
     }
 
     return series;
