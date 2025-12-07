@@ -461,7 +461,7 @@ export async function getPortfolioPerformanceSeries(
                 portfolioId,
                 range,
                 items.length,
-                items.slice(0, 3).map((p) => ({ date: p.date, value: p.value ?? p.portfolioValue }))
+                items.slice(0, 5).map((p) => ({ date: p.date, value: p.value ?? p.portfolioValue }))
             );
         }
         return items;
@@ -469,6 +469,7 @@ export async function getPortfolioPerformanceSeries(
 
     for (const dateStr of dateStrings) {
         let portfolioValue = 0;
+        let hasAnyPrice = false;
 
         for (const [symbol, holding] of Object.entries(activeHoldings)) {
             const qty = holding.quantity;
@@ -485,10 +486,11 @@ export async function getPortfolioPerformanceSeries(
             if (typeof fxRateCandidate !== 'number' || fxRateCandidate <= 0) continue;
 
             const fxRate = fxRateCandidate;
+            hasAnyPrice = true;
             portfolioValue += qty * close * fxRate;
         }
 
-        if (portfolioValue > 0) {
+        if (hasAnyPrice) {
             points.push({
                 date: dateStr,
                 portfolioValue,
