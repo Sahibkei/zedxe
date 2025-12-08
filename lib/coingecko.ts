@@ -7,7 +7,8 @@ function getCoinGeckoHeaders(): HeadersInit {
 
     if (!COINGECKO_API_KEY) return headers;
 
-    const isProApi = COINGECKO_API_BASE.includes("pro-api.coingecko.com");
+    const hostname = new URL(COINGECKO_API_BASE).hostname;
+    const isProApi = hostname === "pro-api.coingecko.com";
 
     if (isProApi) {
         // Pro plan
@@ -25,7 +26,11 @@ export async function coingeckoFetch<T>(
     searchParams?: Record<string, string | number | boolean | undefined>,
     options?: { revalidateSeconds?: number }
 ): Promise<T> {
-    const url = new URL(path, COINGECKO_API_BASE);
+    const normalizedBase = COINGECKO_API_BASE.endsWith("/")
+        ? COINGECKO_API_BASE
+        : `${COINGECKO_API_BASE}/`;
+    const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
+    const url = new URL(normalizedPath, normalizedBase);
 
     if (searchParams) {
         for (const [key, value] of Object.entries(searchParams)) {
@@ -33,11 +38,6 @@ export async function coingeckoFetch<T>(
                 url.searchParams.set(key, String(value));
             }
         }
-    }
-
-    const isProApi = COINGECKO_API_BASE.includes("pro-api.coingecko.com");
-    if (!isProApi && COINGECKO_API_KEY) {
-        url.searchParams.set('x_cg_demo_api_key', COINGECKO_API_KEY);
     }
 
     const res = await fetch(url.toString(), {
@@ -61,7 +61,7 @@ export async function coingeckoFetch<T>(
             body,
         });
 
-        throw new Error('CoinGecko request failed');
+        throw new Error("CoinGecko request failed");
     }
 
     return res.json() as Promise<T>;
