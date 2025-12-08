@@ -8,7 +8,7 @@ export type MarketCoin = {
     id: string;
     symbol: string;
     name: string;
-    logoUrl: string;
+    image: string;
     market_cap_rank: number | null;
     current_price: number;
     market_cap: number;
@@ -70,7 +70,7 @@ export async function getTopCryptoMarketCoins(): Promise<MarketCoin[]> {
             id: coin.id,
             symbol: coin.symbol,
             name: coin.name,
-            logoUrl: coin.image ?? '',
+            image: coin.image ?? '',
             market_cap_rank: coin.market_cap_rank ?? null,
             current_price: coin.current_price ?? 0,
             market_cap: coin.market_cap ?? 0,
