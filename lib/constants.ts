@@ -3,6 +3,7 @@ export const NAV_ITEMS = [
     { href: '/search', label: 'Search' },
     { href: '/news', label: 'News' },
     { href: '/portfolio', label: 'Portfolio' },
+    { href: '/crypto', label: 'Crypto' },
     { href: '/watchlist', label: 'Watchlist' },
 ];
 
