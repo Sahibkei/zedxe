@@ -2,6 +2,8 @@
 
 import { ArrowDownRight, ArrowUpRight, ActivitySquare, Scale } from "lucide-react";
 
+import { formatNumber } from "@/utils/formatters";
+
 interface OrderflowSummaryProps {
     delta: number;
     buyVolume: number;
@@ -10,8 +12,6 @@ interface OrderflowSummaryProps {
     sellTradesCount: number;
     averageTradeSize: number;
 }
-
-const formatNumber = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 4 });
 
 const formatPercent = (value: number) => `${value.toFixed(0)}%`;
 
@@ -69,9 +69,13 @@ export const OrderflowSummary = ({
                 <div className="mt-3 flex items-center gap-2 text-xs text-gray-400">
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-800">
                         <div
+                            role="progressbar"
+                            aria-valuenow={buyPercent}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-label="Buy volume percentage"
                             className="h-full bg-emerald-500"
                             style={{ width: `${buyPercent}%` }}
-                            aria-label="buy-percent"
                         />
                     </div>
                     <span>{formatPercent(buyPercent)} Buy</span>

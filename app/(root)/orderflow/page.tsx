@@ -110,11 +110,10 @@ const OrderflowPage = () => {
             </div>
 
             {!hasData ? (
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {Array.from({ length: 3 }).map((_, index) => (
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    {Array.from({ length: 4 }).map((_, index) => (
                         <div key={index} className="h-28 animate-pulse rounded-xl border border-gray-800 bg-[#0f1115]" />
                     ))}
-                    <div className="h-28 animate-pulse rounded-xl border border-gray-800 bg-[#0f1115]" />
                 </div>
             ) : (
                 <OrderflowSummary {...metrics} />

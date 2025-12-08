@@ -69,6 +69,7 @@ export const useOrderflowStream = ({ symbol = DEFAULT_SYMBOL }: UseOrderflowStre
     const reconnectAttempts = useRef(0);
     const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
     const activeSymbol = useRef(symbol.toLowerCase());
+    const isMounted = useRef(true);
 
     const cleanup = () => {
         if (reconnectTimeout.current) {
@@ -83,6 +84,7 @@ export const useOrderflowStream = ({ symbol = DEFAULT_SYMBOL }: UseOrderflowStre
     };
 
     useEffect(() => {
+        isMounted.current = true;
         activeSymbol.current = symbol.toLowerCase();
         cleanup();
 
@@ -105,7 +107,7 @@ export const useOrderflowStream = ({ symbol = DEFAULT_SYMBOL }: UseOrderflowStre
                 setTrades((prev) => {
                     const next = [...prev, trade];
                     if (next.length > MAX_TRADES) {
-                        next.splice(0, next.length - MAX_TRADES);
+                        return next.slice(-MAX_TRADES);
                     }
                     return next;
                 });
@@ -117,7 +119,7 @@ export const useOrderflowStream = ({ symbol = DEFAULT_SYMBOL }: UseOrderflowStre
 
             ws.onclose = () => {
                 setConnected(false);
-                if (reconnectTimeout.current) return;
+                if (reconnectTimeout.current || !isMounted.current) return;
 
                 const attempt = reconnectAttempts.current;
                 const delay = Math.min(30000, 1000 * 2 ** attempt);
@@ -133,6 +135,7 @@ export const useOrderflowStream = ({ symbol = DEFAULT_SYMBOL }: UseOrderflowStre
         connect();
 
         return () => {
+            isMounted.current = false;
             cleanup();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps

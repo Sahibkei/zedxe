@@ -11,6 +11,8 @@ import {
     YAxis,
 } from "recharts";
 
+import { formatNumber, formatTime } from "@/utils/formatters";
+
 export interface VolumeBucket {
     timestamp: number;
     buyVolume: number;
@@ -22,9 +24,10 @@ interface OrderflowChartProps {
     buckets: VolumeBucket[];
 }
 
-const formatTime = (timestamp: number) => new Date(timestamp).toLocaleTimeString([], { minute: "2-digit", second: "2-digit" });
-
-const tooltipFormatter = (value: number, name: string) => [value.toFixed(4), name === "buyVolume" ? "Buy" : name === "sellVolume" ? "Sell" : "Delta"];
+const tooltipFormatter = (value: number, name: string) => [
+    formatNumber(value),
+    name === "buyVolume" ? "Buy" : name === "sellVolume" ? "Sell" : "Delta",
+];
 
 export const OrderflowChart = ({ buckets }: OrderflowChartProps) => {
     return (

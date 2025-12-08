@@ -1,14 +1,11 @@
 "use client";
 
 import { LARGE_TRADE_THRESHOLD, NormalizedTrade } from "@/hooks/useOrderflowStream";
+import { formatNumber, formatTime } from "@/utils/formatters";
 
 interface TradesTableProps {
     trades: NormalizedTrade[];
 }
-
-const formatTime = (timestamp: number) => new Date(timestamp).toLocaleTimeString([], { minute: "2-digit", second: "2-digit" });
-
-const formatNumber = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 4 });
 
 export const TradesTable = ({ trades }: TradesTableProps) => {
     const recentTrades = [...trades].reverse();

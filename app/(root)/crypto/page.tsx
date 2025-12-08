@@ -1,5 +1,6 @@
 import Link from 'next/link';
 
+import { Button } from '@/components/ui/button';
 import { getCryptoPageData } from '@/lib/crypto/market-data';
 import { formatMarketCapValue, formatPrice, getChangeColorClass } from '@/lib/utils';
 
@@ -20,9 +21,14 @@ const CryptoPage = async () => {
 
     return (
         <section className="space-y-8">
-            <div className="flex flex-col gap-2">
-                <h1 className="text-3xl font-semibold text-gray-100">Crypto Market Overview</h1>
-                <p className="text-gray-400">Track the global crypto market and top 100 coins by market cap.</p>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-2">
+                    <h1 className="text-3xl font-semibold text-gray-100">Crypto Market Overview</h1>
+                    <p className="text-gray-400">Track the global crypto market and top 100 coins by market cap.</p>
+                </div>
+                <Button asChild className="w-full sm:w-auto">
+                    <Link href="/orderflow">View live orderflow (BTCUSDT)</Link>
+                </Button>
             </div>
 
             <div className="rounded-xl bg-[#0f0f0f] border border-gray-800 p-6 shadow-lg">
