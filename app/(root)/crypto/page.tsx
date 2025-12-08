@@ -1,6 +1,6 @@
 import Image from 'next/image';
 
-import { getGlobalCryptoMarketData, getTopCryptoMarketCoins } from '@/lib/crypto/market-data';
+import { getCryptoPageData } from '@/lib/crypto/market-data';
 import { formatMarketCapValue, formatPrice, getChangeColorClass } from '@/lib/utils';
 
 const formatPercent = (value?: number | null) => {
@@ -16,10 +16,7 @@ const formatSupply = (value: number) => {
 };
 
 const CryptoPage = async () => {
-    const [globalData, coins] = await Promise.all([
-        getGlobalCryptoMarketData(),
-        getTopCryptoMarketCoins(),
-    ]);
+    const { totalMarketCapUsd, rows } = await getCryptoPageData();
 
     return (
         <section className="space-y-8">
@@ -30,7 +27,7 @@ const CryptoPage = async () => {
 
             <div className="rounded-xl bg-[#0f0f0f] border border-gray-800 p-6 shadow-lg">
                 <p className="text-sm uppercase tracking-wide text-gray-400">Total Market Cap</p>
-                <p className="text-4xl font-bold text-gray-100">{formatMarketCapValue(globalData.totalMarketCapUsd)}</p>
+                <p className="text-4xl font-bold text-gray-100">{formatMarketCapValue(totalMarketCapUsd)}</p>
             </div>
 
             <div className="overflow-x-auto rounded-xl border border-gray-800 bg-[#0f0f0f] shadow-lg">
@@ -47,7 +44,7 @@ const CryptoPage = async () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-800">
-                        {coins.map((coin) => (
+                        {rows.map((coin) => (
                             <tr key={coin.id} className="hover:bg-gray-900/30 transition-colors">
                                 <td className="px-4 py-3">
                                     <div className="flex items-center gap-3">
@@ -59,13 +56,25 @@ const CryptoPage = async () => {
                                     </div>
                                 </td>
                                 <td className="px-4 py-3 text-right font-medium text-gray-100">{formatPrice(coin.current_price)}</td>
-                                <td className={`px-4 py-3 text-right font-medium ${getChangeColorClass(coin.price_change_percentage_24h_in_currency ?? undefined)}`}>
+                                <td
+                                    className={`px-4 py-3 text-right font-medium ${getChangeColorClass(
+                                        coin.price_change_percentage_24h_in_currency ?? undefined
+                                    )}`}
+                                >
                                     {formatPercent(coin.price_change_percentage_24h_in_currency)}
                                 </td>
-                                <td className={`px-4 py-3 text-right font-medium ${getChangeColorClass(coin.price_change_percentage_7d_in_currency ?? undefined)}`}>
+                                <td
+                                    className={`px-4 py-3 text-right font-medium ${getChangeColorClass(
+                                        coin.price_change_percentage_7d_in_currency ?? undefined
+                                    )}`}
+                                >
                                     {formatPercent(coin.price_change_percentage_7d_in_currency)}
                                 </td>
-                                <td className={`px-4 py-3 text-right font-medium ${getChangeColorClass(coin.price_change_percentage_30d_in_currency ?? undefined)}`}>
+                                <td
+                                    className={`px-4 py-3 text-right font-medium ${getChangeColorClass(
+                                        coin.price_change_percentage_30d_in_currency ?? undefined
+                                    )}`}
+                                >
                                     {formatPercent(coin.price_change_percentage_30d_in_currency)}
                                 </td>
                                 <td className="px-4 py-3 text-right font-medium text-gray-100">{formatMarketCapValue(coin.market_cap)}</td>

@@ -1,13 +1,31 @@
-const COINGECKO_API_BASE = process.env.COINGECKO_API_BASE ?? "https://api.coingecko.com/api/v3";
+const COINGECKO_API_BASE =
+    process.env.COINGECKO_API_BASE ?? "https://api.coingecko.com/api/v3";
 const COINGECKO_API_KEY = process.env.COINGECKO_API_KEY;
+
+function getCoinGeckoHeaders(): HeadersInit {
+    const headers: HeadersInit = {};
+
+    if (!COINGECKO_API_KEY) return headers;
+
+    const isProApi = COINGECKO_API_BASE.includes("pro-api.coingecko.com");
+
+    if (isProApi) {
+        // Pro plan
+        headers["x-cg-pro-api-key"] = COINGECKO_API_KEY;
+    } else {
+        // Demo / public plan
+        headers["x-cg-demo-api-key"] = COINGECKO_API_KEY;
+    }
+
+    return headers;
+}
 
 export async function coingeckoFetch<T>(
     path: string,
-    searchParams?: Record<string, string | number | undefined>,
+    searchParams?: Record<string, string | number | boolean | undefined>,
     options?: { revalidateSeconds?: number }
 ): Promise<T> {
-    const baseUrl = COINGECKO_API_BASE;
-    const url = new URL(path, baseUrl);
+    const url = new URL(path, COINGECKO_API_BASE);
 
     if (searchParams) {
         for (const [key, value] of Object.entries(searchParams)) {
@@ -17,19 +35,28 @@ export async function coingeckoFetch<T>(
         }
     }
 
-    const headers: HeadersInit = {};
-    if (COINGECKO_API_KEY) {
-        headers["x-cg-pro-api-key"] = COINGECKO_API_KEY;
-    }
-
     const res = await fetch(url.toString(), {
-        headers,
+        headers: getCoinGeckoHeaders(),
         next: { revalidate: options?.revalidateSeconds ?? 300 },
     });
 
     if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`CoinGecko error ${res.status}: ${text}`);
+        // Log details for server logs, but throw a generic error to the page
+        let body: unknown;
+        try {
+            body = await res.json();
+        } catch {
+            body = await res.text();
+        }
+
+        console.error("CoinGecko fetch failed", {
+            url: url.toString(),
+            status: res.status,
+            statusText: res.statusText,
+            body,
+        });
+
+        throw new Error(`CoinGecko request failed with status ${res.status}`);
     }
 
     return res.json() as Promise<T>;
