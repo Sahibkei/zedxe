@@ -105,7 +105,7 @@ export default async function CryptoCoinPage({ params }: { params: { id: string 
                         save_image: false,
                         backgroundColor: '#0f0f0f',
                     }}
-                    height={720}
+                    className="mt-6 w-full h-[420px] md:h-[600px]"
                 />
             </div>
         </section>
