@@ -43,7 +43,7 @@ export type CryptoPageData = {
 
 export async function getGlobalCryptoMarketData(): Promise<GlobalMarketData> {
     const res = await coingeckoFetch<GlobalResponse>('/global');
-    const usdCap = res.data.total_market_cap?.usd ?? 0;
+    const usdCap = res.data?.total_market_cap?.usd ?? 0;
     return { totalMarketCapUsd: usdCap };
 }
 

@@ -35,6 +35,11 @@ export async function coingeckoFetch<T>(
         }
     }
 
+    const isProApi = COINGECKO_API_BASE.includes("pro-api.coingecko.com");
+    if (!isProApi && COINGECKO_API_KEY) {
+        url.searchParams.set('x_cg_demo_api_key', COINGECKO_API_KEY);
+    }
+
     const res = await fetch(url.toString(), {
         headers: getCoinGeckoHeaders(),
         next: { revalidate: options?.revalidateSeconds ?? 300 },
@@ -49,14 +54,14 @@ export async function coingeckoFetch<T>(
             body = await res.text();
         }
 
-        console.error("CoinGecko fetch failed", {
+        console.error("CoinGecko error", {
             url: url.toString(),
             status: res.status,
             statusText: res.statusText,
             body,
         });
 
-        throw new Error(`CoinGecko request failed with status ${res.status}`);
+        throw new Error('CoinGecko request failed');
     }
 
     return res.json() as Promise<T>;
