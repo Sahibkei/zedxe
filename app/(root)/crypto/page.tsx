@@ -34,6 +34,7 @@ const CryptoPage = async () => {
                 <table className="min-w-full divide-y divide-gray-800">
                     <thead>
                         <tr className="bg-gray-900/50">
+                            <th className="px-4 py-3 text-left text-sm font-semibold text-gray-300">Rank</th>
                             <th className="px-4 py-3 text-left text-sm font-semibold text-gray-300">Name</th>
                             <th className="px-4 py-3 text-right text-sm font-semibold text-gray-300">Price</th>
                             <th className="px-4 py-3 text-right text-sm font-semibold text-gray-300">24h %</th>
@@ -46,9 +47,16 @@ const CryptoPage = async () => {
                     <tbody className="divide-y divide-gray-800">
                         {rows.map((coin) => (
                             <tr key={coin.id} className="hover:bg-gray-900/30 transition-colors">
+                                <td className="px-4 py-3 text-left text-gray-100">{coin.market_cap_rank ?? '—'}</td>
                                 <td className="px-4 py-3">
                                     <div className="flex items-center gap-3">
-                                        <Image src={coin.image} alt={coin.name} width={32} height={32} className="h-8 w-8" />
+                                        <Image
+                                            src={coin.logoUrl}
+                                            alt={coin.name}
+                                            width={24}
+                                            height={24}
+                                            className="mr-2 rounded-full"
+                                        />
                                         <div className="flex flex-col">
                                             <span className="font-semibold text-gray-100">{coin.name}</span>
                                             <span className="text-sm uppercase text-gray-400">{coin.symbol}</span>

@@ -8,7 +8,8 @@ export type MarketCoin = {
     id: string;
     symbol: string;
     name: string;
-    image: string;
+    logoUrl: string;
+    market_cap_rank: number | null;
     current_price: number;
     market_cap: number;
     circulating_supply: number;
@@ -23,18 +24,21 @@ type GlobalResponse = {
     };
 };
 
-type CoinMarketsResponse = Array<{
+export type RawMarketCoin = {
     id: string;
     symbol: string;
     name: string;
-    image?: string | null;
-    current_price?: number | null;
-    market_cap?: number | null;
-    circulating_supply?: number | null;
+    image: string | null;
+    current_price: number | null;
+    market_cap: number | null;
+    circulating_supply: number | null;
+    market_cap_rank?: number | null;
     price_change_percentage_24h_in_currency?: number | null;
     price_change_percentage_7d_in_currency?: number | null;
     price_change_percentage_30d_in_currency?: number | null;
-}>;
+};
+
+type CoinMarketsResponse = RawMarketCoin[];
 
 export type CryptoPageData = {
     totalMarketCapUsd: number;
@@ -66,7 +70,8 @@ export async function getTopCryptoMarketCoins(): Promise<MarketCoin[]> {
             id: coin.id,
             symbol: coin.symbol,
             name: coin.name,
-            image: coin.image ?? '',
+            logoUrl: coin.image ?? '',
+            market_cap_rank: coin.market_cap_rank ?? null,
             current_price: coin.current_price ?? 0,
             market_cap: coin.market_cap ?? 0,
             circulating_supply: coin.circulating_supply ?? 0,
