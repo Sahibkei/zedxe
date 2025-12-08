@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 import { getCryptoPageData } from '@/lib/crypto/market-data';
 import { formatMarketCapValue, formatPrice, getChangeColorClass } from '@/lib/utils';
 
@@ -45,37 +47,49 @@ const CryptoPage = async () => {
                     <tbody className="divide-y divide-gray-800">
                         {rows.map((coin) => (
                             <tr key={coin.id} className="hover:bg-gray-900/30 transition-colors">
-                                <td className="px-4 py-3 text-left text-gray-100">{coin.market_cap_rank ?? '—'}</td>
-                                <td className="px-4 py-3">
-                                    <div className="flex flex-col">
-                                        <span className="font-semibold text-gray-100">{coin.name}</span>
-                                        <span className="text-sm uppercase text-gray-400">{coin.symbol}</span>
-                                    </div>
+                                <td className="p-0 text-left text-gray-100">
+                                    <Link href={`/crypto/${coin.id}`} className="block px-4 py-3">
+                                        {coin.market_cap_rank ?? '—'}
+                                    </Link>
                                 </td>
-                                <td className="px-4 py-3 text-right font-medium text-gray-100">{formatPrice(coin.current_price)}</td>
-                                <td
-                                    className={`px-4 py-3 text-right font-medium ${getChangeColorClass(
-                                        coin.price_change_percentage_24h_in_currency ?? undefined
-                                    )}`}
-                                >
-                                    {formatPercent(coin.price_change_percentage_24h_in_currency)}
+                                <td className="p-0">
+                                    <Link href={`/crypto/${coin.id}`} className="block px-4 py-3">
+                                        <div className="flex flex-col">
+                                            <span className="font-semibold text-gray-100">{coin.name}</span>
+                                            <span className="text-sm uppercase text-gray-400">{coin.symbol}</span>
+                                        </div>
+                                    </Link>
                                 </td>
-                                <td
-                                    className={`px-4 py-3 text-right font-medium ${getChangeColorClass(
-                                        coin.price_change_percentage_7d_in_currency ?? undefined
-                                    )}`}
-                                >
-                                    {formatPercent(coin.price_change_percentage_7d_in_currency)}
+                                <td className="p-0 text-right font-medium text-gray-100">
+                                    <Link href={`/crypto/${coin.id}`} className="block px-4 py-3">
+                                        {formatPrice(coin.current_price)}
+                                    </Link>
                                 </td>
-                                <td
-                                    className={`px-4 py-3 text-right font-medium ${getChangeColorClass(
-                                        coin.price_change_percentage_30d_in_currency ?? undefined
-                                    )}`}
-                                >
-                                    {formatPercent(coin.price_change_percentage_30d_in_currency)}
+                                <td className={`p-0 text-right font-medium ${getChangeColorClass(coin.price_change_percentage_24h_in_currency ?? undefined)}`}>
+                                    <Link href={`/crypto/${coin.id}`} className="block px-4 py-3">
+                                        {formatPercent(coin.price_change_percentage_24h_in_currency)}
+                                    </Link>
                                 </td>
-                                <td className="px-4 py-3 text-right font-medium text-gray-100">{formatMarketCapValue(coin.market_cap)}</td>
-                                <td className="px-4 py-3 text-right text-gray-100">{formatSupply(coin.circulating_supply)}</td>
+                                <td className={`p-0 text-right font-medium ${getChangeColorClass(coin.price_change_percentage_7d_in_currency ?? undefined)}`}>
+                                    <Link href={`/crypto/${coin.id}`} className="block px-4 py-3">
+                                        {formatPercent(coin.price_change_percentage_7d_in_currency)}
+                                    </Link>
+                                </td>
+                                <td className={`p-0 text-right font-medium ${getChangeColorClass(coin.price_change_percentage_30d_in_currency ?? undefined)}`}>
+                                    <Link href={`/crypto/${coin.id}`} className="block px-4 py-3">
+                                        {formatPercent(coin.price_change_percentage_30d_in_currency)}
+                                    </Link>
+                                </td>
+                                <td className="p-0 text-right font-medium text-gray-100">
+                                    <Link href={`/crypto/${coin.id}`} className="block px-4 py-3">
+                                        {formatMarketCapValue(coin.market_cap)}
+                                    </Link>
+                                </td>
+                                <td className="p-0 text-right text-gray-100">
+                                    <Link href={`/crypto/${coin.id}`} className="block px-4 py-3">
+                                        {formatSupply(coin.circulating_supply)}
+                                    </Link>
+                                </td>
                             </tr>
                         ))}
                     </tbody>
