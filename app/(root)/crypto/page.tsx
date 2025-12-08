@@ -1,5 +1,3 @@
-import Image from 'next/image';
-
 import { getCryptoPageData } from '@/lib/crypto/market-data';
 import { formatMarketCapValue, formatPrice, getChangeColorClass } from '@/lib/utils';
 
@@ -49,18 +47,9 @@ const CryptoPage = async () => {
                             <tr key={coin.id} className="hover:bg-gray-900/30 transition-colors">
                                 <td className="px-4 py-3 text-left text-gray-100">{coin.market_cap_rank ?? '—'}</td>
                                 <td className="px-4 py-3">
-                                    <div className="flex items-center gap-3">
-                                        <Image
-                                            src={coin.logoUrl}
-                                            alt={coin.name}
-                                            width={24}
-                                            height={24}
-                                            className="mr-2 rounded-full"
-                                        />
-                                        <div className="flex flex-col">
-                                            <span className="font-semibold text-gray-100">{coin.name}</span>
-                                            <span className="text-sm uppercase text-gray-400">{coin.symbol}</span>
-                                        </div>
+                                    <div className="flex flex-col">
+                                        <span className="font-semibold text-gray-100">{coin.name}</span>
+                                        <span className="text-sm uppercase text-gray-400">{coin.symbol}</span>
                                     </div>
                                 </td>
                                 <td className="px-4 py-3 text-right font-medium text-gray-100">{formatPrice(coin.current_price)}</td>
