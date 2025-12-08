@@ -92,7 +92,7 @@ export default async function CryptoCoinPage({ params }: { params: { id: string 
                     title={`${coin.symbol.toUpperCase()} Price Chart`}
                     scripUrl={`https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js`}
                     config={{
-                        autosize: true,
+                        height: 550,
                         symbol: tradingViewSymbol,
                         interval: '60',
                         timezone: 'Etc/UTC',
@@ -105,7 +105,7 @@ export default async function CryptoCoinPage({ params }: { params: { id: string 
                         save_image: false,
                         backgroundColor: '#0f0f0f',
                     }}
-                    className="mt-6 w-full h-[420px] md:h-[600px]"
+                    className="mt-6 w-full"
                 />
             </div>
         </section>
