@@ -4,6 +4,7 @@ export const NAV_ITEMS = [
     { href: '/news', label: 'News' },
     { href: '/portfolio', label: 'Portfolio' },
     { href: '/crypto', label: 'Crypto' },
+    { href: '/orderflow', label: 'Orderflow' },
     { href: '/watchlist', label: 'Watchlist' },
 ];
 
