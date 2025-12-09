@@ -85,6 +85,7 @@ interface SessionStatsResponse {
 
 const SESSION_WINDOW_SECONDS = 86_400;
 const SESSION_REFRESH_INTERVAL_MS = 20_000;
+const MAX_DISPLAY_TRADES = 300;
 
 const OrderflowPage = () => {
     const defaultWindowSeconds = ORDERFLOW_WINDOW_PRESETS[1]?.value ?? ORDERFLOW_WINDOW_PRESETS[0].value;
@@ -95,7 +96,7 @@ const OrderflowPage = () => {
     const [bucketSizeSeconds, setBucketSizeSeconds] = useState<number>(defaultBucketSize);
     const [hideSmallTrades, setHideSmallTrades] = useState(false);
     const [replayEnabled, setReplayEnabled] = useState(false);
-    const [replayTimestamp, setReplayTimestamp] = useState<number | null>(null);
+    const [replayIndex, setReplayIndex] = useState<number | null>(null);
 
     const { trades: liveTrades, connected, error } = useOrderflowStream({ symbol: selectedSymbol });
     const [historyTrades, setHistoryTrades] = useState<NormalizedTrade[]>([]);
@@ -224,7 +225,7 @@ const OrderflowPage = () => {
 
     useEffect(() => {
         setReplayEnabled(false);
-        setReplayTimestamp(null);
+        setReplayIndex(null);
     }, [selectedSymbol, windowSeconds]);
 
     const combinedTrades = useMemo(() => {
@@ -239,40 +240,74 @@ const OrderflowPage = () => {
         return Array.from(uniqueTrades.values()).sort((a, b) => a.timestamp - b.timestamp);
     }, [historyTrades, liveTrades]);
 
-    const referenceTimestamp = replayEnabled ? replayTimestamp ?? Date.now() : Date.now();
+    const now = Date.now();
 
-    const windowedTrades = useMemo(() => {
-        const windowStart = referenceTimestamp - windowSeconds * 1000;
-        return combinedTrades.filter(
-            (trade) => trade.timestamp >= windowStart && trade.timestamp <= referenceTimestamp,
-        );
-    }, [combinedTrades, referenceTimestamp, windowSeconds]);
+    const windowStart = now - windowSeconds * 1000;
+
+    const windowedTrades = useMemo(
+        () => combinedTrades.filter((trade) => trade.timestamp >= windowStart),
+        [combinedTrades, windowStart],
+    );
+
+    const baseBuckets = useMemo(
+        () => bucketTrades(windowedTrades, windowSeconds, bucketSizeSeconds, now),
+        [windowedTrades, windowSeconds, bucketSizeSeconds, now],
+    );
+
+    const bucketTimeline = useMemo(
+        () => [...baseBuckets].sort((a, b) => a.timestamp - b.timestamp),
+        [baseBuckets],
+    );
 
     const windowBounds = useMemo(() => {
-        const latestTimestamp = windowedTrades.length
-            ? windowedTrades[windowedTrades.length - 1].timestamp
-            : referenceTimestamp;
-        const end = Math.max(latestTimestamp, referenceTimestamp);
+        const end = bucketTimeline.length
+            ? bucketTimeline[bucketTimeline.length - 1].timestamp
+            : now;
         const start = Math.max(end - windowSeconds * 1000, 0);
         return { start, end };
-    }, [referenceTimestamp, windowSeconds, windowedTrades]);
+    }, [bucketTimeline, now, windowSeconds]);
 
     useEffect(() => {
-        if (replayTimestamp === null) return;
-        const clamped = Math.min(Math.max(replayTimestamp, windowBounds.start), windowBounds.end);
-        if (clamped !== replayTimestamp) {
-            setReplayTimestamp(clamped);
+        if (!replayEnabled) {
+            setReplayIndex(null);
+            return;
         }
-    }, [replayTimestamp, windowBounds.end, windowBounds.start]);
 
-    const effectiveReplayTimestamp = replayEnabled
-        ? replayTimestamp ?? windowBounds.end
-        : referenceTimestamp;
+        const lastIndex = bucketTimeline.length ? bucketTimeline.length - 1 : null;
+        setReplayIndex((previous) => {
+            if (lastIndex === null) return null;
+            if (previous === null) return lastIndex;
+            return Math.min(Math.max(previous, 0), lastIndex);
+        });
+    }, [bucketTimeline, replayEnabled]);
 
-    const visibleTrades = useMemo(() => {
-        if (!replayEnabled) return windowedTrades;
-        return windowedTrades.filter((trade) => trade.timestamp <= effectiveReplayTimestamp);
-    }, [effectiveReplayTimestamp, replayEnabled, windowedTrades]);
+    const replayCutoffTimestamp = useMemo(() => {
+        if (!replayEnabled || bucketTimeline.length === 0) return null;
+        const clampedIndex = Math.min(
+            Math.max(replayIndex ?? bucketTimeline.length - 1, 0),
+            bucketTimeline.length - 1,
+        );
+        return bucketTimeline[clampedIndex].timestamp;
+    }, [bucketTimeline, replayEnabled, replayIndex]);
+
+    const effectiveTrades = useMemo(() => {
+        const trades =
+            replayCutoffTimestamp === null
+                ? windowedTrades
+                : windowedTrades.filter((trade) => trade.timestamp <= replayCutoffTimestamp);
+        if (hideSmallTrades) {
+            return trades.filter((trade) => trade.quantity >= ORDERFLOW_SMALL_TRADE_THRESHOLD);
+        }
+        return trades;
+    }, [hideSmallTrades, replayCutoffTimestamp, windowedTrades]);
+
+    const effectiveBuckets = useMemo(
+        () =>
+            replayCutoffTimestamp === null
+                ? baseBuckets
+                : baseBuckets.filter((bucket) => bucket.timestamp <= replayCutoffTimestamp),
+        [baseBuckets, replayCutoffTimestamp],
+    );
 
     const metrics = useMemo(() => {
         let buyVolume = 0;
@@ -280,7 +315,7 @@ const OrderflowPage = () => {
         let buyTradesCount = 0;
         let sellTradesCount = 0;
 
-        visibleTrades.forEach((trade) => {
+        effectiveTrades.forEach((trade) => {
             if (trade.side === "buy") {
                 buyVolume += trade.quantity;
                 buyTradesCount += 1;
@@ -295,57 +330,69 @@ const OrderflowPage = () => {
         const averageTradeSize = totalTrades > 0 ? (buyVolume + sellVolume) / totalTrades : 0;
 
         return { buyVolume, sellVolume, delta, buyTradesCount, sellTradesCount, averageTradeSize };
-    }, [visibleTrades]);
-
-    const buckets = useMemo(
-        () => bucketTrades(visibleTrades, windowSeconds, bucketSizeSeconds, effectiveReplayTimestamp),
-        [visibleTrades, windowSeconds, bucketSizeSeconds, effectiveReplayTimestamp],
-    );
+    }, [effectiveTrades]);
 
     const cumulativeDeltaData = useMemo<CumulativeDeltaPoint[]>(() => {
         let runningDelta = 0;
-        return [...buckets]
+        return [...effectiveBuckets]
             .sort((a, b) => a.timestamp - b.timestamp)
             .map((bucket) => {
                 const bucketDelta = bucket.buyVolume - bucket.sellVolume;
                 runningDelta += bucketDelta;
                 return { timestamp: bucket.timestamp, cumulativeDelta: runningDelta };
             });
-    }, [buckets]);
+    }, [effectiveBuckets]);
 
-    const displayedTrades = useMemo(() => {
-        if (hideSmallTrades) {
-            return visibleTrades.filter((trade) => trade.quantity >= ORDERFLOW_SMALL_TRADE_THRESHOLD);
-        }
-        return visibleTrades;
-    }, [hideSmallTrades, visibleTrades]);
+    const displayedTrades = useMemo(
+        () => effectiveTrades.slice(-MAX_DISPLAY_TRADES).reverse(),
+        [effectiveTrades],
+    );
 
     const statusText = loadingHistory
         ? "Loading history"
         : connected
           ? "Connected"
-          : visibleTrades.length > 0
+          : windowedTrades.length > 0
             ? "Disconnected"
             : "Connecting";
     const statusColor = loadingHistory
         ? "bg-amber-500/20 text-amber-200"
         : connected
           ? "bg-emerald-500/20 text-emerald-300"
-          : visibleTrades.length > 0
+          : windowedTrades.length > 0
             ? "bg-rose-500/20 text-rose-300"
             : "bg-amber-500/20 text-amber-200";
 
-    const hasData = visibleTrades.length > 0;
+    const hasData = replayEnabled ? effectiveTrades.length > 0 : windowedTrades.length > 0;
     const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
     const sessionWindowLabel = `${Math.round(SESSION_WINDOW_SECONDS / 3600)}h`;
+    const replaySliderValue = replayCutoffTimestamp ?? windowBounds.end;
 
     const handleToggleReplay = (enabled: boolean) => {
         setReplayEnabled(enabled);
-        setReplayTimestamp(enabled ? windowBounds.end : null);
+        if (enabled) {
+            const lastIndex = bucketTimeline.length ? bucketTimeline.length - 1 : null;
+            setReplayIndex(lastIndex);
+        } else {
+            setReplayIndex(null);
+        }
     };
 
     const handleReplayChange = (value: number) => {
-        setReplayTimestamp(value);
+        if (!bucketTimeline.length) return;
+
+        const closest = bucketTimeline.reduce(
+            (result, bucket, index) => {
+                const distance = Math.abs(bucket.timestamp - value);
+                if (distance < result.distance) {
+                    return { distance, index };
+                }
+                return result;
+            },
+            { distance: Number.POSITIVE_INFINITY, index: bucketTimeline.length - 1 },
+        );
+
+        setReplayIndex(closest.index);
     };
 
     return (
@@ -462,7 +509,7 @@ const OrderflowPage = () => {
                 <ReplayControls
                     startTimestamp={windowBounds.start}
                     endTimestamp={windowBounds.end}
-                    value={effectiveReplayTimestamp}
+                    value={replaySliderValue}
                     enabled={replayEnabled}
                     onToggle={handleToggleReplay}
                     onChange={handleReplayChange}
@@ -472,7 +519,7 @@ const OrderflowPage = () => {
 
             <div className="grid items-stretch gap-4 lg:grid-cols-[2fr_1fr] xl:grid-cols-[3fr_1fr]">
                 <div className="space-y-4">
-                    {hasData && <OrderflowChart buckets={buckets} />}
+                    {hasData && <OrderflowChart buckets={effectiveBuckets} />}
                     {hasData && <CumulativeDeltaChart data={cumulativeDeltaData} />}
                     <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 text-sm text-gray-400 shadow-lg shadow-black/20">
                         <p>
