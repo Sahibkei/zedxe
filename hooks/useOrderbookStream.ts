@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type DepthTuple = [string, string];
 
@@ -12,10 +12,10 @@ interface DepthMessage {
     a?: DepthTuple[];
 }
 
-export type OrderbookLevel = {
+export interface OrderbookLevel {
     price: number;
     size: number;
-};
+}
 
 export interface OrderbookSummary {
     bestBid?: OrderbookLevel;
@@ -34,14 +34,42 @@ export interface UseOrderbookStreamResult {
 }
 
 const BASE_WS_URL = "wss://stream.binance.com:9443/ws";
+const clampLevels = (levelCount: number) => Math.max(1, Math.min(100, levelCount));
 
 const buildStreamUrl = (symbol: string, levelCount: number) => {
     const normalizedSymbol = symbol.toLowerCase();
-    const normalizedLevel = Math.max(1, Math.min(100, levelCount));
+    const normalizedLevel = clampLevels(levelCount);
     return `${BASE_WS_URL}/${normalizedSymbol}@depth${normalizedLevel}@100ms`;
 };
 
-const clampLevels = (levelCount: number) => Math.max(1, Math.min(100, levelCount));
+const applyDepthUpdates = (
+    prev: Map<number, number>,
+    updates: DepthTuple[] | undefined,
+    side: "bid" | "ask",
+) => {
+    if (!updates?.length) return prev;
+
+    for (const [priceStr, qtyStr] of updates) {
+        const price = parseFloat(priceStr);
+        const size = parseFloat(qtyStr);
+        if (!Number.isFinite(price) || !Number.isFinite(size)) continue;
+
+        if (size === 0) {
+            prev.delete(price);
+        } else {
+            prev.set(price, size);
+        }
+    }
+
+    if (process.env.NODE_ENV === "development") {
+        // eslint-disable-next-line no-console
+        console.debug(
+            `[useOrderbookStream] applied ${updates.length} ${side} updates; depth now ${prev.size}`,
+        );
+    }
+
+    return prev;
+};
 
 const sortLevels = (levels: Map<number, number>, side: "bid" | "ask", levelCount: number) =>
     Array.from(levels.entries())
@@ -86,38 +114,39 @@ async function parseDepth(event: MessageEvent): Promise<DepthMessage | null> {
             a: Array.isArray(data.a) ? data.a : [],
         };
     } catch (err) {
-        console.error("[useOrderbookStream] Failed to parse depth message", err);
+        if (process.env.NODE_ENV === "development") {
+            // eslint-disable-next-line no-console
+            console.error("[useOrderbookStream] Failed to parse depth message", err);
+        }
         return null;
     }
 }
 
 export function useOrderbookStream(symbol: string, levelCount = 16): UseOrderbookStreamResult {
+    const clampedLevelCount = clampLevels(levelCount);
+
     const [bids, setBids] = useState<OrderbookLevel[]>([]);
     const [asks, setAsks] = useState<OrderbookLevel[]>([]);
-    const [summary, setSummary] = useState<OrderbookSummary>({ totalBidSize: 0, totalAskSize: 0 });
     const [connected, setConnected] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const bidsMap = useRef<Map<number, number>>(new Map());
+    const asksMap = useRef<Map<number, number>>(new Map());
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
     const reconnectAttempts = useRef(0);
-    const activeSymbol = useRef(symbol.toLowerCase());
-    const activeLevelCount = useRef(clampLevels(levelCount));
     const isMounted = useRef(false);
-    const bookRef = useRef<{ bids: Map<number, number>; asks: Map<number, number> }>({
-        bids: new Map(),
-        asks: new Map(),
-    });
+    const connectionId = useRef(0);
 
     useEffect(() => {
         isMounted.current = true;
-        activeSymbol.current = symbol.toLowerCase();
-        activeLevelCount.current = clampLevels(levelCount);
-
+        bidsMap.current.clear();
+        asksMap.current.clear();
         setBids([]);
         setAsks([]);
-        setSummary({ totalBidSize: 0, totalAskSize: 0 });
-        bookRef.current = { bids: new Map(), asks: new Map() };
+        setError(null);
+
+        const normalizedSymbol = symbol.trim().toLowerCase();
 
         const cleanup = () => {
             if (reconnectTimeout.current) {
@@ -131,83 +160,80 @@ export function useOrderbookStream(symbol: string, levelCount = 16): UseOrderboo
             }
         };
 
+        const scheduleReconnect = (thisConnectionId: number) => {
+            if (!isMounted.current || thisConnectionId !== connectionId.current) return;
+            if (reconnectTimeout.current) return;
+
+            const attempt = reconnectAttempts.current;
+            const delay = Math.min(30_000, 1000 * 2 ** attempt);
+            reconnectAttempts.current = attempt + 1;
+
+            reconnectTimeout.current = setTimeout(() => {
+                reconnectTimeout.current = null;
+                connect();
+            }, delay);
+        };
+
         const connect = () => {
-            const wsUrl = buildStreamUrl(activeSymbol.current, activeLevelCount.current);
+            const thisConnectionId = connectionId.current + 1;
+            connectionId.current = thisConnectionId;
+
+            cleanup();
+
+            const wsUrl = buildStreamUrl(normalizedSymbol, clampedLevelCount);
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
-            setError(null);
+
+            if (process.env.NODE_ENV === "development") {
+                // eslint-disable-next-line no-console
+                console.info(`[useOrderbookStream] connecting to ${wsUrl}`);
+            }
 
             ws.onopen = () => {
-                if (!isMounted.current) return;
+                if (!isMounted.current || thisConnectionId !== connectionId.current) return;
                 setConnected(true);
+                setError(null);
                 reconnectAttempts.current = 0;
+                if (process.env.NODE_ENV === "development") {
+                    // eslint-disable-next-line no-console
+                    console.info("[useOrderbookStream] socket opened");
+                }
             };
 
             ws.onerror = () => {
-                if (!isMounted.current) return;
+                if (!isMounted.current || thisConnectionId !== connectionId.current) return;
                 setError("WebSocket error");
+                setConnected(false);
             };
 
             ws.onmessage = (event) => {
-                if (!isMounted.current) return;
-
                 const handleMessage = async () => {
+                    if (!isMounted.current || thisConnectionId !== connectionId.current) return;
                     const depth = await parseDepth(event);
                     if (!depth) return;
 
-                    const { bids: bidUpdates = [], asks: askUpdates = [] } = { bids: depth.b, asks: depth.a } as {
-                        bids: DepthTuple[];
-                        asks: DepthTuple[];
-                    };
+                    applyDepthUpdates(bidsMap.current, depth.b, "bid");
+                    applyDepthUpdates(asksMap.current, depth.a, "ask");
 
-                    for (const [priceStr, qtyStr] of bidUpdates) {
-                        const price = parseFloat(priceStr);
-                        const size = parseFloat(qtyStr);
-                        if (!Number.isFinite(price) || !Number.isFinite(size)) continue;
-                        if (size <= 0) {
-                            bookRef.current.bids.delete(price);
-                        } else {
-                            bookRef.current.bids.set(price, size);
-                        }
-                    }
+                    const nextBids = sortLevels(bidsMap.current, "bid", clampedLevelCount);
+                    const nextAsks = sortLevels(asksMap.current, "ask", clampedLevelCount);
 
-                    for (const [priceStr, qtyStr] of askUpdates) {
-                        const price = parseFloat(priceStr);
-                        const size = parseFloat(qtyStr);
-                        if (!Number.isFinite(price) || !Number.isFinite(size)) continue;
-                        if (size <= 0) {
-                            bookRef.current.asks.delete(price);
-                        } else {
-                            bookRef.current.asks.set(price, size);
-                        }
-                    }
-
-                    const nextBids = sortLevels(bookRef.current.bids, "bid", activeLevelCount.current);
-                    const nextAsks = sortLevels(bookRef.current.asks, "ask", activeLevelCount.current);
-
-                    if (!isMounted.current) return;
+                    if (!isMounted.current || thisConnectionId !== connectionId.current) return;
                     setBids(nextBids);
                     setAsks(nextAsks);
-                    setSummary(computeSummary(nextBids, nextAsks));
                 };
 
                 void handleMessage();
             };
 
             ws.onclose = () => {
-                if (!isMounted.current) return;
+                if (!isMounted.current || thisConnectionId !== connectionId.current) return;
                 setConnected(false);
-
-                if (reconnectTimeout.current) return;
-
-                const attempt = reconnectAttempts.current;
-                const delay = Math.min(30_000, 1000 * 2 ** attempt);
-                reconnectAttempts.current = attempt + 1;
-
-                reconnectTimeout.current = setTimeout(() => {
-                    reconnectTimeout.current = null;
-                    connect();
-                }, delay);
+                scheduleReconnect(thisConnectionId);
+                if (process.env.NODE_ENV === "development") {
+                    // eslint-disable-next-line no-console
+                    console.info("[useOrderbookStream] socket closed");
+                }
             };
         };
 
@@ -217,7 +243,9 @@ export function useOrderbookStream(symbol: string, levelCount = 16): UseOrderboo
             isMounted.current = false;
             cleanup();
         };
-    }, [symbol, levelCount]);
+    }, [symbol, clampedLevelCount]);
+
+    const summary = useMemo(() => computeSummary(bids, asks), [bids, asks]);
 
     return { bids, asks, summary, connected, error: error ?? undefined };
 }
