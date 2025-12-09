@@ -14,18 +14,26 @@ interface OrderbookPanelProps {
 const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
     const { bids, asks, summary, connected, error } = useOrderbookStream(symbol, levelCount);
 
+    const hasBids = bids.length > 0;
+    const hasAsks = asks.length > 0;
     const maxSize = Math.max(
         bids.reduce((max, level) => Math.max(max, level.size), 0),
         asks.reduce((max, level) => Math.max(max, level.size), 0),
         1,
     );
 
-    const midPrice = summary?.bestBid && summary?.bestAsk ? (summary.bestBid.price + summary.bestAsk.price) / 2 : null;
-    const spreadPct = summary?.spread !== undefined && midPrice ? (summary.spread ?? 0) / midPrice : null;
+    const midPrice = summary.bestBid && summary.bestAsk ? (summary.bestBid.price + summary.bestAsk.price) / 2 : null;
+    const spreadPct = summary.spread !== undefined && midPrice ? (summary.spread ?? 0) / midPrice : null;
     const spreadText =
-        summary?.spread !== undefined && summary?.bestBid && summary?.bestAsk
+        summary.spread !== undefined && summary.bestBid && summary.bestAsk
             ? `${(summary.spread ?? 0).toFixed(2)}${spreadPct ? ` (${(spreadPct * 100).toFixed(3)}%)` : ""}`
             : "–";
+
+    const renderStatus = (waitingText: string) => {
+        if (error) return "Depth stream error";
+        if (!connected) return "Connecting…";
+        return waitingText;
+    };
 
     const renderEmptyState = (label: string) => (
         <div className="px-3 py-4 text-center text-xs text-gray-500">{label}</div>
@@ -50,7 +58,7 @@ const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
                     </div>
                     {error ? (
                         <span className="text-xs text-rose-300">{error}</span>
-                    ) : summary?.spread !== undefined && summary?.bestBid && summary?.bestAsk ? (
+                    ) : summary.spread !== undefined && summary.bestBid && summary.bestAsk ? (
                         <span className="text-xs text-gray-400">
                             Spread: <span className="font-semibold text-white">{spreadText}</span>
                         </span>
@@ -63,10 +71,10 @@ const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
                     <p className="text-xs uppercase tracking-wide text-gray-500">Best Bid</p>
                     <div className="flex items-baseline gap-2 text-emerald-300">
                         <span className="text-lg font-semibold">
-                            {summary?.bestBid ? summary.bestBid.price.toLocaleString() : "–"}
+                            {summary.bestBid ? summary.bestBid.price.toLocaleString() : "–"}
                         </span>
                         <span className="text-xs text-gray-500">
-                            Size: {formatNumber(summary?.bestBid?.size ?? 0, 4)}
+                            Size: {formatNumber(summary.bestBid?.size ?? 0, 4)}
                         </span>
                     </div>
                 </div>
@@ -74,10 +82,10 @@ const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
                     <p className="text-xs uppercase tracking-wide text-gray-500">Best Ask</p>
                     <div className="flex items-baseline justify-end gap-2 text-rose-300">
                         <span className="text-lg font-semibold">
-                            {summary?.bestAsk ? summary.bestAsk.price.toLocaleString() : "–"}
+                            {summary.bestAsk ? summary.bestAsk.price.toLocaleString() : "–"}
                         </span>
                         <span className="text-xs text-gray-500">
-                            Size: {formatNumber(summary?.bestAsk?.size ?? 0, 4)}
+                            Size: {formatNumber(summary.bestAsk?.size ?? 0, 4)}
                         </span>
                     </div>
                 </div>
@@ -92,11 +100,7 @@ const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
                         <span>Size</span>
                     </div>
                     <div className="max-h-80 overflow-y-auto rounded-lg border border-gray-800 bg-black/40">
-                        {error ? (
-                            renderEmptyState("Depth stream error")
-                        ) : !connected ? (
-                            renderEmptyState("Connecting…")
-                        ) : asks.length ? (
+                        {hasAsks ? (
                             asks.map((level, index) => {
                                 const sizeRatio = Math.min(1, level.size / maxSize);
                                 return (
@@ -116,7 +120,7 @@ const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
                                 );
                             })
                         ) : (
-                            renderEmptyState("Waiting for asks…")
+                            renderEmptyState(renderStatus("Waiting for asks…"))
                         )}
                     </div>
                 </div>
@@ -129,11 +133,7 @@ const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
                         </span>
                     </div>
                     <div className="max-h-80 overflow-y-auto rounded-lg border border-gray-800 bg-black/40">
-                        {error ? (
-                            renderEmptyState("Depth stream error")
-                        ) : !connected ? (
-                            renderEmptyState("Connecting…")
-                        ) : bids.length ? (
+                        {hasBids ? (
                             bids.map((level, index) => {
                                 const sizeRatio = Math.min(1, level.size / maxSize);
                                 return (
@@ -153,7 +153,7 @@ const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
                                 );
                             })
                         ) : (
-                            renderEmptyState("Waiting for bids…")
+                            renderEmptyState(renderStatus("Waiting for bids…"))
                         )}
                     </div>
                 </div>
