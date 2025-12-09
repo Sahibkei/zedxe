@@ -19,12 +19,14 @@ export interface NormalizedTrade {
     side: TradeSide;
 }
 
-interface UseOrderflowStreamOptions {
+export interface UseOrderflowStreamOptions {
     symbol?: string;
+    windowSeconds?: number;
 }
 
-interface StreamState {
+export interface UseOrderflowStreamResult {
     trades: NormalizedTrade[];
+    windowedTrades: NormalizedTrade[];
     connected: boolean;
     error: string | null;
 }
@@ -62,7 +64,10 @@ const parseMessage = (event: MessageEvent): NormalizedTrade | null => {
     }
 };
 
-export const useOrderflowStream = ({ symbol = DEFAULT_SYMBOL }: UseOrderflowStreamOptions = {}): StreamState => {
+export const useOrderflowStream = ({
+    symbol = DEFAULT_SYMBOL,
+    windowSeconds = WINDOW_SECONDS,
+}: UseOrderflowStreamOptions = {}): UseOrderflowStreamResult => {
     const [trades, setTrades] = useState<NormalizedTrade[]>([]);
     const [connected, setConnected] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -146,6 +151,11 @@ export const useOrderflowStream = ({ symbol = DEFAULT_SYMBOL }: UseOrderflowStre
 
     const sortedTrades = useMemo(() => [...trades].sort((a, b) => a.timestamp - b.timestamp), [trades]);
 
-    return { trades: sortedTrades, connected, error };
+    const windowedTrades = useMemo(() => {
+        const cutoff = Date.now() - windowSeconds * 1000;
+        return sortedTrades.filter((trade) => trade.timestamp >= cutoff);
+    }, [sortedTrades, windowSeconds]);
+
+    return { trades: sortedTrades, windowedTrades, connected, error };
 };
 
