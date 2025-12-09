@@ -4,7 +4,6 @@ import {
     Bar,
     BarChart,
     CartesianGrid,
-    Cell,
     Legend,
     ResponsiveContainer,
     Tooltip,
@@ -39,9 +38,6 @@ const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>)
     if (!active || !payload?.length) return null;
 
     const bucket = payload[0]?.payload as VolumeBucket;
-    const imbalanceLabel = bucket.dominantSide
-        ? `${bucket.imbalancePercent.toFixed(0)}% ${bucket.dominantSide === "buy" ? "Buy" : "Sell"}`
-        : "Neutral";
 
     return (
         <div className="rounded-lg border border-gray-800 bg-[#0b0d12] p-3 shadow-xl">
@@ -56,28 +52,12 @@ const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>)
                     <span className="text-rose-300">{formatNumber(bucket.sellVolume)}</span>
                 </div>
                 <div className="flex items-center justify-between border-t border-gray-800 pt-1 text-xs text-gray-400">
-                    <span>Imbalance</span>
-                    <span className="text-white">{imbalanceLabel}</span>
+                    <span>Delta</span>
+                    <span className="text-white">{formatNumber(bucket.delta)}</span>
                 </div>
             </div>
         </div>
     );
-};
-
-const buildFill = (bucket: VolumeBucket, side: "buy" | "sell") => {
-    if (bucket.totalVolume === 0) {
-        return side === "buy" ? "rgba(52, 211, 153, 0.35)" : "rgba(248, 113, 113, 0.35)";
-    }
-
-    const imbalanceStrength = Math.min(1, bucket.imbalancePercent / 90);
-    const dominant = bucket.dominantSide === side;
-    const baseOpacity = dominant ? 0.55 : 0.35;
-    const boost = dominant ? 0.25 * imbalanceStrength : 0.05;
-
-    const opacity = Math.min(0.95, baseOpacity + boost);
-    return side === "buy"
-        ? `rgba(52, 211, 153, ${opacity.toFixed(3)})`
-        : `rgba(248, 113, 113, ${opacity.toFixed(3)})`;
 };
 
 export const OrderflowChart = ({ buckets }: OrderflowChartProps) => {
@@ -86,7 +66,7 @@ export const OrderflowChart = ({ buckets }: OrderflowChartProps) => {
             <div className="flex items-center justify-between pb-3">
                 <div>
                     <p className="text-xs uppercase tracking-wide text-gray-500">Volume Over Time</p>
-                    <h3 className="text-lg font-semibold text-white">Buy vs Sell (stacked footprint)</h3>
+                    <h3 className="text-lg font-semibold text-white">Buy vs Sell (stacked)</h3>
                 </div>
                 <span className="rounded-full bg-gray-800 px-3 py-1 text-xs text-gray-300">Last {buckets.length} buckets</span>
             </div>
@@ -104,16 +84,8 @@ export const OrderflowChart = ({ buckets }: OrderflowChartProps) => {
                             content={<CustomTooltip />}
                         />
                         <Legend wrapperStyle={{ color: "#9ca3af" }} />
-                        <Bar dataKey="buyVolume" stackId="volume" name="Buy" radius={[4, 4, 0, 0]}>
-                            {buckets.map((bucket) => (
-                                <Cell key={`buy-${bucket.timestamp}`} fill={buildFill(bucket, "buy")} />
-                            ))}
-                        </Bar>
-                        <Bar dataKey="sellVolume" stackId="volume" name="Sell" radius={[0, 0, 4, 4]}>
-                            {buckets.map((bucket) => (
-                                <Cell key={`sell-${bucket.timestamp}`} fill={buildFill(bucket, "sell")} />
-                            ))}
-                        </Bar>
+                        <Bar dataKey="buyVolume" stackId="volume" name="Buy" radius={[4, 4, 0, 0]} fill="#34d399" />
+                        <Bar dataKey="sellVolume" stackId="volume" name="Sell" radius={[0, 0, 4, 4]} fill="#f87171" />
                     </BarChart>
                 </ResponsiveContainer>
             </div>
