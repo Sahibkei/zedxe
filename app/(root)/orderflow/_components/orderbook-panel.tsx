@@ -11,12 +11,6 @@ interface OrderbookPanelProps {
     levelCount?: number;
 }
 
-const formatSpread = (spread: number | null, spreadPct: number | null) => {
-    if (spread === null) return "–";
-    const pctText = spreadPct !== null ? ` (${(spreadPct * 100).toFixed(3)}%)` : "";
-    return `${spread.toFixed(2)}${pctText}`;
-};
-
 const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
     const { bids, asks, summary, connected, error } = useOrderbookStream(symbol, levelCount);
 
@@ -28,6 +22,13 @@ const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
 
     const displayAsks = [...asks].sort((a, b) => b.price - a.price);
     const displayBids = bids;
+
+    const midPrice = summary?.bestBid && summary?.bestAsk ? (summary.bestBid.price + summary.bestAsk.price) / 2 : null;
+    const spreadPct = summary?.spread !== undefined && midPrice ? (summary.spread ?? 0) / midPrice : null;
+    const spreadText =
+        summary?.spread !== undefined && summary?.bestBid && summary?.bestAsk
+            ? `${(summary.spread ?? 0).toFixed(2)}${spreadPct ? ` (${(spreadPct * 100).toFixed(3)}%)` : ""}`
+            : "–";
 
     return (
         <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20">
@@ -48,9 +49,9 @@ const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
                     </div>
                     {error ? (
                         <span className="text-xs text-rose-300">{error}</span>
-                    ) : summary.bestBid && summary.bestAsk ? (
+                    ) : summary?.spread !== undefined && summary?.bestBid && summary?.bestAsk ? (
                         <span className="text-xs text-gray-400">
-                            Spread: <span className="font-semibold text-white">{formatSpread(summary.spread, summary.spreadPct)}</span>
+                            Spread: <span className="font-semibold text-white">{spreadText}</span>
                         </span>
                     ) : null}
                 </div>
@@ -61,19 +62,21 @@ const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
                     <p className="text-xs uppercase tracking-wide text-gray-500">Best Bid</p>
                     <div className="flex items-baseline gap-2 text-emerald-300">
                         <span className="text-lg font-semibold">
-                            {summary.bestBid ? summary.bestBid.toLocaleString() : "–"}
+                            {summary?.bestBid ? summary.bestBid.price.toLocaleString() : "–"}
                         </span>
-                        <span className="text-xs text-gray-500">Size: {formatNumber(summary.totalBidSize, 2)}</span>
+                        <span className="text-xs text-gray-500">
+                            Size: {formatNumber(summary?.bestBid?.size ?? 0, 4)}
+                        </span>
                     </div>
                 </div>
                 <div className="text-right">
                     <p className="text-xs uppercase tracking-wide text-gray-500">Best Ask</p>
                     <div className="flex items-baseline justify-end gap-2 text-rose-300">
-                        <span className="text-xs text-gray-500">
-                            Size: {formatNumber(summary.totalAskSize, 2)}
-                        </span>
                         <span className="text-lg font-semibold">
-                            {summary.bestAsk ? summary.bestAsk.toLocaleString() : "–"}
+                            {summary?.bestAsk ? summary.bestAsk.price.toLocaleString() : "–"}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                            Size: {formatNumber(summary?.bestAsk?.size ?? 0, 4)}
                         </span>
                     </div>
                 </div>
@@ -87,25 +90,29 @@ const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
                         </span>
                         <span>Size</span>
                     </div>
-                    <div className="overflow-hidden rounded-lg border border-gray-800 bg-black/40">
-                        {displayAsks.map((level, index) => {
-                            const sizeRatio = Math.min(1, level.size / maxSize);
-                            return (
-                                <div
-                                    key={`ask-${level.price}-${index}`}
-                                    className="relative flex items-center justify-between px-3 py-1.5"
-                                >
+                    <div className="max-h-80 overflow-y-auto rounded-lg border border-gray-800 bg-black/40">
+                        {displayAsks.length ? (
+                            displayAsks.map((level, index) => {
+                                const sizeRatio = Math.min(1, level.size / maxSize);
+                                return (
                                     <div
-                                        className="absolute inset-y-0 left-0 bg-rose-500/15"
-                                        style={{ width: `${sizeRatio * 100}%` }}
-                                    />
-                                    <span className="relative z-10 font-medium text-rose-300">
-                                        {level.price.toLocaleString()}
-                                    </span>
-                                    <span className="relative z-10 text-gray-200">{formatNumber(level.size, 4)}</span>
-                                </div>
-                            );
-                        })}
+                                        key={`ask-${level.price}-${index}`}
+                                        className="relative flex items-center justify-between px-3 py-1.5"
+                                    >
+                                        <div
+                                            className="absolute inset-y-0 left-0 bg-rose-500/15"
+                                            style={{ width: `${sizeRatio * 100}%` }}
+                                        />
+                                        <span className="relative z-10 font-medium text-rose-300">
+                                            {level.price.toLocaleString()}
+                                        </span>
+                                        <span className="relative z-10 text-gray-200">{formatNumber(level.size, 4)}</span>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div className="px-3 py-4 text-center text-xs text-gray-500">Waiting for asks…</div>
+                        )}
                     </div>
                 </div>
 
@@ -116,25 +123,29 @@ const OrderbookPanel = ({ symbol, levelCount = 16 }: OrderbookPanelProps) => {
                             Size <ArrowDown size={12} />
                         </span>
                     </div>
-                    <div className="overflow-hidden rounded-lg border border-gray-800 bg-black/40">
-                        {displayBids.map((level, index) => {
-                            const sizeRatio = Math.min(1, level.size / maxSize);
-                            return (
-                                <div
-                                    key={`bid-${level.price}-${index}`}
-                                    className="relative flex items-center justify-between px-3 py-1.5"
-                                >
+                    <div className="max-h-80 overflow-y-auto rounded-lg border border-gray-800 bg-black/40">
+                        {displayBids.length ? (
+                            displayBids.map((level, index) => {
+                                const sizeRatio = Math.min(1, level.size / maxSize);
+                                return (
                                     <div
-                                        className="absolute inset-y-0 right-0 bg-emerald-500/15"
-                                        style={{ width: `${sizeRatio * 100}%` }}
-                                    />
-                                    <span className="relative z-10 font-medium text-emerald-300">
-                                        {level.price.toLocaleString()}
-                                    </span>
-                                    <span className="relative z-10 text-gray-200">{formatNumber(level.size, 4)}</span>
-                                </div>
-                            );
-                        })}
+                                        key={`bid-${level.price}-${index}`}
+                                        className="relative flex items-center justify-between px-3 py-1.5"
+                                    >
+                                        <div
+                                            className="absolute inset-y-0 right-0 bg-emerald-500/15"
+                                            style={{ width: `${sizeRatio * 100}%` }}
+                                        />
+                                        <span className="relative z-10 font-medium text-emerald-300">
+                                            {level.price.toLocaleString()}
+                                        </span>
+                                        <span className="relative z-10 text-gray-200">{formatNumber(level.size, 4)}</span>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div className="px-3 py-4 text-center text-xs text-gray-500">Waiting for bids…</div>
+                        )}
                     </div>
                 </div>
             </div>
