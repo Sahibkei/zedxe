@@ -7,6 +7,7 @@ import CumulativeDeltaChart, {
     CumulativeDeltaPoint,
 } from "@/app/(root)/orderflow/_components/cumulative-delta-chart";
 import OrderflowChart, { VolumeBucket } from "@/app/(root)/orderflow/_components/orderflow-chart";
+import OrderbookPanel from "@/app/(root)/orderflow/_components/orderbook-panel";
 import OrderflowSummary from "@/app/(root)/orderflow/_components/orderflow-summary";
 import ReplayControls from "@/app/(root)/orderflow/_components/replay-controls";
 import SessionStats from "@/app/(root)/orderflow/_components/session-stats";
@@ -400,7 +401,7 @@ const OrderflowPage = () => {
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                     <p className="text-xs uppercase tracking-wide text-emerald-400">Orderflow</p>
-                    <h1 className="text-3xl font-bold text-white">Orderflow – Phase 3</h1>
+                    <h1 className="text-3xl font-bold text-white">Orderflow – Phase 4</h1>
                     <p className="text-gray-400">
                         Live orderflow for {selectedSymbol.toUpperCase()} using exchange WebSocket.
                     </p>
@@ -517,7 +518,7 @@ const OrderflowPage = () => {
                 />
             </div>
 
-            <div className="grid items-stretch gap-4 lg:grid-cols-[2fr_1fr] xl:grid-cols-[3fr_1fr]">
+            <div className="grid items-stretch gap-4 lg:grid-cols-[2fr_1fr] xl:grid-cols-[3fr_1.1fr]">
                 <div className="space-y-4">
                     {hasData && <OrderflowChart buckets={effectiveBuckets} />}
                     {hasData && <CumulativeDeltaChart data={cumulativeDeltaData} />}
@@ -530,7 +531,10 @@ const OrderflowPage = () => {
                         </p>
                     </div>
                 </div>
-                <TradesTable trades={displayedTrades} className="h-[360px]" />
+                <div className="flex flex-col gap-4">
+                    <OrderbookPanel symbol={selectedSymbol} levelCount={16} />
+                    <TradesTable trades={displayedTrades} className="h-[360px]" />
+                </div>
             </div>
         </section>
     );
