@@ -8,6 +8,8 @@ import CumulativeDeltaChart, {
 } from "@/app/(root)/orderflow/_components/cumulative-delta-chart";
 import OrderflowChart, { VolumeBucket } from "@/app/(root)/orderflow/_components/orderflow-chart";
 import OrderflowSummary from "@/app/(root)/orderflow/_components/orderflow-summary";
+import ReplayControls from "@/app/(root)/orderflow/_components/replay-controls";
+import SessionStats from "@/app/(root)/orderflow/_components/session-stats";
 import TradesTable from "@/app/(root)/orderflow/_components/trades-table";
 import {
     ORDERFLOW_BUCKET_PRESETS,
@@ -33,9 +35,9 @@ const bucketTrades = (
     trades: NormalizedTrade[],
     windowSeconds: number,
     bucketSizeSeconds: number,
+    referenceTimestamp: number,
 ): VolumeBucket[] => {
-    const now = Date.now();
-    const windowStart = now - windowSeconds * 1000;
+    const windowStart = referenceTimestamp - windowSeconds * 1000;
     const bucketSizeMs = bucketSizeSeconds * 1000;
     const bucketCount = Math.ceil(windowSeconds / bucketSizeSeconds);
 
@@ -66,6 +68,24 @@ const bucketTrades = (
     return buckets;
 };
 
+interface SessionStatsResponse {
+    buyVolume: number;
+    sellVolume: number;
+    netDelta: number;
+    vwap: number | null;
+    largestCluster: {
+        startTimestamp: number;
+        endTimestamp: number;
+        volume: number;
+        buyVolume: number;
+        sellVolume: number;
+        tradeCount: number;
+    } | null;
+}
+
+const SESSION_WINDOW_SECONDS = 86_400;
+const SESSION_REFRESH_INTERVAL_MS = 20_000;
+
 const OrderflowPage = () => {
     const defaultWindowSeconds = ORDERFLOW_WINDOW_PRESETS[1]?.value ?? ORDERFLOW_WINDOW_PRESETS[0].value;
     const defaultBucketSize = ORDERFLOW_BUCKET_PRESETS[1]?.value ?? ORDERFLOW_BUCKET_PRESETS[0].value;
@@ -74,10 +94,20 @@ const OrderflowPage = () => {
     const [windowSeconds, setWindowSeconds] = useState<number>(defaultWindowSeconds);
     const [bucketSizeSeconds, setBucketSizeSeconds] = useState<number>(defaultBucketSize);
     const [hideSmallTrades, setHideSmallTrades] = useState(false);
+    const [replayEnabled, setReplayEnabled] = useState(false);
+    const [replayTimestamp, setReplayTimestamp] = useState<number | null>(null);
 
     const { trades: liveTrades, connected, error } = useOrderflowStream({ symbol: selectedSymbol });
     const [historyTrades, setHistoryTrades] = useState<NormalizedTrade[]>([]);
     const [loadingHistory, setLoadingHistory] = useState(false);
+    const [sessionStats, setSessionStats] = useState<SessionStatsResponse>({
+        buyVolume: 0,
+        sellVolume: 0,
+        netDelta: 0,
+        vwap: null,
+        largestCluster: null,
+    });
+    const [sessionStatsLoading, setSessionStatsLoading] = useState(false);
 
     usePersistOrderflowTrades(selectedSymbol, liveTrades, true);
 
@@ -137,6 +167,66 @@ const OrderflowPage = () => {
         };
     }, [selectedSymbol, windowSeconds]);
 
+    useEffect(() => {
+        let isCancelled = false;
+
+        const fetchSessionStats = async () => {
+            setSessionStatsLoading(true);
+            try {
+                const params = new URLSearchParams({
+                    symbol: selectedSymbol,
+                    sessionWindowSeconds: String(SESSION_WINDOW_SECONDS),
+                });
+
+                const response = await fetch(`/api/orderflow/session-stats?${params.toString()}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to load session stats (${response.status})`);
+                }
+
+                const data = (await response.json()) as Partial<SessionStatsResponse>;
+                if (isCancelled) return;
+
+                const parsedLargestCluster = data?.largestCluster
+                    ? {
+                          startTimestamp: Number(data.largestCluster.startTimestamp),
+                          endTimestamp: Number(data.largestCluster.endTimestamp),
+                          volume: Number(data.largestCluster.volume),
+                          buyVolume: Number(data.largestCluster.buyVolume),
+                          sellVolume: Number(data.largestCluster.sellVolume),
+                          tradeCount: Number(data.largestCluster.tradeCount),
+                      }
+                    : null;
+
+                setSessionStats({
+                    buyVolume: Number(data?.buyVolume) || 0,
+                    sellVolume: Number(data?.sellVolume) || 0,
+                    netDelta: Number(data?.netDelta) || 0,
+                    vwap: Number.isFinite(Number(data?.vwap)) ? Number(data?.vwap) : null,
+                    largestCluster: parsedLargestCluster,
+                });
+            } catch (fetchError) {
+                console.error("Failed to fetch session stats", fetchError);
+            } finally {
+                if (!isCancelled) {
+                    setSessionStatsLoading(false);
+                }
+            }
+        };
+
+        fetchSessionStats();
+        const interval = setInterval(fetchSessionStats, SESSION_REFRESH_INTERVAL_MS);
+
+        return () => {
+            isCancelled = true;
+            clearInterval(interval);
+        };
+    }, [selectedSymbol]);
+
+    useEffect(() => {
+        setReplayEnabled(false);
+        setReplayTimestamp(null);
+    }, [selectedSymbol, windowSeconds]);
+
     const combinedTrades = useMemo(() => {
         const allTrades = [...historyTrades, ...liveTrades];
         const uniqueTrades = new Map<string, NormalizedTrade>();
@@ -149,11 +239,40 @@ const OrderflowPage = () => {
         return Array.from(uniqueTrades.values()).sort((a, b) => a.timestamp - b.timestamp);
     }, [historyTrades, liveTrades]);
 
+    const referenceTimestamp = replayEnabled ? replayTimestamp ?? Date.now() : Date.now();
+
     const windowedTrades = useMemo(() => {
-        const now = Date.now();
-        const cutoff = now - windowSeconds * 1000;
-        return combinedTrades.filter((trade) => trade.timestamp >= cutoff);
-    }, [combinedTrades, windowSeconds]);
+        const windowStart = referenceTimestamp - windowSeconds * 1000;
+        return combinedTrades.filter(
+            (trade) => trade.timestamp >= windowStart && trade.timestamp <= referenceTimestamp,
+        );
+    }, [combinedTrades, referenceTimestamp, windowSeconds]);
+
+    const windowBounds = useMemo(() => {
+        const latestTimestamp = windowedTrades.length
+            ? windowedTrades[windowedTrades.length - 1].timestamp
+            : referenceTimestamp;
+        const end = Math.max(latestTimestamp, referenceTimestamp);
+        const start = Math.max(end - windowSeconds * 1000, 0);
+        return { start, end };
+    }, [referenceTimestamp, windowSeconds, windowedTrades]);
+
+    useEffect(() => {
+        if (replayTimestamp === null) return;
+        const clamped = Math.min(Math.max(replayTimestamp, windowBounds.start), windowBounds.end);
+        if (clamped !== replayTimestamp) {
+            setReplayTimestamp(clamped);
+        }
+    }, [replayTimestamp, windowBounds.end, windowBounds.start]);
+
+    const effectiveReplayTimestamp = replayEnabled
+        ? replayTimestamp ?? windowBounds.end
+        : referenceTimestamp;
+
+    const visibleTrades = useMemo(() => {
+        if (!replayEnabled) return windowedTrades;
+        return windowedTrades.filter((trade) => trade.timestamp <= effectiveReplayTimestamp);
+    }, [effectiveReplayTimestamp, replayEnabled, windowedTrades]);
 
     const metrics = useMemo(() => {
         let buyVolume = 0;
@@ -161,7 +280,7 @@ const OrderflowPage = () => {
         let buyTradesCount = 0;
         let sellTradesCount = 0;
 
-        windowedTrades.forEach((trade) => {
+        visibleTrades.forEach((trade) => {
             if (trade.side === "buy") {
                 buyVolume += trade.quantity;
                 buyTradesCount += 1;
@@ -176,11 +295,11 @@ const OrderflowPage = () => {
         const averageTradeSize = totalTrades > 0 ? (buyVolume + sellVolume) / totalTrades : 0;
 
         return { buyVolume, sellVolume, delta, buyTradesCount, sellTradesCount, averageTradeSize };
-    }, [windowedTrades]);
+    }, [visibleTrades]);
 
     const buckets = useMemo(
-        () => bucketTrades(windowedTrades, windowSeconds, bucketSizeSeconds),
-        [windowedTrades, windowSeconds, bucketSizeSeconds],
+        () => bucketTrades(visibleTrades, windowSeconds, bucketSizeSeconds, effectiveReplayTimestamp),
+        [visibleTrades, windowSeconds, bucketSizeSeconds, effectiveReplayTimestamp],
     );
 
     const cumulativeDeltaData = useMemo<CumulativeDeltaPoint[]>(() => {
@@ -196,28 +315,38 @@ const OrderflowPage = () => {
 
     const displayedTrades = useMemo(() => {
         if (hideSmallTrades) {
-            return windowedTrades.filter((trade) => trade.quantity >= ORDERFLOW_SMALL_TRADE_THRESHOLD);
+            return visibleTrades.filter((trade) => trade.quantity >= ORDERFLOW_SMALL_TRADE_THRESHOLD);
         }
-        return windowedTrades;
-    }, [hideSmallTrades, windowedTrades]);
+        return visibleTrades;
+    }, [hideSmallTrades, visibleTrades]);
 
     const statusText = loadingHistory
         ? "Loading history"
         : connected
           ? "Connected"
-          : windowedTrades.length > 0
+          : visibleTrades.length > 0
             ? "Disconnected"
             : "Connecting";
     const statusColor = loadingHistory
         ? "bg-amber-500/20 text-amber-200"
         : connected
           ? "bg-emerald-500/20 text-emerald-300"
-          : windowedTrades.length > 0
+          : visibleTrades.length > 0
             ? "bg-rose-500/20 text-rose-300"
             : "bg-amber-500/20 text-amber-200";
 
-    const hasData = windowedTrades.length > 0;
+    const hasData = visibleTrades.length > 0;
     const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
+    const sessionWindowLabel = `${Math.round(SESSION_WINDOW_SECONDS / 3600)}h`;
+
+    const handleToggleReplay = (enabled: boolean) => {
+        setReplayEnabled(enabled);
+        setReplayTimestamp(enabled ? windowBounds.end : null);
+    };
+
+    const handleReplayChange = (value: number) => {
+        setReplayTimestamp(value);
+    };
 
     return (
         <section className="space-y-6 px-4 py-6 md:px-6">
@@ -323,7 +452,25 @@ const OrderflowPage = () => {
                 </div>
             )}
 
-            <div className="grid gap-4 lg:grid-cols-[2fr_1fr] xl:grid-cols-[3fr_1fr]">
+            <div className="grid items-stretch gap-4 xl:grid-cols-[2fr_1fr]">
+                <SessionStats
+                    symbol={selectedSymbol}
+                    windowLabel={sessionWindowLabel}
+                    loading={sessionStatsLoading}
+                    stats={sessionStats}
+                />
+                <ReplayControls
+                    startTimestamp={windowBounds.start}
+                    endTimestamp={windowBounds.end}
+                    value={effectiveReplayTimestamp}
+                    enabled={replayEnabled}
+                    onToggle={handleToggleReplay}
+                    onChange={handleReplayChange}
+                    disabled={!hasData}
+                />
+            </div>
+
+            <div className="grid items-stretch gap-4 lg:grid-cols-[2fr_1fr] xl:grid-cols-[3fr_1fr]">
                 <div className="space-y-4">
                     {hasData && <OrderflowChart buckets={buckets} />}
                     {hasData && <CumulativeDeltaChart data={cumulativeDeltaData} />}
@@ -336,7 +483,7 @@ const OrderflowPage = () => {
                         </p>
                     </div>
                 </div>
-                <TradesTable trades={displayedTrades} />
+                <TradesTable trades={displayedTrades} className="h-full min-h-[360px]" />
             </div>
         </section>
     );

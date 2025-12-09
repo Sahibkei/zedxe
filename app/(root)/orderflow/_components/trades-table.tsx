@@ -1,17 +1,24 @@
 "use client";
 
 import { LARGE_TRADE_THRESHOLD, NormalizedTrade } from "@/hooks/useOrderflowStream";
+import { cn } from "@/lib/utils";
 import { formatNumber, formatTime } from "@/utils/formatters";
 
 interface TradesTableProps {
     trades: NormalizedTrade[];
+    className?: string;
 }
 
-export const TradesTable = ({ trades }: TradesTableProps) => {
+export const TradesTable = ({ trades, className }: TradesTableProps) => {
     const recentTrades = [...trades].reverse();
 
     return (
-        <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20">
+        <div
+            className={cn(
+                "h-full rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20 flex flex-col",
+                className,
+            )}
+        >
             <div className="flex items-center justify-between pb-3">
                 <div>
                     <p className="text-xs uppercase tracking-wide text-gray-500">Time & Sales</p>
@@ -19,14 +26,14 @@ export const TradesTable = ({ trades }: TradesTableProps) => {
                 </div>
                 <span className="rounded-full bg-gray-800 px-3 py-1 text-xs text-gray-300">{recentTrades.length} shown</span>
             </div>
-            <div className="max-h-[520px] overflow-y-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-800/60">
                 <table className="w-full text-left text-sm text-gray-300">
                     <thead className="sticky top-0 z-10 bg-[#0f1115] text-xs uppercase tracking-wide text-gray-500">
                         <tr>
-                            <th className="px-2 py-2">Time</th>
-                            <th className="px-2 py-2">Price</th>
-                            <th className="px-2 py-2">Quantity</th>
-                            <th className="px-2 py-2 text-right">Side</th>
+                            <th className="px-3 py-2">Time</th>
+                            <th className="px-3 py-2">Price</th>
+                            <th className="px-3 py-2">Quantity</th>
+                            <th className="px-3 py-2 text-right">Side</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-800">
@@ -43,10 +50,10 @@ export const TradesTable = ({ trades }: TradesTableProps) => {
                                               : "bg-rose-500/5"
                                     }`}
                                 >
-                                    <td className="px-2 py-2 text-gray-300">{formatTime(trade.timestamp)}</td>
-                                    <td className="px-2 py-2 text-white">{formatNumber(trade.price)}</td>
-                                    <td className="px-2 py-2 font-semibold">{formatNumber(trade.quantity)}</td>
-                                    <td className="px-2 py-2 text-right">
+                                    <td className="px-3 py-2 text-gray-300">{formatTime(trade.timestamp)}</td>
+                                    <td className="px-3 py-2 text-white">{formatNumber(trade.price)}</td>
+                                    <td className="px-3 py-2 font-semibold">{formatNumber(trade.quantity)}</td>
+                                    <td className="px-3 py-2 text-right">
                                         <span
                                             className={`rounded-full px-3 py-1 text-xs font-semibold ${
                                                 trade.side === "buy"
