@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Radio } from "lucide-react";
 
 import CumulativeDeltaChart, {
@@ -25,6 +25,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { LARGE_TRADE_THRESHOLD, NormalizedTrade, useOrderflowStream } from "@/hooks/useOrderflowStream";
+import { usePersistOrderflowTrades } from "@/hooks/usePersistOrderflowTrades";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/utils/formatters";
 
@@ -74,13 +75,85 @@ const OrderflowPage = () => {
     const [bucketSizeSeconds, setBucketSizeSeconds] = useState<number>(defaultBucketSize);
     const [hideSmallTrades, setHideSmallTrades] = useState(false);
 
-    const { trades, connected, error } = useOrderflowStream({ symbol: selectedSymbol });
+    const { trades: liveTrades, connected, error } = useOrderflowStream({ symbol: selectedSymbol });
+    const [historyTrades, setHistoryTrades] = useState<NormalizedTrade[]>([]);
+    const [loadingHistory, setLoadingHistory] = useState(false);
+
+    usePersistOrderflowTrades(selectedSymbol, liveTrades, true);
+
+    useEffect(() => {
+        let isCancelled = false;
+
+        const fetchHistory = async () => {
+            setLoadingHistory(true);
+            try {
+                const params = new URLSearchParams({
+                    symbol: selectedSymbol,
+                    windowSeconds: String(windowSeconds),
+                    maxPoints: "5000",
+                });
+
+                const response = await fetch(`/api/orderflow/history?${params.toString()}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to load history (${response.status})`);
+                }
+
+                const data = await response.json();
+                if (isCancelled) return;
+
+                const fetchedTrades: NormalizedTrade[] = Array.isArray(data?.trades)
+                    ? data.trades
+                          .map((trade: NormalizedTrade) => ({
+                              timestamp: Number(trade.timestamp),
+                              price: Number(trade.price),
+                              quantity: Number(trade.quantity),
+                              side: trade.side === "sell" ? "sell" : "buy",
+                          }))
+                          .filter(
+                              (trade) =>
+                                  Number.isFinite(trade.timestamp) &&
+                                  Number.isFinite(trade.price) &&
+                                  Number.isFinite(trade.quantity),
+                          )
+                    : [];
+
+                setHistoryTrades(fetchedTrades);
+            } catch (fetchError) {
+                console.error("Failed to fetch orderflow history", fetchError);
+                if (!isCancelled) {
+                    setHistoryTrades([]);
+                }
+            } finally {
+                if (!isCancelled) {
+                    setLoadingHistory(false);
+                }
+            }
+        };
+
+        fetchHistory();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [selectedSymbol, windowSeconds]);
+
+    const combinedTrades = useMemo(() => {
+        const allTrades = [...historyTrades, ...liveTrades];
+        const uniqueTrades = new Map<string, NormalizedTrade>();
+
+        allTrades.forEach((trade) => {
+            const key = `${trade.timestamp}-${trade.side}-${trade.price}-${trade.quantity}`;
+            uniqueTrades.set(key, trade);
+        });
+
+        return Array.from(uniqueTrades.values()).sort((a, b) => a.timestamp - b.timestamp);
+    }, [historyTrades, liveTrades]);
 
     const windowedTrades = useMemo(() => {
         const now = Date.now();
         const cutoff = now - windowSeconds * 1000;
-        return trades.filter((trade) => trade.timestamp >= cutoff);
-    }, [trades, windowSeconds]);
+        return combinedTrades.filter((trade) => trade.timestamp >= cutoff);
+    }, [combinedTrades, windowSeconds]);
 
     const metrics = useMemo(() => {
         let buyVolume = 0;
@@ -128,12 +201,20 @@ const OrderflowPage = () => {
         return windowedTrades;
     }, [hideSmallTrades, windowedTrades]);
 
-    const statusText = connected ? "Connected" : windowedTrades.length > 0 ? "Disconnected" : "Connecting";
-    const statusColor = connected
-        ? "bg-emerald-500/20 text-emerald-300"
-        : windowedTrades.length > 0
-          ? "bg-rose-500/20 text-rose-300"
-          : "bg-amber-500/20 text-amber-200";
+    const statusText = loadingHistory
+        ? "Loading history"
+        : connected
+          ? "Connected"
+          : windowedTrades.length > 0
+            ? "Disconnected"
+            : "Connecting";
+    const statusColor = loadingHistory
+        ? "bg-amber-500/20 text-amber-200"
+        : connected
+          ? "bg-emerald-500/20 text-emerald-300"
+          : windowedTrades.length > 0
+            ? "bg-rose-500/20 text-rose-300"
+            : "bg-amber-500/20 text-amber-200";
 
     const hasData = windowedTrades.length > 0;
     const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
@@ -143,7 +224,7 @@ const OrderflowPage = () => {
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                     <p className="text-xs uppercase tracking-wide text-emerald-400">Orderflow</p>
-                    <h1 className="text-3xl font-bold text-white">Orderflow – Phase 2</h1>
+                    <h1 className="text-3xl font-bold text-white">Orderflow – Phase 3</h1>
                     <p className="text-gray-400">
                         Live orderflow for {selectedSymbol.toUpperCase()} using exchange WebSocket.
                     </p>

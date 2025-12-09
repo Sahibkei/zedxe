@@ -88,6 +88,7 @@ export const useOrderflowStream = ({ symbol = DEFAULT_SYMBOL }: UseOrderflowStre
     useEffect(() => {
         isMounted.current = true;
         activeSymbol.current = symbol.toLowerCase();
+        setTrades([]);
         cleanup();
 
         const connect = () => {
