@@ -530,7 +530,7 @@ const OrderflowPage = () => {
                         </p>
                     </div>
                 </div>
-                <TradesTable trades={displayedTrades} className="h-full min-h-[360px]" />
+                <TradesTable trades={displayedTrades} className="h-[360px]" />
             </div>
         </section>
     );
