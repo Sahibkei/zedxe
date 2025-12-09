@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
 import { getCryptoPageData } from '@/lib/crypto/market-data';
+import { ORDERFLOW_DEFAULT_SYMBOL } from '@/lib/constants';
 import { formatMarketCapValue, formatPrice, getChangeColorClass } from '@/lib/utils';
 
 const formatPercent = (value?: number | null) => {
@@ -27,7 +28,7 @@ const CryptoPage = async () => {
                     <p className="text-gray-400">Track the global crypto market and top 100 coins by market cap.</p>
                 </div>
                 <Button asChild className="w-full sm:w-auto">
-                    <Link href="/orderflow">View live orderflow (BTCUSDT)</Link>
+                    <Link href="/orderflow">View live orderflow ({ORDERFLOW_DEFAULT_SYMBOL.toUpperCase()})</Link>
                 </Button>
             </div>
 

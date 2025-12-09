@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-export const DEFAULT_SYMBOL = "btcusdt";
+import { ORDERFLOW_DEFAULT_SYMBOL } from "@/lib/constants";
+
+export const DEFAULT_SYMBOL = ORDERFLOW_DEFAULT_SYMBOL;
 export const MAX_TRADES = 1000;
 export const BUCKET_SIZE_SECONDS = 5;
 export const WINDOW_SECONDS = 120;
@@ -141,7 +143,7 @@ export const useOrderflowStream = ({ symbol = DEFAULT_SYMBOL }: UseOrderflowStre
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [symbol]);
 
-    const sortedTrades = useMemo(() => trades.toSorted((a, b) => a.timestamp - b.timestamp), [trades]);
+    const sortedTrades = useMemo(() => [...trades].sort((a, b) => a.timestamp - b.timestamp), [trades]);
 
     return { trades: sortedTrades, connected, error };
 };

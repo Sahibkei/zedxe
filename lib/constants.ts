@@ -351,3 +351,28 @@ export const WATCHLIST_TABLE_HEADER = [
     'Alert',
     'Action',
 ];
+
+// Orderflow defaults & presets
+export const ORDERFLOW_DEFAULT_SYMBOL = 'btcusdt';
+
+export const ORDERFLOW_SYMBOL_OPTIONS = [
+    { label: 'BTCUSDT', value: 'btcusdt' },
+    { label: 'ETHUSDT', value: 'ethusdt' },
+    { label: 'SOLUSDT', value: 'solusdt' },
+    { label: 'BNBUSDT', value: 'bnbusdt' },
+    { label: 'XRPUSDT', value: 'xrpusdt' },
+];
+
+export const ORDERFLOW_WINDOW_PRESETS = [
+    { label: '1m', value: 60 },
+    { label: '5m', value: 300 },
+    { label: '15m', value: 900 },
+];
+
+export const ORDERFLOW_BUCKET_PRESETS = [
+    { label: '1s', value: 1 },
+    { label: '5s', value: 5 },
+    { label: '15s', value: 15 },
+];
+
+export const ORDERFLOW_SMALL_TRADE_THRESHOLD = 0.001;
