@@ -7,6 +7,7 @@ import {
     Legend,
     ResponsiveContainer,
     Tooltip,
+    TooltipProps,
     XAxis,
     YAxis,
 } from "recharts";
@@ -18,6 +19,10 @@ export interface VolumeBucket {
     buyVolume: number;
     sellVolume: number;
     delta: number;
+    totalVolume: number;
+    imbalance: number; // -1 to 1 ratio of buy/sell dominance
+    imbalancePercent: number; // 0-100 absolute imbalance
+    dominantSide: "buy" | "sell" | null;
 }
 
 interface OrderflowChartProps {
@@ -28,6 +33,32 @@ const tooltipFormatter = (value: number, name: string) => [
     formatNumber(value),
     name === "buyVolume" ? "Buy" : name === "sellVolume" ? "Sell" : "Delta",
 ];
+
+const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>) => {
+    if (!active || !payload?.length) return null;
+
+    const bucket = payload[0]?.payload as VolumeBucket;
+
+    return (
+        <div className="rounded-lg border border-gray-800 bg-[#0b0d12] p-3 shadow-xl">
+            <p className="text-xs text-gray-400">{formatTime(Number(label))}</p>
+            <div className="mt-1 space-y-1 text-sm text-gray-200">
+                <div className="flex items-center justify-between">
+                    <span>Buy</span>
+                    <span className="text-emerald-300">{formatNumber(bucket.buyVolume)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                    <span>Sell</span>
+                    <span className="text-rose-300">{formatNumber(bucket.sellVolume)}</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-gray-800 pt-1 text-xs text-gray-400">
+                    <span>Delta</span>
+                    <span className="text-white">{formatNumber(bucket.delta)}</span>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 export const OrderflowChart = ({ buckets }: OrderflowChartProps) => {
     return (
@@ -50,10 +81,11 @@ export const OrderflowChart = ({ buckets }: OrderflowChartProps) => {
                             labelStyle={{ color: "#e5e7eb" }}
                             labelFormatter={(label) => formatTime(Number(label))}
                             formatter={tooltipFormatter}
+                            content={<CustomTooltip />}
                         />
                         <Legend wrapperStyle={{ color: "#9ca3af" }} />
-                        <Bar dataKey="buyVolume" stackId="volume" fill="#34d399" name="Buy" />
-                        <Bar dataKey="sellVolume" stackId="volume" fill="#f87171" name="Sell" />
+                        <Bar dataKey="buyVolume" stackId="volume" name="Buy" radius={[4, 4, 0, 0]} fill="#34d399" />
+                        <Bar dataKey="sellVolume" stackId="volume" name="Sell" radius={[0, 0, 4, 4]} fill="#f87171" />
                     </BarChart>
                 </ResponsiveContainer>
             </div>

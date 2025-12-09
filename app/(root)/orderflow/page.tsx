@@ -11,6 +11,7 @@ import OrderbookPanel from "@/app/(root)/orderflow/_components/orderbook-panel";
 import OrderflowSummary from "@/app/(root)/orderflow/_components/orderflow-summary";
 import ReplayControls from "@/app/(root)/orderflow/_components/replay-controls";
 import SessionStats from "@/app/(root)/orderflow/_components/session-stats";
+import VolumeProfile, { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
 import TradesTable from "@/app/(root)/orderflow/_components/trades-table";
 import {
     ORDERFLOW_BUCKET_PRESETS,
@@ -49,6 +50,10 @@ const bucketTrades = (
             buyVolume: 0,
             sellVolume: 0,
             delta: 0,
+            totalVolume: 0,
+            imbalance: 0,
+            imbalancePercent: 0,
+            dominantSide: null,
         };
     });
 
@@ -66,7 +71,20 @@ const bucketTrades = (
         bucket.delta = bucket.buyVolume - bucket.sellVolume;
     });
 
-    return buckets;
+    return buckets.map((bucket) => {
+        const totalVolume = bucket.buyVolume + bucket.sellVolume;
+        const imbalance = totalVolume > 0 ? (bucket.buyVolume - bucket.sellVolume) / totalVolume : 0;
+        const imbalancePercent = Math.abs(imbalance) * 100;
+        const dominantSide = totalVolume === 0 ? null : bucket.buyVolume >= bucket.sellVolume ? "buy" : "sell";
+
+        return {
+            ...bucket,
+            totalVolume,
+            imbalance,
+            imbalancePercent,
+            dominantSide,
+        };
+    });
 };
 
 interface SessionStatsResponse {
@@ -99,7 +117,12 @@ const OrderflowPage = () => {
     const [replayEnabled, setReplayEnabled] = useState(false);
     const [replayIndex, setReplayIndex] = useState<number | null>(null);
 
-    const { trades: liveTrades, connected, error } = useOrderflowStream({ symbol: selectedSymbol });
+    const {
+        trades: liveTrades,
+        windowedTrades: liveWindowedTrades,
+        connected,
+        error,
+    } = useOrderflowStream({ symbol: selectedSymbol, windowSeconds });
     const [historyTrades, setHistoryTrades] = useState<NormalizedTrade[]>([]);
     const [loadingHistory, setLoadingHistory] = useState(false);
     const [sessionStats, setSessionStats] = useState<SessionStatsResponse>({
@@ -230,7 +253,7 @@ const OrderflowPage = () => {
     }, [selectedSymbol, windowSeconds]);
 
     const combinedTrades = useMemo(() => {
-        const allTrades = [...historyTrades, ...liveTrades];
+        const allTrades = [...historyTrades, ...liveWindowedTrades];
         const uniqueTrades = new Map<string, NormalizedTrade>();
 
         allTrades.forEach((trade) => {
@@ -309,6 +332,91 @@ const OrderflowPage = () => {
                 : baseBuckets.filter((bucket) => bucket.timestamp <= replayCutoffTimestamp),
         [baseBuckets, replayCutoffTimestamp],
     );
+
+    const priceStep = useMemo(() => {
+        if (effectiveTrades.length === 0) return 0;
+
+        const sortedPrices = [...effectiveTrades].map((trade) => trade.price).sort((a, b) => a - b);
+        const deltas: number[] = [];
+
+        for (let index = 1; index < sortedPrices.length; index += 1) {
+            const diff = sortedPrices[index] - sortedPrices[index - 1];
+            if (diff > 0) {
+                deltas.push(diff);
+            }
+        }
+
+        const medianDelta = (() => {
+            if (!deltas.length) return 0;
+            const sorted = deltas.sort((a, b) => a - b);
+            const middle = Math.floor(sorted.length / 2);
+            if (sorted.length % 2 === 0) {
+                return (sorted[middle - 1] + sorted[middle]) / 2;
+            }
+            return sorted[middle];
+        })();
+
+        const referencePrice = effectiveTrades[effectiveTrades.length - 1]?.price ?? 0;
+        const fallbackStep = Math.max(referencePrice * 0.0005, 0.01);
+
+        return Math.max(medianDelta, fallbackStep);
+    }, [effectiveTrades]);
+
+    const volumeProfile = useMemo(() => {
+        if (effectiveTrades.length === 0) {
+            return { levels: [] as VolumeProfileLevel[], priceStep: 0, referencePrice: null };
+        }
+
+        const sortedTrades = [...effectiveTrades].sort((a, b) => a.timestamp - b.timestamp);
+        const referencePrice = sortedTrades[sortedTrades.length - 1]?.price ?? null;
+        if (!referencePrice) {
+            return { levels: [] as VolumeProfileLevel[], priceStep: 0, referencePrice: null };
+        }
+
+        const step = priceStep > 0 ? priceStep : Math.max(referencePrice * 0.0005, 0.01);
+        const levelsPerSide = 6;
+        const centerIndex = Math.max(Math.round(referencePrice / step), 1);
+        const startIndex = Math.max(centerIndex - levelsPerSide, 1);
+        const endIndex = centerIndex + levelsPerSide;
+
+        const aggregation = new Map<number, { buyVolume: number; sellVolume: number }>();
+
+        sortedTrades.forEach((trade) => {
+            const levelIndex = Math.round(trade.price / step);
+            if (levelIndex < startIndex - 1 || levelIndex > endIndex + 1) return;
+            const levelPrice = levelIndex * step;
+            const existing = aggregation.get(levelPrice) ?? { buyVolume: 0, sellVolume: 0 };
+
+            if (trade.side === "buy") {
+                existing.buyVolume += trade.quantity;
+            } else {
+                existing.sellVolume += trade.quantity;
+            }
+
+            aggregation.set(levelPrice, existing);
+        });
+
+        const levels: VolumeProfileLevel[] = [];
+        for (let index = startIndex; index <= endIndex; index += 1) {
+            const price = index * step;
+            const volume = aggregation.get(price) ?? { buyVolume: 0, sellVolume: 0 };
+            const totalVolume = volume.buyVolume + volume.sellVolume;
+            const imbalancePercent =
+                totalVolume > 0 ? (Math.abs(volume.buyVolume - volume.sellVolume) / totalVolume) * 100 : 0;
+            const dominantSide = totalVolume === 0 ? null : volume.buyVolume >= volume.sellVolume ? "buy" : "sell";
+
+            levels.push({
+                price,
+                buyVolume: volume.buyVolume,
+                sellVolume: volume.sellVolume,
+                totalVolume,
+                imbalancePercent,
+                dominantSide,
+            });
+        }
+
+        return { levels, priceStep: step, referencePrice };
+    }, [effectiveTrades, priceStep]);
 
     const metrics = useMemo(() => {
         let buyVolume = 0;
@@ -532,6 +640,11 @@ const OrderflowPage = () => {
                     </div>
                 </div>
                 <div className="flex flex-col gap-4">
+                    <VolumeProfile
+                        levels={volumeProfile.levels}
+                        priceStep={volumeProfile.priceStep}
+                        referencePrice={volumeProfile.referencePrice}
+                    />
                     <OrderbookPanel symbol={selectedSymbol} levelCount={16} />
                     <TradesTable trades={displayedTrades} className="h-[360px]" />
                 </div>
