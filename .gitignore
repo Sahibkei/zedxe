@@ -19,6 +19,7 @@
 
 # production
 /build
+/dist-footprint
 
 # misc
 .DS_Store
