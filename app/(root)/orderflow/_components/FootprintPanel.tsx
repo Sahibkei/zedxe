@@ -1,11 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type HTMLAttributes } from "react";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FootprintBar, FootprintTimeframe } from "@/lib/footprint/types";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/utils/formatters";
+
+type CardProps = HTMLAttributes<HTMLDivElement>;
+type CardTitleProps = HTMLAttributes<HTMLHeadingElement>;
+
+const Card = ({ className, ...props }: CardProps) => (
+    <div
+        className={cn("w-full rounded-xl border border-gray-800 bg-[#0f1115] shadow-sm", className)}
+        {...props}
+    />
+);
+
+const CardHeader = ({ className, ...props }: CardProps) => <div className={cn("p-4", className)} {...props} />;
+
+const CardContent = ({ className, ...props }: CardProps) => (
+    <div className={cn("px-4 pb-4", className)} {...props} />
+);
+
+const CardTitle = ({ className, ...props }: CardTitleProps) => (
+    <h3 className={cn("text-base font-semibold", className)} {...props} />
+);
 
 interface FootprintPanelProps {
     symbol: string;
