@@ -1,0 +1,12 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "noEmit": false,
+        "outDir": "dist-footprint",
+        "rootDir": ".",
+        "module": "commonjs",
+        "moduleResolution": "node",
+        "target": "ES2019"
+    },
+    "include": ["lib/footprint/**/*.ts"]
+}
