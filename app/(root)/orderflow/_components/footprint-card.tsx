@@ -28,7 +28,7 @@ const FootprintCard = ({
     refreshing = false,
     onChangeTimeframe,
 }: FootprintCardProps) => {
-    const displayedBars = useMemo(() => bars.slice(-60), [bars]);
+    const displayedBars = useMemo(() => bars.slice(-30), [bars]);
 
     const getCellStyles = (bidVolume: number, askVolume: number, maxVolume: number) => {
         const totalVolume = bidVolume + askVolume;
@@ -47,8 +47,8 @@ const FootprintCard = ({
     };
 
     return (
-        <div className="col-span-2 row-span-1 h-[320px] w-full min-w-0 rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20 flex flex-col">
-            <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="h-[320px] w-full min-w-0 rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20 flex flex-col overflow-hidden">
+            <div className="mb-4 flex flex-none items-center justify-between gap-3">
                 <div>
                     <p className="text-xs uppercase tracking-wide text-emerald-400">Footprint</p>
                     <h2 className="text-lg font-semibold text-white">{symbol.toUpperCase()} footprint</h2>
@@ -73,19 +73,19 @@ const FootprintCard = ({
                 </div>
             </div>
 
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                 {loading ? (
                     <p className="text-sm text-gray-400">Loading footprint…</p>
                 ) : displayedBars.length === 0 ? (
                     <p className="text-sm text-gray-400">No footprint data yet for this window.</p>
                 ) : (
-                    <div className="relative h-full overflow-hidden">
+                    <div className="relative flex-1 overflow-hidden">
                         {refreshing && (
                             <div className="absolute right-2 top-0 z-10 rounded-full border border-emerald-700/50 bg-emerald-600/10 px-3 py-1 text-[11px] text-emerald-200">
                                 Refreshing…
                             </div>
                         )}
-                        <div className="mt-3 h-full w-full overflow-x-auto overflow-y-hidden pb-2">
+                        <div className="mt-2 h-full w-full overflow-x-auto overflow-y-hidden pb-2">
                             <div className="w-full min-w-0">
                                 <div className="flex min-h-[260px] min-w-max items-end gap-3">
                                     {displayedBars.map((bar) => {
