@@ -458,7 +458,7 @@ const OrderflowPage = () => {
         return () => {
             isCancelled = true;
         };
-    }, [debouncedPriceStep, footprintTimeframe, selectedSymbol]);
+    }, [footprintPriceStep, footprintTimeframe, selectedSymbol]);
 
     const rawFootprintTrades = useMemo(
         () =>
