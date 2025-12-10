@@ -507,7 +507,7 @@ const OrderflowPage = () => {
     };
 
     return (
-        <section className="space-y-6 px-4 py-6 md:px-6">
+        <section className="space-y-6 px-4 py-6 md:px-6 min-w-0">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                     <p className="text-xs uppercase tracking-wide text-emerald-400">Orderflow</p>
@@ -628,7 +628,7 @@ const OrderflowPage = () => {
                 />
             </div>
 
-            <div className="grid items-stretch gap-4 lg:grid-cols-[2fr_1fr] xl:grid-cols-[3fr_1.1fr]">
+            <div className="grid items-stretch gap-4 lg:grid-cols-[2fr_1fr] xl:grid-cols-[3fr_1.1fr] min-w-0">
                 <div className="space-y-4 min-w-0">
                     <FootprintPanel symbol={selectedSymbol} timeframe={DEFAULT_FOOTPRINT_TIMEFRAME} />
                     {hasData && <OrderflowChart buckets={effectiveBuckets} />}
