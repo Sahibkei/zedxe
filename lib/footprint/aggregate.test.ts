@@ -105,6 +105,21 @@ test('buckets trades by price step and separates symbols', () => {
     expectEqual(btcBar.close, 30_000.9);
 });
 
+test('supports short-second timeframes', () => {
+    const trades: RawTrade[] = [
+        { symbol: 'BTCUSDT', price: 10, quantity: 1, side: 'buy', ts: 1_000 },
+        { symbol: 'BTCUSDT', price: 11, quantity: 1, side: 'sell', ts: 6_000 },
+        { symbol: 'BTCUSDT', price: 12, quantity: 2, side: 'sell', ts: 16_000 },
+    ];
+
+    const bars = aggregateFootprintBars(trades, { timeframe: '5s' });
+
+    expectEqual(bars.length, 3);
+    expectEqual(bars[0]?.startTime, 0);
+    expectEqual(bars[1]?.startTime, 5_000);
+    expectEqual(bars[2]?.startTime, 15_000);
+});
+
 let failed = false;
 
 for (const { name, run } of tests) {
