@@ -47,7 +47,7 @@ const FootprintCard = ({
     };
 
     return (
-        <div className="w-full rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20">
+        <div className="h-full w-full min-w-0 rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20">
             <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                     <p className="text-xs uppercase tracking-wide text-emerald-400">Footprint</p>
@@ -85,7 +85,7 @@ const FootprintCard = ({
                         </div>
                     )}
                     <div className="mt-3 w-full overflow-x-auto pb-2">
-                        <div className="w-full">
+                        <div className="w-full min-w-0">
                             <div className="flex min-h-[260px] min-w-max items-end gap-3">
                                 {displayedBars.map((bar) => {
                                     const orderedCells = [...bar.cells].sort((a, b) => b.price - a.price);
