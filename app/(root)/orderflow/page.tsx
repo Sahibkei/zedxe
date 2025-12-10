@@ -13,6 +13,7 @@ import ReplayControls from "@/app/(root)/orderflow/_components/replay-controls";
 import SessionStats from "@/app/(root)/orderflow/_components/session-stats";
 import VolumeProfile, { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
 import TradesTable from "@/app/(root)/orderflow/_components/trades-table";
+import FootprintCard from "@/app/(root)/orderflow/_components/footprint-card";
 import {
     ORDERFLOW_BUCKET_PRESETS,
     ORDERFLOW_DEFAULT_SYMBOL,
@@ -28,6 +29,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { aggregateFootprintBars } from "@/lib/footprint/aggregate";
+import { FootprintBar, FootprintTimeframe } from "@/lib/footprint/types";
 import { LARGE_TRADE_THRESHOLD, NormalizedTrade, useOrderflowStream } from "@/hooks/useOrderflowStream";
 import { usePersistOrderflowTrades } from "@/hooks/usePersistOrderflowTrades";
 import { cn } from "@/lib/utils";
@@ -105,6 +108,8 @@ interface SessionStatsResponse {
 const SESSION_WINDOW_SECONDS = 86_400;
 const SESSION_REFRESH_INTERVAL_MS = 20_000;
 const MAX_DISPLAY_TRADES = 300;
+const FOOTPRINT_TIMEFRAMES: FootprintTimeframe[] = ["5s", "15s", "30s", "1m", "5m", "15m"];
+const MAX_FOOTPRINT_BARS = 160;
 
 const OrderflowPage = () => {
     const defaultWindowSeconds = ORDERFLOW_WINDOW_PRESETS[1]?.value ?? ORDERFLOW_WINDOW_PRESETS[0].value;
@@ -116,6 +121,9 @@ const OrderflowPage = () => {
     const [hideSmallTrades, setHideSmallTrades] = useState(false);
     const [replayEnabled, setReplayEnabled] = useState(false);
     const [replayIndex, setReplayIndex] = useState<number | null>(null);
+    const [footprintTimeframe, setFootprintTimeframe] = useState<FootprintTimeframe>("15s");
+    const [footprintBars, setFootprintBars] = useState<FootprintBar[]>([]);
+    const [footprintLoading, setFootprintLoading] = useState(false);
 
     const {
         trades: liveTrades,
@@ -361,6 +369,102 @@ const OrderflowPage = () => {
 
         return Math.max(medianDelta, fallbackStep);
     }, [effectiveTrades]);
+
+    useEffect(() => {
+        let isCancelled = false;
+
+        const fetchFootprint = async () => {
+            setFootprintLoading(true);
+            try {
+                const params = new URLSearchParams({ symbol: selectedSymbol, timeframe: footprintTimeframe });
+                if (priceStep > 0) {
+                    params.append("priceStep", String(priceStep));
+                }
+                params.append("maxBars", String(MAX_FOOTPRINT_BARS));
+
+                const response = await fetch(`/api/footprint?${params.toString()}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to load footprint (${response.status})`);
+                }
+
+                const data = await response.json();
+                if (isCancelled) return;
+
+                const parsedBars: FootprintBar[] = Array.isArray(data?.bars)
+                    ? data.bars.map((bar: FootprintBar) => ({
+                          ...bar,
+                          startTime: Number(bar.startTime),
+                          endTime: Number(bar.endTime),
+                          open: Number(bar.open),
+                          high: Number(bar.high),
+                          low: Number(bar.low),
+                          close: Number(bar.close),
+                          totalAskVolume: Number(bar.totalAskVolume),
+                          totalBidVolume: Number(bar.totalBidVolume),
+                          delta: Number(bar.delta),
+                          cells: Array.isArray(bar.cells)
+                              ? bar.cells.map((cell) => ({
+                                    price: Number(cell.price),
+                                    bidVolume: Number(cell.bidVolume),
+                                    askVolume: Number(cell.askVolume),
+                                    tradesCount: Number(cell.tradesCount),
+                                }))
+                              : [],
+                      }))
+                    : [];
+
+                setFootprintBars(parsedBars);
+            } catch (fetchError) {
+                console.error("Failed to fetch footprint", fetchError);
+                if (!isCancelled) {
+                    setFootprintBars([]);
+                }
+            } finally {
+                if (!isCancelled) {
+                    setFootprintLoading(false);
+                }
+            }
+        };
+
+        fetchFootprint();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [footprintTimeframe, priceStep, selectedSymbol]);
+
+    const rawFootprintTrades = useMemo(
+        () =>
+            effectiveTrades.map((trade) => ({
+                symbol: selectedSymbol,
+                price: trade.price,
+                quantity: trade.quantity,
+                side: trade.side,
+                ts: trade.timestamp,
+            })),
+        [effectiveTrades, selectedSymbol],
+    );
+
+    const liveFootprintBars = useMemo(
+        () =>
+            rawFootprintTrades.length === 0
+                ? []
+                : aggregateFootprintBars(rawFootprintTrades, {
+                      timeframe: footprintTimeframe,
+                      priceStep: priceStep || undefined,
+                  }),
+        [footprintTimeframe, priceStep, rawFootprintTrades],
+    );
+
+    const mergedFootprintBars = useMemo(() => {
+        const merged = new Map<number, FootprintBar>();
+        footprintBars.forEach((bar) => merged.set(bar.startTime, bar));
+        liveFootprintBars.forEach((bar) => merged.set(bar.startTime, bar));
+
+        return Array.from(merged.values())
+            .sort((a, b) => a.startTime - b.startTime)
+            .slice(-MAX_FOOTPRINT_BARS);
+    }, [footprintBars, liveFootprintBars]);
 
     const volumeProfile = useMemo(() => {
         if (effectiveTrades.length === 0) {
@@ -628,6 +732,14 @@ const OrderflowPage = () => {
 
             <div className="grid items-stretch gap-4 lg:grid-cols-[2fr_1fr] xl:grid-cols-[3fr_1.1fr]">
                 <div className="space-y-4">
+                    <FootprintCard
+                        symbol={selectedSymbol}
+                        bars={mergedFootprintBars}
+                        timeframe={footprintTimeframe}
+                        timeframeOptions={FOOTPRINT_TIMEFRAMES}
+                        loading={footprintLoading}
+                        onChangeTimeframe={setFootprintTimeframe}
+                    />
                     {hasData && <OrderflowChart buckets={effectiveBuckets} />}
                     {hasData && <CumulativeDeltaChart data={cumulativeDeltaData} />}
                     <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 text-sm text-gray-400 shadow-lg shadow-black/20">
