@@ -12,6 +12,7 @@ interface FootprintCardProps {
     timeframe: FootprintTimeframe;
     timeframeOptions: FootprintTimeframe[];
     loading: boolean;
+    refreshing?: boolean;
     onChangeTimeframe: (value: FootprintTimeframe) => void;
 }
 
@@ -24,9 +25,26 @@ const FootprintCard = ({
     timeframe,
     timeframeOptions,
     loading,
+    refreshing = false,
     onChangeTimeframe,
 }: FootprintCardProps) => {
-    const recentBars = useMemo(() => bars.slice(-10).reverse(), [bars]);
+    const displayedBars = useMemo(() => bars.slice(-60), [bars]);
+
+    const getCellStyles = (bidVolume: number, askVolume: number, maxVolume: number) => {
+        const totalVolume = bidVolume + askVolume;
+        const imbalance = totalVolume > 0 ? Math.abs(askVolume - bidVolume) / totalVolume : 0;
+        const dominant = askVolume === bidVolume ? "even" : askVolume > bidVolume ? "ask" : "bid";
+        const baseWidth = Math.max(25, Math.min(100, (totalVolume / (maxVolume || 1)) * 100));
+
+        const backgroundColor =
+            dominant === "ask"
+                ? `rgba(52, 211, 153, ${0.12 + imbalance * 0.25})`
+                : dominant === "bid"
+                  ? `rgba(248, 113, 113, ${0.12 + imbalance * 0.25})`
+                  : "rgba(75, 85, 99, 0.35)";
+
+        return { backgroundColor, width: `${baseWidth}%`, dominant };
+    };
 
     return (
         <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20">
@@ -57,53 +75,98 @@ const FootprintCard = ({
 
             {loading ? (
                 <p className="text-sm text-gray-400">Loading footprint…</p>
-            ) : recentBars.length === 0 ? (
+            ) : displayedBars.length === 0 ? (
                 <p className="text-sm text-gray-400">No footprint data yet for this window.</p>
             ) : (
-                <div className="space-y-3">
-                    {recentBars.map((bar) => (
-                        <div key={`${bar.symbol}-${bar.startTime}`} className="rounded-lg border border-gray-800 p-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
-                                <span>
-                                    {formatTime(bar.startTime)} – {formatTime(bar.endTime)} ({bar.timeframe})
-                                </span>
-                                <div className="flex items-center gap-3">
-                                    <span className="text-emerald-300">Δ {formatNumber(bar.delta)}</span>
-                                    <span className="text-gray-300">
-                                        Bid {formatNumber(bar.totalBidVolume)} / Ask {formatNumber(bar.totalAskVolume)}
-                                    </span>
-                                    <span className="text-gray-500">
-                                        O:{bar.open} H:{bar.high} L:{bar.low} C:{bar.close}
-                                    </span>
-                                </div>
-                            </div>
+                <div className="relative">
+                    {refreshing && (
+                        <div className="absolute right-2 top-0 z-10 rounded-full border border-emerald-700/50 bg-emerald-600/10 px-3 py-1 text-[11px] text-emerald-200">
+                            Refreshing…
+                        </div>
+                    )}
+                    <div className="overflow-x-auto pb-2">
+                        <div className="flex items-end gap-3">
+                            {displayedBars.map((bar) => {
+                                const orderedCells = [...bar.cells].sort((a, b) => b.price - a.price);
+                                const maxVolume = Math.max(
+                                    ...orderedCells.map((cell) => cell.askVolume + cell.bidVolume),
+                                    0,
+                                );
 
-                            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                                {bar.cells.map((cell) => (
+                                return (
                                     <div
-                                        key={`${bar.startTime}-${cell.price}`}
-                                        className={cn(
-                                            "rounded-lg border px-3 py-2 text-xs",
-                                            cell.askVolume === cell.bidVolume
-                                                ? "border-gray-800 bg-gray-900"
-                                                : cell.askVolume > cell.bidVolume
-                                                  ? "border-emerald-600/50 bg-emerald-600/10"
-                                                  : "border-rose-600/50 bg-rose-600/10",
-                                        )}
+                                        key={`${bar.symbol}-${bar.startTime}`}
+                                        className="flex min-w-[200px] flex-col gap-2 rounded-lg border border-gray-800 bg-gray-900/40 p-3"
                                     >
-                                        <div className="flex items-center justify-between text-gray-300">
-                                            <span className="font-semibold text-white">{cell.price}</span>
-                                            <span className="text-[10px] text-gray-400">{cell.tradesCount} trades</span>
+                                        <div className="flex items-start justify-between gap-2 text-[11px] text-gray-300">
+                                            <div>
+                                                <p className="text-sm font-semibold text-white">{formatTime(bar.startTime)}</p>
+                                                <p className="text-[10px] text-gray-500">{bar.timeframe}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p
+                                                    className={cn(
+                                                        "text-xs font-semibold",
+                                                        bar.delta >= 0 ? "text-emerald-300" : "text-rose-300",
+                                                    )}
+                                                >
+                                                    Δ {formatNumber(bar.delta)}
+                                                </p>
+                                                <p className="text-[10px] text-gray-400">
+                                                    Bid {formatNumber(bar.totalBidVolume)} / Ask {formatNumber(bar.totalAskVolume)}
+                                                </p>
+                                            </div>
                                         </div>
-                                        <div className="mt-1 flex items-center justify-between">
-                                            <span className="text-emerald-300">Ask {formatNumber(cell.askVolume)}</span>
-                                            <span className="text-rose-300">Bid {formatNumber(cell.bidVolume)}</span>
+
+                                        <div className="flex flex-col gap-1 text-[11px]">
+                                            {orderedCells.map((cell) => {
+                                                const { backgroundColor, width, dominant } = getCellStyles(
+                                                    cell.bidVolume,
+                                                    cell.askVolume,
+                                                    maxVolume,
+                                                );
+
+                                                return (
+                                                    <div
+                                                        key={`${bar.startTime}-${cell.price}`}
+                                                        className={cn(
+                                                            "relative overflow-hidden rounded border bg-gray-900",
+                                                            dominant === "ask"
+                                                                ? "border-emerald-700/50"
+                                                                : dominant === "bid"
+                                                                  ? "border-rose-700/50"
+                                                                  : "border-gray-800",
+                                                        )}
+                                                    >
+                                                        <div className="absolute inset-y-0 left-0" style={{ width, backgroundColor }} />
+                                                        <div className="relative flex items-center justify-between gap-2 px-2 py-1">
+                                                            <div className="flex flex-col text-[10px] leading-tight text-gray-200">
+                                                                <span className="text-xs font-semibold text-white">
+                                                                    {formatNumber(cell.price, 6)}
+                                                                </span>
+                                                                <span className="text-[10px] text-gray-400">
+                                                                    {cell.tradesCount} trades
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center gap-2 text-[11px] font-semibold">
+                                                                <span className="text-rose-200">
+                                                                    {formatNumber(cell.bidVolume, 2)}
+                                                                </span>
+                                                                <span className="text-gray-400">×</span>
+                                                                <span className="text-emerald-200">
+                                                                    {formatNumber(cell.askVolume, 2)}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
-                                ))}
-                            </div>
+                                );
+                            })}
                         </div>
-                    ))}
+                    </div>
                 </div>
             )}
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Radio } from "lucide-react";
 
 import CumulativeDeltaChart, {
@@ -123,7 +123,10 @@ const OrderflowPage = () => {
     const [replayIndex, setReplayIndex] = useState<number | null>(null);
     const [footprintTimeframe, setFootprintTimeframe] = useState<FootprintTimeframe>("15s");
     const [footprintBars, setFootprintBars] = useState<FootprintBar[]>([]);
-    const [footprintLoading, setFootprintLoading] = useState(false);
+    const [footprintLoading, setFootprintLoading] = useState(true);
+    const [footprintRefreshing, setFootprintRefreshing] = useState(false);
+    const [debouncedPriceStep, setDebouncedPriceStep] = useState<number>(0);
+    const footprintContextRef = useRef<{ symbol: string; timeframe: FootprintTimeframe } | null>(null);
 
     const {
         trades: liveTrades,
@@ -371,14 +374,34 @@ const OrderflowPage = () => {
     }, [effectiveTrades]);
 
     useEffect(() => {
+        const handle = setTimeout(() => setDebouncedPriceStep(priceStep), 300);
+        return () => clearTimeout(handle);
+    }, [priceStep]);
+
+    const footprintPriceStep = useMemo(() => {
+        if (debouncedPriceStep > 0) return debouncedPriceStep;
+        if (priceStep > 0) return priceStep;
+        return undefined;
+    }, [debouncedPriceStep, priceStep]);
+
+    useEffect(() => {
         let isCancelled = false;
 
         const fetchFootprint = async () => {
-            setFootprintLoading(true);
+            const contextChanged =
+                footprintContextRef.current?.symbol !== selectedSymbol ||
+                footprintContextRef.current?.timeframe !== footprintTimeframe;
+
+            if (contextChanged) {
+                setFootprintLoading(true);
+                setFootprintRefreshing(false);
+            } else if (footprintContextRef.current) {
+                setFootprintRefreshing(true);
+            }
             try {
                 const params = new URLSearchParams({ symbol: selectedSymbol, timeframe: footprintTimeframe });
-                if (priceStep > 0) {
-                    params.append("priceStep", String(priceStep));
+                if (footprintPriceStep && footprintPriceStep > 0) {
+                    params.append("priceStep", String(footprintPriceStep));
                 }
                 params.append("maxBars", String(MAX_FOOTPRINT_BARS));
 
@@ -414,14 +437,18 @@ const OrderflowPage = () => {
                     : [];
 
                 setFootprintBars(parsedBars);
+                footprintContextRef.current = { symbol: selectedSymbol, timeframe: footprintTimeframe };
             } catch (fetchError) {
                 console.error("Failed to fetch footprint", fetchError);
-                if (!isCancelled) {
+                if (!isCancelled && !footprintContextRef.current) {
                     setFootprintBars([]);
                 }
             } finally {
                 if (!isCancelled) {
-                    setFootprintLoading(false);
+                    if (contextChanged) {
+                        setFootprintLoading(false);
+                    }
+                    setFootprintRefreshing(false);
                 }
             }
         };
@@ -431,7 +458,7 @@ const OrderflowPage = () => {
         return () => {
             isCancelled = true;
         };
-    }, [footprintTimeframe, priceStep, selectedSymbol]);
+    }, [debouncedPriceStep, footprintTimeframe, selectedSymbol]);
 
     const rawFootprintTrades = useMemo(
         () =>
@@ -451,9 +478,9 @@ const OrderflowPage = () => {
                 ? []
                 : aggregateFootprintBars(rawFootprintTrades, {
                       timeframe: footprintTimeframe,
-                      priceStep: priceStep || undefined,
+                      priceStep: footprintPriceStep,
                   }),
-        [footprintTimeframe, priceStep, rawFootprintTrades],
+        [footprintPriceStep, footprintTimeframe, rawFootprintTrades],
     );
 
     const mergedFootprintBars = useMemo(() => {
@@ -738,6 +765,7 @@ const OrderflowPage = () => {
                         timeframe={footprintTimeframe}
                         timeframeOptions={FOOTPRINT_TIMEFRAMES}
                         loading={footprintLoading}
+                        refreshing={footprintRefreshing}
                         onChangeTimeframe={setFootprintTimeframe}
                     />
                     {hasData && <OrderflowChart buckets={effectiveBuckets} />}

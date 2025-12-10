@@ -30,6 +30,8 @@ const parseMaxBars = (value: string | null) => {
     return Math.min(parsed, 500);
 };
 
+const MAX_TRADES_PER_REQUEST = 50_000;
+
 export async function GET(request: NextRequest) {
     const { symbol, timeframe, priceStep, maxBarsParam } = parseFootprintRequest(request);
 
@@ -48,8 +50,11 @@ export async function GET(request: NextRequest) {
     try {
         await connectToDatabase();
 
+        const tradeLimit = Math.min(maxBars * 1000, MAX_TRADES_PER_REQUEST);
+
         const trades = await OrderflowTrade.find({ symbol, timestamp: { $gte: since } })
             .sort({ timestamp: 1 })
+            .limit(tradeLimit)
             .lean();
 
         const rawTrades = trades.map((trade) => ({

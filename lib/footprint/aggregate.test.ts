@@ -120,6 +120,24 @@ test('supports short-second timeframes', () => {
     expectEqual(bars[2]?.startTime, 15_000);
 });
 
+test('handles scientific notation price steps', () => {
+    const trades: RawTrade[] = [
+        { symbol: 'SOLUSDT', price: 100.0000021, quantity: 1, side: 'buy', ts: 1_000 },
+        { symbol: 'SOLUSDT', price: 100.0000029, quantity: 2, side: 'sell', ts: 2_000 },
+        { symbol: 'SOLUSDT', price: 100.0000034, quantity: 3, side: 'buy', ts: 3_000 },
+    ];
+
+    const bars = aggregateFootprintBars(trades, { timeframe: '5s', priceStep: 1e-7 });
+
+    expectEqual(bars.length, 1);
+
+    expectDeepEqual(bars[0]?.cells, [
+        { price: 100.0000021, bidVolume: 0, askVolume: 1, tradesCount: 1 },
+        { price: 100.0000029, bidVolume: 2, askVolume: 0, tradesCount: 1 },
+        { price: 100.0000034, bidVolume: 0, askVolume: 3, tradesCount: 1 },
+    ]);
+});
+
 let failed = false;
 
 for (const { name, run } of tests) {

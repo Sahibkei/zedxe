@@ -14,9 +14,11 @@ export const TIMEFRAME_TO_MS: Record<FootprintTimeframe, number> = {
     '1d': 86_400_000,
 };
 
-const getBucketDecimals = (priceStep?: number) => {
+const getBucketDecimals = (priceStep?: number): number => {
     if (!priceStep) return 0;
-    const [, decimals = ''] = priceStep.toString().split('.');
+
+    const str = priceStep < 1 ? priceStep.toFixed(20).replace(/\.?0+$/, '') : priceStep.toString();
+    const [, decimals = ''] = str.split('.');
     return decimals.length;
 };
 
