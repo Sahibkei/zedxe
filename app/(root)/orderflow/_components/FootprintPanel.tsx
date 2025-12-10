@@ -12,7 +12,7 @@ type CardTitleProps = HTMLAttributes<HTMLHeadingElement>;
 const Card = ({ className, ...props }: CardProps) => (
     <div
         className={cn(
-            "w-full h-[360px] rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20 flex flex-col overflow-hidden",
+            "w-full min-w-0 h-[360px] rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20 flex flex-col overflow-hidden",
             className,
         )}
         {...props}
@@ -22,7 +22,7 @@ const Card = ({ className, ...props }: CardProps) => (
 const CardHeader = ({ className, ...props }: CardProps) => <div className={cn("space-y-1 pb-3", className)} {...props} />;
 
 const CardContent = ({ className, ...props }: CardProps) => (
-    <div className={cn("flex-1 flex flex-col overflow-hidden", className)} {...props} />
+    <div className={cn("flex-1 flex flex-col overflow-hidden min-w-0", className)} {...props} />
 );
 
 const CardTitle = ({ className, ...props }: CardTitleProps) => (
@@ -170,7 +170,7 @@ export function FootprintPanel({ symbol, timeframe }: FootprintPanelProps) {
             </CardHeader>
 
             <CardContent>
-                <div className="flex-1 rounded-lg border border-gray-900/80 bg-[#0b0d12] p-3 shadow-inner shadow-black/10">
+                <div className="flex-1 min-w-0 rounded-lg border border-gray-900/80 bg-[#0b0d12] p-3 shadow-inner shadow-black/10">
                     {isInitialLoading ? (
                         <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                             Loading footprint…
@@ -181,8 +181,8 @@ export function FootprintPanel({ symbol, timeframe }: FootprintPanelProps) {
                         </div>
                     ) : (
                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                            <div className="h-full overflow-x-auto overflow-y-hidden pr-1">
-                                <div className="flex h-full items-stretch gap-3">
+                            <div className="h-full w-full min-w-0 overflow-x-auto overflow-y-hidden pr-1">
+                                <div className="flex h-full min-w-0 items-stretch gap-3">
                                     {visibleBars.map((bar) => {
                                         const totalTrades = bar.cells.reduce((sum, cell) => sum + (cell.tradesCount || 0), 0);
                                         const totalVolume = bar.totalAskVolume + bar.totalBidVolume;

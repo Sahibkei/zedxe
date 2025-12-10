@@ -629,7 +629,7 @@ const OrderflowPage = () => {
             </div>
 
             <div className="grid items-stretch gap-4 lg:grid-cols-[2fr_1fr] xl:grid-cols-[3fr_1.1fr]">
-                <div className="space-y-4">
+                <div className="space-y-4 min-w-0">
                     <FootprintPanel symbol={selectedSymbol} timeframe={DEFAULT_FOOTPRINT_TIMEFRAME} />
                     {hasData && <OrderflowChart buckets={effectiveBuckets} />}
                     {hasData && <CumulativeDeltaChart data={cumulativeDeltaData} />}
