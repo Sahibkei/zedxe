@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState, type HTMLAttributes } from "react";
+import {
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type HTMLAttributes,
+    type MouseEvent,
+    type TouchEvent,
+} from "react";
 
 import { FootprintBar, FootprintTimeframe } from "@/lib/footprint/types";
 import { cn } from "@/lib/utils";
@@ -38,6 +46,12 @@ const TIMEFRAME_OPTIONS: FootprintTimeframe[] = ["5s", "15s", "30s", "1m", "5m",
 const MAX_BARS = 30;
 const REFRESH_INTERVAL_MS = 5000;
 
+const DEFAULT_CANDLE_WIDTH = 170;
+const MIN_CANDLE_WIDTH = 90;
+const MAX_CANDLE_WIDTH = 320;
+const CONTENT_GAP = 12;
+const AUTO_FOLLOW_THRESHOLD_PX = 16;
+
 const formatTime = (timestamp: number) =>
     new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
@@ -68,6 +82,14 @@ export function FootprintPanel({ symbol, timeframe }: FootprintPanelProps) {
     const [bars, setBars] = useState<FootprintBar[]>([]);
     const [loading, setLoading] = useState(false);
     const [hasLoaded, setHasLoaded] = useState(false);
+    const [hoveredBarIndex, setHoveredBarIndex] = useState<number | null>(null);
+    const [autoFollow, setAutoFollow] = useState(true);
+    const [candleWidth, setCandleWidth] = useState(DEFAULT_CANDLE_WIDTH);
+    const [isDragging, setIsDragging] = useState(false);
+
+    const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+    const dragStateRef = useRef<{ startX: number; scrollLeft: number } | null>(null);
+    const scrollRatioRef = useRef<number | null>(null);
 
     useEffect(() => {
         setCurrentTimeframe(timeframe);
@@ -134,6 +156,120 @@ export function FootprintPanel({ symbol, timeframe }: FootprintPanelProps) {
     const isInitialLoading = loading && !hasLoaded;
     const isRefreshing = loading && hasLoaded;
 
+    useEffect(() => {
+        setHoveredBarIndex(null);
+    }, [visibleBars.length]);
+
+    useEffect(() => {
+        const container = scrollContainerRef.current;
+        if (!container || !autoFollow) return;
+
+        const maxScroll = Math.max(container.scrollWidth - container.clientWidth, 0);
+        container.scrollLeft = maxScroll;
+    }, [autoFollow, visibleBars.length, candleWidth]);
+
+    const clampCandleWidth = (value: number) => Math.min(Math.max(value, MIN_CANDLE_WIDTH), MAX_CANDLE_WIDTH);
+
+    const handleZoom = (delta: number) => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        const { scrollLeft, scrollWidth, clientWidth } = container;
+        const denominator = Math.max(scrollWidth - clientWidth, 1);
+        const ratio = scrollLeft / denominator;
+        scrollRatioRef.current = ratio;
+
+        setCandleWidth((previous) => clampCandleWidth(previous + delta));
+    };
+
+    useEffect(() => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        if (scrollRatioRef.current !== null) {
+            const ratio = scrollRatioRef.current;
+            scrollRatioRef.current = null;
+
+            const maxScroll = Math.max(container.scrollWidth - container.clientWidth, 0);
+            container.scrollLeft = maxScroll * ratio;
+        }
+    }, [candleWidth]);
+
+    const handleScroll = () => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        const distanceFromRight = container.scrollWidth - container.clientWidth - container.scrollLeft;
+        if (distanceFromRight > AUTO_FOLLOW_THRESHOLD_PX && autoFollow) {
+            setAutoFollow(false);
+        }
+    };
+
+    const startDrag = (clientX: number) => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        dragStateRef.current = {
+            startX: clientX,
+            scrollLeft: container.scrollLeft,
+        };
+        setIsDragging(true);
+    };
+
+    const endDrag = () => {
+        dragStateRef.current = null;
+        setIsDragging(false);
+    };
+
+    const handleDragMove = (clientX: number) => {
+        const container = scrollContainerRef.current;
+        const dragState = dragStateRef.current;
+        if (!container || !dragState) return;
+
+        const deltaX = clientX - dragState.startX;
+        container.scrollLeft = dragState.scrollLeft - deltaX;
+    };
+
+    const handleMouseDown = (event: MouseEvent<HTMLDivElement>) => {
+        startDrag(event.clientX);
+    };
+
+    const handleMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+        if (!isDragging) return;
+        event.preventDefault();
+        handleDragMove(event.clientX);
+    };
+
+    const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+        const touch = event.touches[0];
+        if (!touch) return;
+        startDrag(touch.clientX);
+    };
+
+    const handleTouchMove = (event: TouchEvent<HTMLDivElement>) => {
+        if (!isDragging) return;
+        const touch = event.touches[0];
+        if (!touch) return;
+
+        handleDragMove(touch.clientX);
+    };
+
+    const scrollToLatest = () => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        const maxScroll = Math.max(container.scrollWidth - container.clientWidth, 0);
+        container.scrollLeft = maxScroll;
+        setAutoFollow(true);
+    };
+
+    const hoveredBar = hoveredBarIndex === null ? null : visibleBars[hoveredBarIndex] ?? null;
+
+    const contentWidth = Math.max(
+        visibleBars.length * (candleWidth + CONTENT_GAP) - CONTENT_GAP,
+        0,
+    );
+
     return (
         <Card>
             <CardHeader>
@@ -181,17 +317,90 @@ export function FootprintPanel({ symbol, timeframe }: FootprintPanelProps) {
                         </div>
                     ) : (
                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                            <div className="h-full w-full max-w-full min-w-0 overflow-x-auto overflow-y-hidden pr-1">
-                                <div className="flex h-full min-w-0 items-stretch gap-3">
-                                    {visibleBars.map((bar) => {
+                            <div className="flex items-center justify-between pb-2 text-xs text-gray-300">
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={scrollToLatest}
+                                        className={cn(
+                                            "rounded-full border px-3 py-1 text-[11px] transition-colors",
+                                            autoFollow
+                                                ? "border-emerald-500 bg-emerald-500/10 text-emerald-200"
+                                                : "border-gray-800 text-gray-300 hover:border-emerald-700 hover:text-emerald-200",
+                                        )}
+                                    >
+                                        {autoFollow ? "Live (following)" : "Go to latest"}
+                                    </button>
+                                    {!autoFollow && (
+                                        <span className="rounded-full bg-gray-900 px-2 py-1 text-[11px] text-gray-300">
+                                            Explore mode
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleZoom(-12)}
+                                        className="h-7 w-7 rounded border border-gray-800 bg-[#0f1115] text-white transition hover:border-emerald-700 hover:text-emerald-200"
+                                        aria-label="Zoom out"
+                                    >
+                                        −
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCandleWidth(DEFAULT_CANDLE_WIDTH)}
+                                        className="h-7 rounded border border-gray-800 bg-[#0f1115] px-2 text-[11px] text-gray-200 transition hover:border-emerald-700 hover:text-emerald-200"
+                                    >
+                                        Reset
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleZoom(12)}
+                                        className="h-7 w-7 rounded border border-gray-800 bg-[#0f1115] text-white transition hover:border-emerald-700 hover:text-emerald-200"
+                                        aria-label="Zoom in"
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div
+                                ref={scrollContainerRef}
+                                className={cn(
+                                    "relative h-full w-full max-w-full min-w-0 overflow-x-auto overflow-y-hidden pr-1 select-none",
+                                    isDragging ? "cursor-grabbing" : "cursor-grab",
+                                )}
+                                onMouseDown={handleMouseDown}
+                                onMouseMove={handleMouseMove}
+                                onMouseLeave={endDrag}
+                                onMouseUp={endDrag}
+                                onTouchStart={handleTouchStart}
+                                onTouchMove={handleTouchMove}
+                                onTouchEnd={endDrag}
+                                onScroll={handleScroll}
+                            >
+                                <div
+                                    className="flex h-full min-h-0 items-stretch gap-3"
+                                    style={{ minWidth: "100%", width: contentWidth }}
+                                >
+                                    {visibleBars.map((bar, index) => {
                                         const totalTrades = bar.cells.reduce((sum, cell) => sum + (cell.tradesCount || 0), 0);
                                         const totalVolume = bar.totalAskVolume + bar.totalBidVolume;
                                         const deltaPositive = bar.delta >= 0;
+                                        const isHovered = hoveredBarIndex === index;
 
                                         return (
                                             <div
                                                 key={`${bar.symbol}-${bar.startTime}`}
-                                                className="flex min-w-[170px] max-w-[170px] flex-col rounded-lg border border-gray-800 bg-[#0f1115] px-3 py-2"
+                                                style={{ width: candleWidth }}
+                                                className={cn(
+                                                    "flex flex-col rounded-lg border bg-[#0f1115] px-3 py-2 transition-colors",
+                                                    "border-gray-800",
+                                                    "hover:border-emerald-700",
+                                                    isHovered && "border-emerald-600 shadow-lg shadow-emerald-500/10",
+                                                )}
+                                                onMouseEnter={() => setHoveredBarIndex(index)}
+                                                onMouseLeave={() => setHoveredBarIndex(null)}
                                             >
                                                 <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                                                     <span className="font-medium text-white">{formatTime(bar.startTime)}</span>
@@ -228,6 +437,20 @@ export function FootprintPanel({ symbol, timeframe }: FootprintPanelProps) {
                                         );
                                     })}
                                 </div>
+                            </div>
+
+                            <div className="mt-3 rounded-lg border border-gray-900/60 bg-[#0f1115] px-3 py-2 text-xs text-gray-300">
+                                {hoveredBar ? (
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        <span className="text-emerald-200">{formatTime(hoveredBar.startTime)}</span>
+                                        <span>Close {hoveredBar.close}</span>
+                                        <span>High {hoveredBar.high}</span>
+                                        <span>Low {hoveredBar.low}</span>
+                                        <span>Volume {formatNumber(hoveredBar.totalAskVolume + hoveredBar.totalBidVolume)}</span>
+                                    </div>
+                                ) : (
+                                    <span className="text-gray-500">Hover a bar to inspect values. Drag horizontally to pan.</span>
+                                )}
                             </div>
                         </div>
                     )}
