@@ -7,7 +7,12 @@ import Link from "next/link";
 import OrderflowChart from "@/app/(root)/orderflow/_components/orderflow-chart";
 import VolumeProfile, { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
 import { bucketTrades } from "@/app/(root)/orderflow/_utils/bucketing";
-import { buildFootprintBars, FootprintBar, inferPriceStepFromTrades } from "@/app/(root)/orderflow/_utils/footprint";
+import {
+    buildFootprintBars,
+    FootprintBar,
+    FootprintCell,
+    inferPriceStepFromTrades,
+} from "@/app/(root)/orderflow/_utils/footprint";
 import { Button } from "@/components/ui/button";
 import {
     Select,
@@ -27,10 +32,27 @@ import { usePersistOrderflowTrades } from "@/hooks/usePersistOrderflowTrades";
 import { cn } from "@/lib/utils";
 
 type FootprintMode = "Bid x Ask" | "Delta" | "Volume";
+type RenderedCell = { cell: FootprintCell; rect: { x: number; y: number; width: number; height: number } };
+type RenderedBar = { bar: FootprintBar; x: number; bodyWidth: number; cells: RenderedCell[] };
+type RenderState = {
+    paddingX: number;
+    paddingY: number;
+    chartWidth: number;
+    chartHeight: number;
+    rangeStart: number;
+    rangeEnd: number;
+    visibleBars: RenderedBar[];
+};
 
 const TIMEFRAME_OPTIONS = ["5s", "15s", "30s", "1m", "5m", "15m"] as const;
 const MODE_OPTIONS: FootprintMode[] = ["Bid x Ask", "Delta", "Volume"];
 const DEFAULT_TIMEFRAME: (typeof TIMEFRAME_OPTIONS)[number] = "15s";
+
+const timeframeToSeconds = (value: (typeof TIMEFRAME_OPTIONS)[number]) => {
+    const numeric = Number.parseFloat(value);
+    if (Number.isNaN(numeric)) return 15;
+    return value.endsWith("m") ? numeric * 60 : numeric;
+};
 
 const FootprintPage = () => {
     const defaultWindowSeconds = ORDERFLOW_WINDOW_PRESETS[1]?.value ?? ORDERFLOW_WINDOW_PRESETS[0].value;
@@ -38,6 +60,7 @@ const FootprintPage = () => {
 
     const [selectedSymbol, setSelectedSymbol] = useState<string>(ORDERFLOW_DEFAULT_SYMBOL);
     const [selectedTimeframe, setSelectedTimeframe] = useState<(typeof TIMEFRAME_OPTIONS)[number]>(DEFAULT_TIMEFRAME);
+    const [timeframeSeconds, setTimeframeSeconds] = useState<number>(timeframeToSeconds(DEFAULT_TIMEFRAME));
     const [windowSeconds, setWindowSeconds] = useState<number>(defaultWindowSeconds);
     const [bucketSizeSeconds, setBucketSizeSeconds] = useState<number>(defaultBucketSize);
     const [mode, setMode] = useState<FootprintMode>("Bid x Ask");
@@ -155,6 +178,77 @@ const FootprintPage = () => {
         });
     }, [effectiveTrades, windowSeconds, bucketSizeSeconds, now, priceStep]);
 
+    const [viewRange, setViewRange] = useState<{ start: number; end: number } | null>(null);
+    const [hasInteracted, setHasInteracted] = useState(false);
+    const [hoverState, setHoverState] = useState<{
+        x: number;
+        y: number;
+        bar: FootprintBar;
+        cell: FootprintCell | null;
+    } | null>(null);
+    const renderStateRef = useRef<RenderState | null>(null);
+
+    const formatTooltipNumber = (value?: number | null) => {
+        if (value === undefined || value === null || Number.isNaN(value)) return "—";
+        if (Math.abs(value) >= 1000) return value.toFixed(0);
+        if (Math.abs(value) >= 1) return value.toFixed(2);
+        return value.toPrecision(3);
+    };
+
+    const formatTimestamp = (value: number) =>
+        new Date(value).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+    const deriveBarVolumes = (bar: FootprintBar) => {
+        const buyVolume = (bar.totalVolume + bar.totalDelta) / 2;
+        const sellVolume = bar.totalVolume - buyVolume;
+        return { buyVolume, sellVolume };
+    };
+
+    const visibleBucketCount = useMemo(() => {
+        if (!footprintBars.length) return 0;
+        if (!viewRange) return footprintBars.length;
+        return footprintBars.filter(
+            (bar) => bar.bucketEnd >= viewRange.start && bar.bucketStart <= viewRange.end,
+        ).length;
+    }, [footprintBars, viewRange]);
+
+    useEffect(() => {
+        setTimeframeSeconds(timeframeToSeconds(selectedTimeframe));
+        setHasInteracted(false);
+    }, [selectedTimeframe]);
+
+    useEffect(() => {
+        if (!footprintBars.length) return;
+
+        const minTime = footprintBars[0].bucketStart;
+        const maxTime = footprintBars[footprintBars.length - 1].bucketEnd;
+        const desiredDuration = Math.max(timeframeSeconds * 1000, bucketSizeSeconds * 1000);
+
+        if (!viewRange || !hasInteracted) {
+            const end = maxTime;
+            const start = Math.max(end - desiredDuration, minTime);
+            setViewRange({ start, end });
+            return;
+        }
+
+        const duration = Math.max(viewRange.end - viewRange.start, desiredDuration);
+        let start = viewRange.start;
+        let end = viewRange.end;
+
+        if (start < minTime) {
+            start = minTime;
+            end = start + duration;
+        }
+        if (end > maxTime) {
+            end = maxTime;
+            start = Math.max(minTime, end - duration);
+        }
+
+        if (start !== viewRange.start || end !== viewRange.end) {
+            setViewRange({ start, end });
+        }
+    }, [bucketSizeSeconds, footprintBars, hasInteracted, timeframeSeconds, viewRange]);
+
     const volumeProfile = useMemo(() => {
         if (effectiveTrades.length === 0) {
             return { levels: [] as VolumeProfileLevel[], priceStep: 0, referencePrice: null };
@@ -246,17 +340,40 @@ const FootprintPage = () => {
                 return;
             }
 
+            const minTime = footprintBars[0]?.bucketStart ?? 0;
+            const maxTime = footprintBars[footprintBars.length - 1]?.bucketEnd ?? 0;
+            const activeRange = viewRange ?? {
+                start: Math.max(maxTime - timeframeSeconds * 1000, minTime),
+                end: maxTime,
+            };
+
+            const rangeStart = Math.min(activeRange.start, maxTime);
+            const rangeEnd = Math.max(activeRange.end, rangeStart + bucketSizeSeconds * 1000);
+            const rangeDuration = Math.max(rangeEnd - rangeStart, bucketSizeSeconds * 1000);
+            const bucketMs = bucketSizeSeconds * 1000;
+
+            const visibleBars = footprintBars.filter(
+                (bar) => bar.bucketEnd >= rangeStart && bar.bucketStart <= rangeEnd,
+            );
+
+            if (!visibleBars.length) {
+                context.fillStyle = "#9ca3af";
+                context.font = "14px Inter, system-ui, -apple-system, sans-serif";
+                context.fillText("No buckets in selected range", 16, height / 2);
+                return;
+            }
+
             const paddingX = 40;
             const paddingY = 20;
             const chartWidth = width - paddingX * 2;
             const chartHeight = height - paddingY * 2;
 
-            const minPrice = Math.min(...footprintBars.map((bar) => bar.low));
-            const maxPrice = Math.max(...footprintBars.map((bar) => bar.high));
+            const minPrice = Math.min(...visibleBars.map((bar) => bar.low));
+            const maxPrice = Math.max(...visibleBars.map((bar) => bar.high));
             const priceRange = Math.max(maxPrice - minPrice, 1e-6);
 
-            const candleSpacing = chartWidth / Math.max(footprintBars.length, 1);
-            const bodyWidth = Math.max(candleSpacing * 0.55, 6);
+            const candleWidth = Math.max((bucketMs / rangeDuration) * chartWidth * 0.8, 6);
+            const bodyWidth = candleWidth;
 
             const yForPrice = (price: number) =>
                 paddingY + (1 - (price - minPrice) / priceRange) * chartHeight;
@@ -304,8 +421,11 @@ const FootprintPage = () => {
                 return value.toPrecision(2);
             };
 
-            footprintBars.forEach((bar, index) => {
-                const x = paddingX + index * candleSpacing + candleSpacing / 2;
+            const renderedBars: RenderedBar[] = [];
+
+            visibleBars.forEach((bar) => {
+                const barCenter =
+                    paddingX + ((bar.bucketStart + bucketMs / 2 - rangeStart) / rangeDuration) * chartWidth;
                 const openY = yForPrice(bar.open);
                 const closeY = yForPrice(bar.close);
                 const highY = yForPrice(bar.high);
@@ -317,16 +437,18 @@ const FootprintPage = () => {
 
                 context.strokeStyle = wickColor;
                 context.beginPath();
-                context.moveTo(x, highY);
-                context.lineTo(x, lowY);
+                context.moveTo(barCenter, highY);
+                context.lineTo(barCenter, lowY);
                 context.stroke();
 
-                const bodyX = x - bodyWidth / 2;
+                const bodyX = barCenter - bodyWidth / 2;
                 const bodyY = Math.min(openY, closeY);
                 const bodyHeight = Math.max(Math.abs(closeY - openY), 2);
 
                 context.fillStyle = "#111827";
                 context.fillRect(bodyX, bodyY, bodyWidth, bodyHeight);
+
+                const renderedCells: RenderedCell[] = [];
 
                 bar.cells.forEach((cell) => {
                     const halfStep = inferredCellStep > 0 ? inferredCellStep / 2 : priceRange / 40;
@@ -334,7 +456,7 @@ const FootprintPage = () => {
                     const cellBottom = yForPrice(cell.price - halfStep);
                     const cellHeight = Math.max(cellBottom - cellTop, 3);
                     const cellWidth = bodyWidth;
-                    const cellX = x - cellWidth / 2;
+                    const cellX = barCenter - cellWidth / 2;
 
                     const totalVolume = cell.totalVolume;
                     const delta = cell.buyVolume - cell.sellVolume;
@@ -382,8 +504,54 @@ const FootprintPage = () => {
 
                         context.fillText(label, cellX + 4, cellBottom - 4);
                     }
+
+                    renderedCells.push({
+                        cell,
+                        rect: { x: cellX, y: cellTop, width: cellWidth, height: cellHeight },
+                    });
                 });
+
+                renderedBars.push({ bar, x: barCenter, bodyWidth, cells: renderedCells });
             });
+
+            if (hoverState) {
+                context.strokeStyle = "#374151";
+                context.lineWidth = 1;
+                context.beginPath();
+                context.moveTo(hoverState.x, paddingY);
+                context.lineTo(hoverState.x, paddingY + chartHeight);
+                context.stroke();
+
+                context.beginPath();
+                context.moveTo(paddingX, hoverState.y);
+                context.lineTo(paddingX + chartWidth, hoverState.y);
+                context.stroke();
+
+                if (hoverState.cell) {
+                    const matchingBar = renderedBars.find((item) => item.bar === hoverState.bar);
+                    const matchingCell = matchingBar?.cells.find((item) => item.cell === hoverState.cell);
+                    if (matchingCell) {
+                        context.strokeStyle = "#fbbf24";
+                        context.lineWidth = 1;
+                        context.strokeRect(
+                            matchingCell.rect.x,
+                            matchingCell.rect.y,
+                            matchingCell.rect.width,
+                            matchingCell.rect.height,
+                        );
+                    }
+                }
+            }
+
+            renderStateRef.current = {
+                paddingX,
+                paddingY,
+                chartWidth,
+                chartHeight,
+                rangeStart,
+                rangeEnd,
+                visibleBars: renderedBars,
+            };
         };
 
         render();
@@ -392,7 +560,166 @@ const FootprintPage = () => {
         return () => {
             window.removeEventListener("resize", render);
         };
-    }, [footprintBars, highlightImbalances, mode, priceStep, showNumbers]);
+    }, [bucketSizeSeconds, footprintBars, highlightImbalances, hoverState, mode, priceStep, showNumbers, timeframeSeconds, viewRange]);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        let isPanning = false;
+        let startX = 0;
+        let startRange: { start: number; end: number } | null = null;
+
+        const handlePointerMove = (event: PointerEvent) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            const renderState = renderStateRef.current;
+            if (!renderState) return;
+
+            if (isPanning && startRange) {
+                const deltaX = x - startX;
+                const rangeDuration = startRange.end - startRange.start;
+                const deltaTime = (deltaX / renderState.chartWidth) * rangeDuration;
+                const minTime = footprintBars[0]?.bucketStart ?? startRange.start;
+                const maxTime = footprintBars[footprintBars.length - 1]?.bucketEnd ?? startRange.end;
+                let newStart = startRange.start - deltaTime;
+                let newEnd = startRange.end - deltaTime;
+
+                const duration = newEnd - newStart;
+                if (newStart < minTime) {
+                    newStart = minTime;
+                    newEnd = newStart + duration;
+                }
+                if (newEnd > maxTime) {
+                    newEnd = maxTime;
+                    newStart = newEnd - duration;
+                }
+
+                setHasInteracted(true);
+                setViewRange({ start: newStart, end: newEnd });
+                return;
+            }
+
+            if (
+                x < renderState.paddingX ||
+                x > renderState.paddingX + renderState.chartWidth ||
+                y < renderState.paddingY ||
+                y > renderState.paddingY + renderState.chartHeight
+            ) {
+                setHoverState(null);
+                return;
+            }
+
+            let hoveredBar = renderState.visibleBars[0]?.bar ?? null;
+            let hoveredCell: FootprintCell | null = null;
+            let closestDistance = Number.POSITIVE_INFINITY;
+
+            renderState.visibleBars.forEach((barRender) => {
+                const distance = Math.abs(barRender.x - x);
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    hoveredBar = barRender.bar;
+                }
+
+                const cell = barRender.cells.find(
+                    (item) =>
+                        x >= item.rect.x &&
+                        x <= item.rect.x + item.rect.width &&
+                        y >= item.rect.y &&
+                        y <= item.rect.y + item.rect.height,
+                );
+                if (cell) {
+                    hoveredCell = cell.cell;
+                }
+            });
+
+            if (hoveredBar) {
+                setHoverState({ x, y, bar: hoveredBar, cell: hoveredCell });
+            } else {
+                setHoverState(null);
+            }
+        };
+
+        const handlePointerLeave = () => {
+            if (!isPanning) {
+                setHoverState(null);
+            }
+        };
+
+        const handlePointerDown = (event: PointerEvent) => {
+            const rect = canvas.getBoundingClientRect();
+            startX = event.clientX - rect.left;
+            startRange =
+                viewRange ??
+                (renderStateRef.current
+                    ? { start: renderStateRef.current.rangeStart, end: renderStateRef.current.rangeEnd }
+                    : null);
+            isPanning = true;
+            setHasInteracted(true);
+            canvas.setPointerCapture(event.pointerId);
+        };
+
+        const handlePointerUp = (event: PointerEvent) => {
+            isPanning = false;
+            canvas.releasePointerCapture(event.pointerId);
+        };
+
+        const handleWheel = (event: WheelEvent) => {
+            const renderState = renderStateRef.current;
+            if (!renderState || !footprintBars.length) return;
+            event.preventDefault();
+
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            if (x < renderState.paddingX || x > renderState.paddingX + renderState.chartWidth) {
+                return;
+            }
+            const position = (x - renderState.paddingX) / renderState.chartWidth;
+            const currentRange = viewRange ?? {
+                start: renderState.rangeStart,
+                end: renderState.rangeEnd,
+            };
+            const rangeDuration = currentRange.end - currentRange.start;
+            const zoomFactor = event.deltaY > 0 ? 1.1 : 0.9;
+            const minDuration = Math.max(bucketSizeSeconds * 1000 * 2, 2000);
+            const maxDuration = Math.max(windowSeconds * 1000, rangeDuration);
+
+            const newDuration = Math.min(Math.max(rangeDuration * zoomFactor, minDuration), maxDuration);
+            const anchorTime = currentRange.start + position * rangeDuration;
+            let newStart = anchorTime - position * newDuration;
+            let newEnd = newStart + newDuration;
+
+            const minTime = footprintBars[0].bucketStart;
+            const maxTime = footprintBars[footprintBars.length - 1].bucketEnd;
+
+            if (newStart < minTime) {
+                newStart = minTime;
+                newEnd = newStart + newDuration;
+            }
+            if (newEnd > maxTime) {
+                newEnd = maxTime;
+                newStart = newEnd - newDuration;
+            }
+
+            setHasInteracted(true);
+            setViewRange({ start: newStart, end: newEnd });
+        };
+
+        canvas.addEventListener("pointermove", handlePointerMove);
+        canvas.addEventListener("pointerleave", handlePointerLeave);
+        canvas.addEventListener("pointerdown", handlePointerDown);
+        canvas.addEventListener("pointerup", handlePointerUp);
+        canvas.addEventListener("wheel", handleWheel, { passive: false });
+
+        return () => {
+            canvas.removeEventListener("pointermove", handlePointerMove);
+            canvas.removeEventListener("pointerleave", handlePointerLeave);
+            canvas.removeEventListener("pointerdown", handlePointerDown);
+            canvas.removeEventListener("pointerup", handlePointerUp);
+            canvas.removeEventListener("wheel", handleWheel);
+        };
+    }, [bucketSizeSeconds, footprintBars, viewRange, windowSeconds]);
 
     return (
         <section className="space-y-6 px-4 py-6 md:px-6 min-w-0">
@@ -536,11 +863,70 @@ const FootprintPage = () => {
                                 </p>
                             </div>
                             <span className="rounded-full bg-gray-900 px-3 py-1 text-xs text-gray-300">
-                                {footprintBars.length} buckets
+                                {visibleBucketCount} buckets
                             </span>
                         </div>
-                        <div className="h-[520px] w-full rounded-lg border border-gray-900/80 bg-[#0b0d12]">
+                        <div className="relative h-[520px] w-full overflow-hidden rounded-lg border border-gray-900/80 bg-[#0b0d12]">
                             <canvas ref={canvasRef} className="h-full w-full" />
+
+                            {hoverState && (
+                                <div
+                                    className="pointer-events-none absolute z-10 rounded-lg border border-gray-800 bg-black/70 px-3 py-2 text-xs text-gray-100 shadow-lg"
+                                    style={{
+                                        left: Math.min(
+                                            hoverState.x + 12,
+                                            (renderStateRef.current?.paddingX ?? 0) +
+                                                (renderStateRef.current?.chartWidth ?? 0) -
+                                                180,
+                                        ),
+                                        top: Math.min(
+                                            hoverState.y + 12,
+                                            (renderStateRef.current?.paddingY ?? 0) +
+                                                (renderStateRef.current?.chartHeight ?? 0) -
+                                                140,
+                                        ),
+                                    }}
+                                >
+                                    <div className="text-[10px] uppercase tracking-wide text-emerald-300">Footprint Cell</div>
+                                    <div className="mt-1 text-gray-200">
+                                        <div className="flex items-center justify-between gap-6">
+                                            <span className="text-gray-400">Price</span>
+                                            <span className="font-semibold">
+                                                {formatTooltipNumber(hoverState.cell?.price ?? hoverState.bar.close)}
+                                            </span>
+                                        </div>
+                                        <div className="mt-1 flex items-center justify-between gap-6">
+                                            <span className="text-gray-400">Buy | Sell</span>
+                                            <span className="font-semibold">
+                                                {(() => {
+                                                    if (hoverState.cell) {
+                                                        return `${formatTooltipNumber(hoverState.cell.buyVolume)} | ${formatTooltipNumber(hoverState.cell.sellVolume)}`;
+                                                    }
+                                                    const { buyVolume, sellVolume } = deriveBarVolumes(hoverState.bar);
+                                                    return `${formatTooltipNumber(buyVolume)} | ${formatTooltipNumber(sellVolume)}`;
+                                                })()}
+                                            </span>
+                                        </div>
+                                        <div className="mt-1 flex items-center justify-between gap-6">
+                                            <span className="text-gray-400">Delta</span>
+                                            <span className="font-semibold">
+                                                {formatTooltipNumber(
+                                                    hoverState.cell
+                                                        ? hoverState.cell.buyVolume - hoverState.cell.sellVolume
+                                                        : hoverState.bar.totalDelta,
+                                                )}
+                                            </span>
+                                        </div>
+                                        <div className="mt-1 flex items-center justify-between gap-6">
+                                            <span className="text-gray-400">Range</span>
+                                            <span className="font-semibold">
+                                                {formatTimestamp(hoverState.bar.bucketStart)} - {" "}
+                                                {formatTimestamp(hoverState.bar.bucketEnd)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
 
