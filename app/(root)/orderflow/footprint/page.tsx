@@ -170,12 +170,14 @@ const FootprintPage = () => {
     const footprintBars = useMemo<FootprintBar[]>(() => {
         if (effectiveTrades.length === 0) return [];
 
-        return buildFootprintBars(effectiveTrades, {
+        const bars = buildFootprintBars(effectiveTrades, {
             windowSeconds,
             bucketSizeSeconds,
             referenceTimestamp: now,
             priceStep: priceStep || undefined,
         });
+
+        return Array.isArray(bars) ? bars : [];
     }, [effectiveTrades, windowSeconds, bucketSizeSeconds, now, priceStep]);
 
     const [viewRange, setViewRange] = useState<{ start: number; end: number } | null>(null);
@@ -218,7 +220,10 @@ const FootprintPage = () => {
     }, [selectedTimeframe]);
 
     useEffect(() => {
-        if (!footprintBars.length) return;
+        if (!footprintBars.length) {
+            setViewRange(null);
+            return;
+        }
 
         const minTime = footprintBars[0].bucketStart;
         const maxTime = footprintBars[footprintBars.length - 1].bucketEnd;
@@ -327,7 +332,9 @@ const FootprintPage = () => {
             canvas.style.width = `${width}px`;
             canvas.style.height = `${height}px`;
 
-            context.resetTransform();
+            if (typeof context.resetTransform === "function") {
+                context.resetTransform();
+            }
             context.scale(dpr, dpr);
 
             context.fillStyle = "#0b0d12";
@@ -337,6 +344,7 @@ const FootprintPage = () => {
                 context.fillStyle = "#9ca3af";
                 context.font = "14px Inter, system-ui, -apple-system, sans-serif";
                 context.fillText("Waiting for footprint data…", 16, height / 2);
+                renderStateRef.current = null;
                 return;
             }
 
@@ -352,14 +360,16 @@ const FootprintPage = () => {
             const rangeDuration = Math.max(rangeEnd - rangeStart, bucketSizeSeconds * 1000);
             const bucketMs = bucketSizeSeconds * 1000;
 
-            const visibleBars = footprintBars.filter(
+            const visibleBars = (footprintBars || []).filter(
                 (bar) => bar.bucketEnd >= rangeStart && bar.bucketStart <= rangeEnd,
             );
 
             if (!visibleBars.length) {
+                context.clearRect(0, 0, width, height);
                 context.fillStyle = "#9ca3af";
                 context.font = "14px Inter, system-ui, -apple-system, sans-serif";
                 context.fillText("No buckets in selected range", 16, height / 2);
+                renderStateRef.current = null;
                 return;
             }
 
@@ -514,7 +524,7 @@ const FootprintPage = () => {
                 renderedBars.push({ bar, x: barCenter, bodyWidth, cells: renderedCells });
             });
 
-            if (hoverState) {
+            if (hoverState && renderStateRef.current) {
                 context.strokeStyle = "#374151";
                 context.lineWidth = 1;
                 context.beginPath();
@@ -575,7 +585,7 @@ const FootprintPage = () => {
             const x = event.clientX - rect.left;
             const y = event.clientY - rect.top;
             const renderState = renderStateRef.current;
-            if (!renderState) return;
+            if (!renderState || !footprintBars.length) return;
 
             if (isPanning && startRange) {
                 const deltaX = x - startX;
@@ -611,11 +621,17 @@ const FootprintPage = () => {
                 return;
             }
 
-            let hoveredBar = renderState.visibleBars[0]?.bar ?? null;
+            const bars = renderState.visibleBars ?? [];
+            if (!bars.length) {
+                setHoverState(null);
+                return;
+            }
+
+            let hoveredBar = bars[0]?.bar ?? null;
             let hoveredCell: FootprintCell | null = null;
             let closestDistance = Number.POSITIVE_INFINITY;
 
-            renderState.visibleBars.forEach((barRender) => {
+            bars.forEach((barRender) => {
                 const distance = Math.abs(barRender.x - x);
                 if (distance < closestDistance) {
                     closestDistance = distance;
@@ -648,13 +664,13 @@ const FootprintPage = () => {
         };
 
         const handlePointerDown = (event: PointerEvent) => {
+            const renderState = renderStateRef.current;
+            if (!renderState || !footprintBars.length) return;
+
             const rect = canvas.getBoundingClientRect();
             startX = event.clientX - rect.left;
             startRange =
-                viewRange ??
-                (renderStateRef.current
-                    ? { start: renderStateRef.current.rangeStart, end: renderStateRef.current.rangeEnd }
-                    : null);
+                viewRange ?? { start: renderState.rangeStart, end: renderState.rangeEnd } ?? null;
             isPanning = true;
             setHasInteracted(true);
             canvas.setPointerCapture(event.pointerId);
@@ -662,7 +678,9 @@ const FootprintPage = () => {
 
         const handlePointerUp = (event: PointerEvent) => {
             isPanning = false;
-            canvas.releasePointerCapture(event.pointerId);
+            if (canvas.hasPointerCapture(event.pointerId)) {
+                canvas.releasePointerCapture(event.pointerId);
+            }
         };
 
         const handleWheel = (event: WheelEvent) => {
@@ -690,8 +708,8 @@ const FootprintPage = () => {
             let newStart = anchorTime - position * newDuration;
             let newEnd = newStart + newDuration;
 
-            const minTime = footprintBars[0].bucketStart;
-            const maxTime = footprintBars[footprintBars.length - 1].bucketEnd;
+            const minTime = footprintBars[0]?.bucketStart ?? currentRange.start;
+            const maxTime = footprintBars[footprintBars.length - 1]?.bucketEnd ?? currentRange.end;
 
             if (newStart < minTime) {
                 newStart = minTime;
