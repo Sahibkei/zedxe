@@ -1,7 +1,6 @@
 "use client";
 
-// NOTE: Rewritten in Phase 4 stabilisation to avoid client-side crashes.
-// Simplified footprint view (no drag pan/zoom) plus local error boundary.
+// NOTE: Includes local error boundary to avoid client-side crashes.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -163,10 +162,7 @@ const FootprintPageInner = () => {
         return inferred > 0 ? inferred : fallback;
     }, [windowedTrades]);
 
-    const rowSize: RowSizeMode = useMemo(
-        () => (mode === "Volume" ? { type: "atr-auto", period: 14 } : { type: "tick", priceStep: inferredPriceStep || 0 }),
-        [mode, inferredPriceStep],
-    );
+    const rowSizeMode: RowSizeMode = useMemo(() => (mode === "Volume" ? "atr-auto" : "tick"), [mode]);
 
     const { bars: footprintBars, priceStepUsed }: BuildFootprintResult = useMemo(() => {
         if (windowedTrades.length === 0) return { bars: [], priceStepUsed: 0 };
@@ -175,10 +171,11 @@ const FootprintPageInner = () => {
             windowSeconds,
             bucketSizeSeconds,
             referenceTimestamp,
-            priceStep: inferredPriceStep || undefined,
-            rowSize,
+            rowSizeMode,
+            tickSize: inferredPriceStep || 0,
+            atrPeriod: 14,
         });
-    }, [windowedTrades, windowSeconds, bucketSizeSeconds, inferredPriceStep, rowSize]);
+    }, [windowedTrades, windowSeconds, bucketSizeSeconds, inferredPriceStep, rowSizeMode]);
 
     const { levels: profileLevels, referencePrice } = useMemo(
         () => buildVolumeProfileLevels(windowedTrades, priceStepUsed),
@@ -221,7 +218,7 @@ const FootprintPageInner = () => {
     );
 
     useEffect(() => {
-        if (!domainStart || !domainEnd) {
+        if (domainStart === null || domainEnd === null) {
             setViewRange(null);
             return;
         }
@@ -362,7 +359,7 @@ const FootprintPageInner = () => {
         context.fillStyle = "#0b0d12";
         context.fillRect(0, 0, width, height);
 
-        if (!footprintBars.length || !domainStart || !domainEnd) {
+        if (!footprintBars.length || domainStart === null || domainEnd === null) {
             context.fillStyle = "#9ca3af";
             context.font = "14px Inter, system-ui, -apple-system, sans-serif";
             context.fillText("Waiting for footprint data…", 16, height / 2);
