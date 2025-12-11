@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+// NOTE: Rewritten in Phase 4 stabilisation to avoid client-side crashes.
+// Simplified footprint view (no drag pan/zoom) plus local error boundary.
+
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import Link from "next/link";
 
-import OrderflowChart from "@/app/(root)/orderflow/_components/orderflow-chart";
 import VolumeProfile, { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
-import { bucketTrades } from "@/app/(root)/orderflow/_utils/bucketing";
 import { buildFootprintBars, FootprintBar, inferPriceStepFromTrades } from "@/app/(root)/orderflow/_utils/footprint";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,340 +18,162 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import {
+    ORDERFLOW_BUCKET_PRESETS,
     ORDERFLOW_DEFAULT_SYMBOL,
     ORDERFLOW_SYMBOL_OPTIONS,
     ORDERFLOW_WINDOW_PRESETS,
 } from "@/lib/constants";
 import { NormalizedTrade, useOrderflowStream } from "@/hooks/useOrderflowStream";
-import { usePersistOrderflowTrades } from "@/hooks/usePersistOrderflowTrades";
 import { cn } from "@/lib/utils";
-
-type FootprintMode = "Bid x Ask" | "Delta" | "Volume";
-
-type ViewRange = { start: number; end: number };
-
-type FootprintHit = {
-    bar: FootprintBar;
-    barIndex: number;
-    cell: FootprintBar["cells"][number];
-    cellIndex: number;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-};
-
-type HoveredCell = FootprintHit & {
-    tooltipX: number;
-    tooltipY: number;
-};
+import { formatNumber } from "@/utils/formatters";
 
 const TIMEFRAME_OPTIONS = ["5s", "15s", "30s", "1m", "5m", "15m"] as const;
-const MODE_OPTIONS: FootprintMode[] = ["Bid x Ask", "Delta", "Volume"];
-const DEFAULT_TIMEFRAME: (typeof TIMEFRAME_OPTIONS)[number] = "15s";
+const MODE_OPTIONS = ["Bid x Ask", "Delta", "Volume"] as const;
+type FootprintMode = (typeof MODE_OPTIONS)[number];
 
-const getEffectiveViewRange = (
-    domainStart: number | null,
-    domainEnd: number | null,
-    viewRange: ViewRange | null,
-): ViewRange | null => {
-    if (domainStart == null || domainEnd == null || !Number.isFinite(domainStart) || !Number.isFinite(domainEnd)) {
-        return null;
-    }
+type TimeframeOption = (typeof TIMEFRAME_OPTIONS)[number];
 
-    if (!viewRange) {
-        return { start: domainStart, end: domainEnd };
-    }
-
-    const start = Math.max(domainStart, Math.min(viewRange.start, domainEnd));
-    const end = Math.max(start, Math.min(viewRange.end, domainEnd));
-
-    return { start, end };
-};
-
-const parseTimeframeToSeconds = (value: (typeof TIMEFRAME_OPTIONS)[number]) => {
+const parseTimeframeSeconds = (value: TimeframeOption): number => {
     const unit = value.slice(-1);
     const numeric = Number(value.slice(0, -1));
-
     if (!Number.isFinite(numeric)) return 15;
-    if (unit === "m") return numeric * 60;
-    return numeric;
+    return unit === "m" ? numeric * 60 : numeric;
+};
+
+class FootprintErrorBoundary extends React.Component<
+    { children: React.ReactNode },
+    { error: Error | null }
+> {
+    constructor(props: { children: React.ReactNode }) {
+        super(props);
+        this.state = { error: null };
+    }
+
+    static getDerivedStateFromError(error: Error) {
+        return { error };
+    }
+
+    componentDidCatch(error: Error, info: React.ErrorInfo) {
+        console.error("FootprintPage error", error, info);
+    }
+
+    render() {
+        if (this.state.error) {
+            return (
+                <div className="flex h-full items-center justify-center text-sm text-red-400">
+                    Footprint chart failed to render. Please reload the page or try again later.
+                </div>
+            );
+        }
+
+        return this.props.children;
+    }
+}
+
+const buildVolumeProfileLevels = (
+    trades: NormalizedTrade[],
+    priceStep: number,
+): { levels: VolumeProfileLevel[]; referencePrice: number | null } => {
+    if (!trades.length) return { levels: [], referencePrice: null };
+
+    const sortedTrades = [...trades].sort((a, b) => a.timestamp - b.timestamp);
+    const referencePrice = sortedTrades[sortedTrades.length - 1]?.price ?? null;
+    if (!referencePrice) return { levels: [], referencePrice: null };
+
+    const step = priceStep > 0 ? priceStep : Math.max(referencePrice * 0.0005, 0.01);
+    const levelsPerSide = 6;
+    const centerIndex = Math.max(Math.round(referencePrice / step), 1);
+    const startIndex = Math.max(centerIndex - levelsPerSide, 1);
+    const endIndex = centerIndex + levelsPerSide;
+
+    const aggregation = new Map<number, { buyVolume: number; sellVolume: number }>();
+
+    sortedTrades.forEach((trade) => {
+        const levelIndex = Math.round(trade.price / step);
+        if (levelIndex < startIndex - 1 || levelIndex > endIndex + 1) return;
+        const levelPrice = levelIndex * step;
+        const existing = aggregation.get(levelPrice) ?? { buyVolume: 0, sellVolume: 0 };
+        if (trade.side === "buy") {
+            existing.buyVolume += trade.quantity;
+        } else {
+            existing.sellVolume += trade.quantity;
+        }
+        aggregation.set(levelPrice, existing);
+    });
+
+    const levels: VolumeProfileLevel[] = [];
+    for (let index = startIndex; index <= endIndex; index += 1) {
+        const price = index * step;
+        const volume = aggregation.get(price) ?? { buyVolume: 0, sellVolume: 0 };
+        const totalVolume = volume.buyVolume + volume.sellVolume;
+        const imbalancePercent = totalVolume > 0 ? (Math.abs(volume.buyVolume - volume.sellVolume) / totalVolume) * 100 : 0;
+        const dominantSide = totalVolume === 0 ? null : volume.buyVolume >= volume.sellVolume ? "buy" : "sell";
+
+        levels.push({
+            price,
+            buyVolume: volume.buyVolume,
+            sellVolume: volume.sellVolume,
+            totalVolume,
+            imbalancePercent,
+            dominantSide,
+        });
+    }
+
+    return { levels, referencePrice };
 };
 
 const FootprintPageInner = () => {
     const defaultWindowSeconds = ORDERFLOW_WINDOW_PRESETS[1]?.value ?? ORDERFLOW_WINDOW_PRESETS[0].value;
-    const defaultTimeframeSeconds = parseTimeframeToSeconds(DEFAULT_TIMEFRAME);
+    const defaultBucketSeconds = ORDERFLOW_BUCKET_PRESETS[1]?.value ?? ORDERFLOW_BUCKET_PRESETS[0].value;
 
     const [selectedSymbol, setSelectedSymbol] = useState<string>(ORDERFLOW_DEFAULT_SYMBOL);
-    const [selectedTimeframe, setSelectedTimeframe] = useState<(typeof TIMEFRAME_OPTIONS)[number]>(DEFAULT_TIMEFRAME);
-    const [timeframeSeconds, setTimeframeSeconds] = useState<number>(defaultTimeframeSeconds);
     const [windowSeconds, setWindowSeconds] = useState<number>(defaultWindowSeconds);
+    const [selectedTimeframe, setSelectedTimeframe] = useState<TimeframeOption>("15s");
+    const [bucketSizeSeconds, setBucketSizeSeconds] = useState<number>(defaultBucketSeconds);
     const [mode, setMode] = useState<FootprintMode>("Bid x Ask");
     const [showNumbers, setShowNumbers] = useState(true);
     const [highlightImbalances, setHighlightImbalances] = useState(true);
-    const [historyTrades, setHistoryTrades] = useState<NormalizedTrade[]>([]);
-    const [loadingHistory, setLoadingHistory] = useState(false);
-    const [viewRange, setViewRange] = useState<ViewRange | null>(null);
-    const [userHasInteracted, setUserHasInteracted] = useState(false);
-    const [isPanning, setIsPanning] = useState(false);
-
-    const { trades: liveTrades, windowedTrades: liveWindowedTrades } = useOrderflowStream({
-        symbol: selectedSymbol,
-        windowSeconds,
-    });
-
-    usePersistOrderflowTrades(selectedSymbol, liveTrades, true);
-
-    useEffect(() => {
-        setTimeframeSeconds(parseTimeframeToSeconds(selectedTimeframe));
-    }, [selectedTimeframe]);
-
-    useEffect(() => {
-        let isCancelled = false;
-
-        const fetchHistory = async () => {
-            setLoadingHistory(true);
-            try {
-                const params = new URLSearchParams({
-                    symbol: selectedSymbol,
-                    windowSeconds: String(windowSeconds),
-                    maxPoints: "5000",
-                });
-
-                const response = await fetch(`/api/orderflow/history?${params.toString()}`);
-                if (!response.ok) {
-                    throw new Error(`Failed to load history (${response.status})`);
-                }
-
-                const data = await response.json();
-                if (isCancelled) return;
-
-                const fetchedTrades: NormalizedTrade[] = Array.isArray(data?.trades)
-                    ? data.trades
-                          .map((trade: NormalizedTrade) => ({
-                              timestamp: Number(trade.timestamp),
-                              price: Number(trade.price),
-                              quantity: Number(trade.quantity),
-                              side: trade.side === "sell" ? "sell" : "buy",
-                          }))
-                          .filter(
-                              (trade) =>
-                                  Number.isFinite(trade.timestamp) &&
-                                  Number.isFinite(trade.price) &&
-                                  Number.isFinite(trade.quantity),
-                          )
-                    : [];
-
-                setHistoryTrades(fetchedTrades);
-            } catch (fetchError) {
-                console.error("Failed to fetch orderflow history", fetchError);
-                if (!isCancelled) {
-                    setHistoryTrades([]);
-                }
-            } finally {
-                if (!isCancelled) {
-                    setLoadingHistory(false);
-                }
-            }
-        };
-
-        fetchHistory();
-
-        return () => {
-            isCancelled = true;
-        };
-    }, [selectedSymbol, windowSeconds]);
-
-    const combinedTrades = useMemo(() => {
-        const allTrades = [...historyTrades, ...liveWindowedTrades];
-        const uniqueTrades = new Map<string, NormalizedTrade>();
-
-        allTrades.forEach((trade) => {
-            const key = `${trade.timestamp}-${trade.side}-${trade.price}-${trade.quantity}`;
-            uniqueTrades.set(key, trade);
-        });
-
-        return Array.from(uniqueTrades.values()).sort((a, b) => a.timestamp - b.timestamp);
-    }, [historyTrades, liveWindowedTrades]);
-
-    const now = Date.now();
-    const windowStart = now - windowSeconds * 1000;
-
-    const effectiveTrades = useMemo(
-        () => combinedTrades.filter((trade) => trade.timestamp >= windowStart),
-        [combinedTrades, windowStart],
-    );
-
-    const effectiveBuckets = useMemo(
-        () => bucketTrades(effectiveTrades, windowSeconds, timeframeSeconds, now),
-        [effectiveTrades, windowSeconds, timeframeSeconds, now],
-    );
-
-    const priceStep = useMemo(() => {
-        if (effectiveTrades.length === 0) return 0;
-
-        const inferred = inferPriceStepFromTrades(effectiveTrades);
-        const referencePrice = effectiveTrades[effectiveTrades.length - 1]?.price ?? 0;
-        const fallbackStep = referencePrice > 0 ? Math.max(referencePrice * 0.0005, 0.01) : 0;
-
-        return inferred > 0 ? inferred : fallbackStep;
-    }, [effectiveTrades]);
-
-    const footprintBars = useMemo<FootprintBar[]>(() => {
-        if (effectiveTrades.length === 0) return [];
-
-        return buildFootprintBars(effectiveTrades, {
-            windowSeconds,
-            bucketSizeSeconds: timeframeSeconds,
-            referenceTimestamp: now,
-            priceStep: priceStep || undefined,
-        });
-    }, [effectiveTrades, windowSeconds, timeframeSeconds, now, priceStep]);
-
-    const domainStart = useMemo(() => {
-        if (!footprintBars.length) return null;
-        return Math.min(...footprintBars.map((bar) => bar.bucketStart));
-    }, [footprintBars]);
-
-    const domainEnd = useMemo(() => {
-        if (!footprintBars.length) return null;
-        return Math.max(...footprintBars.map((bar) => bar.bucketEnd));
-    }, [footprintBars]);
-
-    const effectiveViewRange = useMemo(
-        () => getEffectiveViewRange(domainStart, domainEnd, viewRange),
-        [domainStart, domainEnd, viewRange],
-    );
-
-    // Auto-center on the latest window while the user has not interacted. Once the user pans or zooms we
-    // preserve their view even as new bars stream in.
-    useEffect(() => {
-        if (
-            domainStart == null ||
-            domainEnd == null ||
-            !Number.isFinite(domainStart) ||
-            !Number.isFinite(domainEnd) ||
-            userHasInteracted
-        ) {
-            return;
-        }
-
-        const windowMs = windowSeconds * 1000;
-        const end = domainEnd;
-        const start = Math.max(domainStart, end - windowMs);
-
-        setViewRange({ start, end });
-        setHoveredCell(null);
-    }, [domainStart, domainEnd, windowSeconds, selectedSymbol, userHasInteracted]);
-
-    useEffect(() => {
-        setUserHasInteracted(false);
-    }, [selectedSymbol, windowSeconds, timeframeSeconds]);
-
-    useEffect(() => {
-        setHoveredCell(null);
-    }, [viewRange?.start, viewRange?.end]);
-
-    const barsToRender = useMemo<{ bar: FootprintBar; index: number }[]>(() => {
-        if (!footprintBars || footprintBars.length === 0) return [] as { bar: FootprintBar; index: number }[];
-        if (!effectiveViewRange) return footprintBars.map((bar, index) => ({ bar, index }));
-
-        return footprintBars
-            .map((bar, index) => ({ bar, index }))
-            .filter(
-                ({ bar }) =>
-                    bar.bucketEnd >= effectiveViewRange.start && bar.bucketStart <= effectiveViewRange.end,
-            );
-    }, [effectiveViewRange, footprintBars]);
-
-    const viewAlignedTrades = useMemo(() => {
-        if (!effectiveViewRange) return effectiveTrades;
-        return effectiveTrades.filter(
-            (trade) => trade.timestamp >= effectiveViewRange.start && trade.timestamp <= effectiveViewRange.end,
-        );
-    }, [effectiveTrades, effectiveViewRange]);
-
-    const volumeProfile = useMemo(() => {
-        if (viewAlignedTrades.length === 0) {
-            return { levels: [] as VolumeProfileLevel[], priceStep: 0, referencePrice: null };
-        }
-
-        const sortedTrades = [...viewAlignedTrades].sort((a, b) => a.timestamp - b.timestamp);
-        const referencePrice = sortedTrades[sortedTrades.length - 1]?.price ?? null;
-        if (!referencePrice) {
-            return { levels: [] as VolumeProfileLevel[], priceStep: 0, referencePrice: null };
-        }
-
-        const step = priceStep > 0 ? priceStep : Math.max(referencePrice * 0.0005, 0.01);
-        const levelsPerSide = 6;
-        const centerIndex = Math.max(Math.round(referencePrice / step), 1);
-        const startIndex = Math.max(centerIndex - levelsPerSide, 1);
-        const endIndex = centerIndex + levelsPerSide;
-
-        const aggregation = new Map<number, { buyVolume: number; sellVolume: number }>();
-
-        sortedTrades.forEach((trade) => {
-            const levelIndex = Math.round(trade.price / step);
-            if (levelIndex < startIndex - 1 || levelIndex > endIndex + 1) return;
-            const levelPrice = levelIndex * step;
-            const existing = aggregation.get(levelPrice) ?? { buyVolume: 0, sellVolume: 0 };
-
-            if (trade.side === "buy") {
-                existing.buyVolume += trade.quantity;
-            } else {
-                existing.sellVolume += trade.quantity;
-            }
-
-            aggregation.set(levelPrice, existing);
-        });
-
-        const levels: VolumeProfileLevel[] = [];
-        for (let index = startIndex; index <= endIndex; index += 1) {
-            const price = index * step;
-            const volume = aggregation.get(price) ?? { buyVolume: 0, sellVolume: 0 };
-            const totalVolume = volume.buyVolume + volume.sellVolume;
-            const imbalancePercent =
-                totalVolume > 0 ? (Math.abs(volume.buyVolume - volume.sellVolume) / totalVolume) * 100 : 0;
-            const dominantSide = totalVolume === 0 ? null : volume.buyVolume >= volume.sellVolume ? "buy" : "sell";
-
-            levels.push({
-                price,
-                buyVolume: volume.buyVolume,
-                sellVolume: volume.sellVolume,
-                totalVolume,
-                imbalancePercent,
-                dominantSide,
-            });
-        }
-
-        return { levels, priceStep: step, referencePrice };
-    }, [priceStep, viewAlignedTrades]);
-
-    const hasData = footprintBars.length > 0 || effectiveBuckets.some((bucket) => bucket.totalVolume > 0);
-
-    useEffect(() => {
-        if (footprintBars.length === 0) {
-            setViewRange(null);
-            setHoveredCell(null);
-            setUserHasInteracted(false);
-            setIsPanning(false);
-            panStartRef.current = null;
-        }
-    }, [footprintBars.length]);
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
-    const footprintContainerRef = useRef<HTMLDivElement | null>(null);
-    const hitCellsRef = useRef<FootprintHit[]>([]);
-    const panStartRef = useRef<{ x: number; view: ViewRange } | null>(null);
-    const chartMetricsRef = useRef<{ paddingX: number; paddingY: number; chartWidth: number; chartHeight: number }>(
-        {
-            paddingX: 40,
-            paddingY: 20,
-            chartWidth: 0,
-            chartHeight: 0,
-        },
+
+    const { windowedTrades } = useOrderflowStream({ symbol: selectedSymbol, windowSeconds });
+
+    useEffect(() => {
+        setBucketSizeSeconds(parseTimeframeSeconds(selectedTimeframe));
+    }, [selectedTimeframe]);
+
+    const priceStep = useMemo(() => {
+        if (windowedTrades.length === 0) return 0;
+        const inferred = inferPriceStepFromTrades(windowedTrades);
+        const referencePrice = windowedTrades[windowedTrades.length - 1]?.price ?? 0;
+        const fallback = referencePrice > 0 ? Math.max(referencePrice * 0.0005, 0.01) : 0;
+        return inferred > 0 ? inferred : fallback;
+    }, [windowedTrades]);
+
+    const footprintBars = useMemo<FootprintBar[]>(() => {
+        if (windowedTrades.length === 0) return [];
+        const referenceTimestamp = Date.now();
+        return buildFootprintBars(windowedTrades, {
+            windowSeconds,
+            bucketSizeSeconds,
+            referenceTimestamp,
+            priceStep: priceStep || undefined,
+        });
+    }, [windowedTrades, windowSeconds, bucketSizeSeconds, priceStep]);
+
+    const { levels: profileLevels, referencePrice } = useMemo(
+        () => buildVolumeProfileLevels(windowedTrades, priceStep),
+        [windowedTrades, priceStep],
     );
-    const [hoveredCell, setHoveredCell] = useState<HoveredCell | null>(null);
+
+    const maxVolume = useMemo(
+        () => Math.max(...footprintBars.map((bar) => bar.totalVolume), 0),
+        [footprintBars],
+    );
+    const maxDelta = useMemo(
+        () => Math.max(...footprintBars.map((bar) => Math.abs(bar.totalDelta)), 0),
+        [footprintBars],
+    );
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -359,623 +182,271 @@ const FootprintPageInner = () => {
         const context = canvas.getContext("2d");
         if (!context) return;
 
-        const render = () => {
-            hitCellsRef.current = [];
+        const parent = canvas.parentElement;
+        const width = parent?.clientWidth ?? 960;
+        const height = parent?.clientHeight ?? 520;
+        const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
-            const parent = canvas.parentElement;
-            const width = parent?.clientWidth ?? 800;
-            const height = parent?.clientHeight ?? 520;
-            const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
 
-            canvas.width = width * dpr;
-            canvas.height = height * dpr;
-            canvas.style.width = `${width}px`;
-            canvas.style.height = `${height}px`;
+        context.resetTransform();
+        context.scale(dpr, dpr);
 
-            context.resetTransform();
-            context.scale(dpr, dpr);
+        context.fillStyle = "#0b0d12";
+        context.fillRect(0, 0, width, height);
 
-            context.fillStyle = "#0b0d12";
-            context.fillRect(0, 0, width, height);
+        if (!footprintBars.length) {
+            context.fillStyle = "#9ca3af";
+            context.font = "14px Inter, system-ui, -apple-system, sans-serif";
+            context.fillText("Waiting for footprint data…", 16, height / 2);
+            return;
+        }
 
-            if (!barsToRender.length) {
-                setHoveredCell(null);
-                context.fillStyle = "#9ca3af";
-                context.font = "14px Inter, system-ui, -apple-system, sans-serif";
-                context.fillText("Waiting for footprint data…", 16, height / 2);
-                return;
+        const paddingX = 48;
+        const paddingY = 28;
+        const chartWidth = width - paddingX * 2;
+        const chartHeight = height - paddingY * 2;
+
+        const minPrice = Math.min(...footprintBars.map((bar) => bar.low));
+        const maxPrice = Math.max(...footprintBars.map((bar) => bar.high));
+        const priceRange = Math.max(maxPrice - minPrice, 1e-6);
+
+        const candleSpacing = chartWidth / Math.max(footprintBars.length, 1);
+        const bodyWidth = Math.max(candleSpacing * 0.6, 6);
+
+        const priceDiffs: number[] = [];
+        footprintBars.forEach((bar) => {
+            bar.cells.forEach((cell, index) => {
+                const next = bar.cells[index + 1];
+                if (!next) return;
+                const diff = Math.abs(cell.price - next.price);
+                if (diff > 0) priceDiffs.push(diff);
+            });
+        });
+        const cellStep = priceDiffs.length
+            ? priceDiffs.sort((a, b) => a - b)[Math.floor(priceDiffs.length / 2)]
+            : priceRange / Math.max(footprintBars[0].cells.length || 1, 12);
+
+        const cellHeight = Math.max((cellStep / priceRange) * chartHeight * 0.9, 8);
+
+        const yForPrice = (price: number) => paddingY + (1 - (price - minPrice) / priceRange) * chartHeight;
+
+        context.strokeStyle = "#1f2937";
+        context.lineWidth = 1;
+        context.beginPath();
+        context.moveTo(paddingX, paddingY);
+        context.lineTo(paddingX, paddingY + chartHeight);
+        context.lineTo(paddingX + chartWidth, paddingY + chartHeight);
+        context.stroke();
+
+        const span = footprintBars[footprintBars.length - 1].bucketEnd - footprintBars[0].bucketStart || 1;
+
+        const drawCell = (x: number, y: number, widthPx: number, cell: FootprintBar["cells"][number]) => {
+            const total = cell.totalVolume;
+            const delta = cell.buyVolume - cell.sellVolume;
+            let fill = "#374151";
+            if (mode === "Bid x Ask") {
+                const buyRatio = total > 0 ? cell.buyVolume / total : 0.5;
+                const sellRatio = 1 - buyRatio;
+                const g = Math.min(255, Math.round(80 + buyRatio * 140));
+                const r = Math.min(255, Math.round(80 + sellRatio * 140));
+                fill = `rgb(${r}, ${g}, 120)`;
+            } else if (mode === "Delta") {
+                const intensity = maxDelta > 0 ? Math.min(Math.abs(delta) / maxDelta, 1) : 0;
+                fill = delta >= 0 ? `rgba(52, 211, 153, ${0.25 + intensity * 0.65})` : `rgba(248, 113, 113, ${0.25 + intensity * 0.65})`;
+            } else {
+                const intensity = maxVolume > 0 ? Math.min(total / maxVolume, 1) : 0;
+                fill = `rgba(129, 140, 248, ${0.2 + intensity * 0.7})`;
             }
 
-            const paddingX = 40;
-            const paddingY = 20;
-            const chartWidth = width - paddingX * 2;
-            const chartHeight = height - paddingY * 2;
+            context.fillStyle = fill;
+            context.fillRect(x - widthPx / 2, y - cellHeight / 2, widthPx, cellHeight);
 
-            chartMetricsRef.current = { paddingX, paddingY, chartWidth, chartHeight };
+            if (highlightImbalances && cell.imbalancePercent >= 60) {
+                context.strokeStyle = "#fcd34d";
+                context.lineWidth = 1;
+                context.strokeRect(x - widthPx / 2, y - cellHeight / 2, widthPx, cellHeight);
+            }
 
-            const minPrice = Math.min(...barsToRender.map(({ bar }) => bar.low));
-            const maxPrice = Math.max(...barsToRender.map(({ bar }) => bar.high));
-            const priceRange = Math.max(maxPrice - minPrice, 1e-6);
+            if (showNumbers) {
+                context.fillStyle = "#e5e7eb";
+                context.font = "10px Inter, system-ui, -apple-system, sans-serif";
+                context.textAlign = "center";
+                context.textBaseline = "middle";
+                const label = mode === "Volume" ? formatNumber(total) : `${formatNumber(cell.buyVolume)} / ${formatNumber(cell.sellVolume)}`;
+                context.fillText(label, x, y);
+            }
+        };
 
-            const candleSpacing = chartWidth / Math.max(barsToRender.length, 1);
-            const bodyWidth = Math.max(candleSpacing * 0.55, 6);
+        footprintBars.forEach((bar, index) => {
+            const barMid = (bar.bucketStart + bar.bucketEnd) / 2;
+            const t = footprintBars.length > 1 ? (barMid - footprintBars[0].bucketStart) / span : 0.5;
+            const x = paddingX + t * chartWidth;
+            const openY = yForPrice(bar.open);
+            const closeY = yForPrice(bar.close);
+            const highY = yForPrice(bar.high);
+            const lowY = yForPrice(bar.low);
 
-            const yForPrice = (price: number) =>
-                paddingY + (1 - (price - minPrice) / priceRange) * chartHeight;
+            const bullish = bar.close >= bar.open;
+            const color = bullish ? "#34d399" : "#f87171";
 
-            const inferredCellStep = (() => {
-                if (priceStep > 0) return priceStep;
-                const diffs: number[] = [];
-                barsToRender.forEach(({ bar }) => {
-                    for (let index = 1; index < bar.cells.length; index += 1) {
-                        const diff = Math.abs(bar.cells[index].price - bar.cells[index - 1].price);
-                        if (diff > 0) {
-                            diffs.push(diff);
-                        }
-                    }
-                });
-                if (diffs.length) {
-                    const sorted = diffs.sort((a, b) => a - b);
-                    return sorted[Math.floor(sorted.length / 2)];
-                }
-                return priceRange / Math.max(barsToRender[0]?.bar.cells.length || 1, 12);
-            })();
-
-            const maxCellVolume = Math.max(
-                ...barsToRender.flatMap(({ bar }) => bar.cells.map((cell) => cell.totalVolume)),
-                0,
-            );
-            const maxCellDelta = Math.max(
-                ...barsToRender.flatMap(({ bar }) =>
-                    bar.cells.map((cell) => Math.abs(cell.buyVolume - cell.sellVolume)),
-                ),
-                0,
-            );
-
-            context.strokeStyle = "#1f2937";
-            context.lineWidth = 1;
+            context.strokeStyle = color;
             context.beginPath();
-            context.moveTo(paddingX, paddingY);
-            context.lineTo(paddingX, paddingY + chartHeight);
-            context.lineTo(paddingX + chartWidth, paddingY + chartHeight);
+            context.moveTo(x, highY);
+            context.lineTo(x, lowY);
             context.stroke();
 
-            const formatVolume = (value: number) => {
-                if (Math.abs(value) >= 1000) return value.toFixed(0);
-                if (Math.abs(value) >= 1) return value.toFixed(2);
-                return value.toPrecision(2);
-            };
+            const bodyY = Math.min(openY, closeY);
+            const bodyHeight = Math.max(Math.abs(openY - closeY), 2);
 
-            const span = effectiveViewRange
-                ? Math.max(effectiveViewRange.end - effectiveViewRange.start, 1)
-                : Math.max(
-                      barsToRender[barsToRender.length - 1].bar.bucketEnd - barsToRender[0].bar.bucketStart,
-                      1,
-                  );
+            context.fillStyle = color;
+            context.fillRect(x - bodyWidth / 2, bodyY, bodyWidth, bodyHeight);
 
-            barsToRender.forEach(({ bar, index }) => {
-                const barMid = (bar.bucketStart + bar.bucketEnd) / 2;
-                const t = effectiveViewRange
-                    ? Math.min(Math.max((barMid - effectiveViewRange.start) / span, 0), 1)
-                    : barsToRender.length > 1
-                      ? index / (barsToRender.length - 1)
-                      : 0.5;
-                const x = paddingX + t * chartWidth;
-                const openY = yForPrice(bar.open);
-                const closeY = yForPrice(bar.close);
-                const highY = yForPrice(bar.high);
-                const lowY = yForPrice(bar.low);
-
-                const bullish = bar.close > bar.open;
-                const bearish = bar.close < bar.open;
-                const wickColor = bullish ? "#34d399" : bearish ? "#f87171" : "#9ca3af";
-
-                context.strokeStyle = wickColor;
-                context.beginPath();
-                context.moveTo(x, highY);
-                context.lineTo(x, lowY);
-                context.stroke();
-
-                const bodyX = x - bodyWidth / 2;
-                const bodyY = Math.min(openY, closeY);
-                const bodyHeight = Math.max(Math.abs(closeY - openY), 2);
-
-                context.fillStyle = "#111827";
-                context.fillRect(bodyX, bodyY, bodyWidth, bodyHeight);
-
-                bar.cells.forEach((cell, cellIndex) => {
-                    const halfStep = inferredCellStep > 0 ? inferredCellStep / 2 : priceRange / 40;
-                    const cellTop = yForPrice(cell.price + halfStep);
-                    const cellBottom = yForPrice(cell.price - halfStep);
-                    const cellHeight = Math.max(cellBottom - cellTop, 3);
-                    const cellWidth = bodyWidth;
-                    const cellX = x - cellWidth / 2;
-
-                    const totalVolume = cell.totalVolume;
-                    const delta = cell.buyVolume - cell.sellVolume;
-                    const volumeRatio = maxCellVolume > 0 ? Math.min(totalVolume / maxCellVolume, 1) : 0;
-                    const deltaRatio = maxCellDelta > 0 ? Math.min(Math.abs(delta) / maxCellDelta, 1) : 0;
-
-                    if (mode === "Bid x Ask") {
-                        const sellWidth = totalVolume > 0 ? (cell.sellVolume / totalVolume) * cellWidth : cellWidth / 2;
-                        const buyWidth = cellWidth - sellWidth;
-                        const sharedAlpha = 0.2 + volumeRatio * 0.65;
-
-                        context.fillStyle = `rgba(248, 113, 113, ${sharedAlpha})`;
-                        context.fillRect(cellX, cellTop, sellWidth, cellHeight);
-                        context.fillStyle = `rgba(52, 211, 153, ${sharedAlpha})`;
-                        context.fillRect(cellX + sellWidth, cellTop, buyWidth, cellHeight);
-                    } else if (mode === "Volume") {
-                        const alpha = 0.15 + volumeRatio * 0.75;
-                        context.fillStyle = `rgba(59, 130, 246, ${alpha})`;
-                        context.fillRect(cellX, cellTop, cellWidth, cellHeight);
-                    } else {
-                        const alpha = 0.2 + deltaRatio * 0.7;
-                        context.fillStyle = delta >= 0
-                            ? `rgba(52, 211, 153, ${alpha})`
-                            : `rgba(248, 113, 113, ${alpha})`;
-                        context.fillRect(cellX, cellTop, cellWidth, cellHeight);
-                    }
-
-                    if (highlightImbalances && cell.imbalancePercent >= 60) {
-                        context.strokeStyle = cell.dominantSide === "buy" ? "#10b981" : "#f43f5e";
-                        context.lineWidth = 1;
-                        context.strokeRect(cellX, cellTop, cellWidth, cellHeight);
-                    }
-
-                    if (showNumbers) {
-                        context.fillStyle = "#e5e7eb";
-                        context.font = "10px Inter, system-ui, -apple-system, sans-serif";
-                        let label = formatVolume(totalVolume);
-
-                        if (mode === "Bid x Ask") {
-                            label = `${formatVolume(cell.sellVolume)} | ${formatVolume(cell.buyVolume)}`;
-                        } else if (mode === "Delta") {
-                            const deltaLabel = formatVolume(Math.abs(delta));
-                            label = `${delta >= 0 ? "+" : "-"}${deltaLabel}`;
-                        }
-
-                        context.fillText(label, cellX + 4, cellBottom - 4);
-                    }
-
-                    const isHovered =
-                        hoveredCell?.barIndex === index && hoveredCell?.cellIndex === cellIndex;
-
-                    if (isHovered) {
-                        context.save();
-                        context.strokeStyle = "#f5f5f5";
-                        context.lineWidth = 1.25;
-                        context.setLineDash([4, 2]);
-                        context.strokeRect(cellX - 1, cellTop - 1, cellWidth + 2, cellHeight + 2);
-                        context.restore();
-                    }
-
-                    hitCellsRef.current.push({
-                        bar,
-                        barIndex: index,
-                        cell,
-                        cellIndex,
-                        x: cellX,
-                        y: cellTop,
-                        width: cellWidth,
-                        height: cellHeight,
-                    });
-                });
+            bar.cells.forEach((cell) => {
+                const cellY = yForPrice(cell.price);
+                drawCell(x, cellY, bodyWidth, cell);
             });
-        };
+        });
+    }, [footprintBars, highlightImbalances, maxDelta, maxVolume, mode, showNumbers]);
 
-        render();
-
-        window.addEventListener("resize", render);
-        return () => {
-            window.removeEventListener("resize", render);
-        };
-    }, [
-        highlightImbalances,
-        hoveredCell,
-        mode,
-        priceStep,
-        showNumbers,
-        barsToRender,
-        effectiveViewRange,
-    ]);
-
-    useEffect(() => {
-        setHoveredCell(null);
-    }, [footprintBars]);
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        const container = footprintContainerRef.current;
-
-        if (!canvas || !container) return;
-
-        const handleMove = (event: PointerEvent) => {
-            if (isPanning) return;
-            const rect = canvas.getBoundingClientRect();
-            const containerRect = container.getBoundingClientRect();
-            const x = event.clientX - rect.left;
-            const y = event.clientY - rect.top;
-
-            const hit = hitCellsRef.current.find(
-                (cell) => x >= cell.x && x <= cell.x + cell.width && y >= cell.y && y <= cell.y + cell.height,
-            );
-
-            if (hit) {
-                setHoveredCell({
-                    ...hit,
-                    tooltipX: Math.min(
-                        Math.max(event.clientX - containerRect.left, 8),
-                        Math.max(containerRect.width - 180, 8),
-                    ),
-                    tooltipY: Math.min(
-                        Math.max(event.clientY - containerRect.top, 8),
-                        Math.max(containerRect.height - 140, 8),
-                    ),
-                });
-            } else {
-                setHoveredCell(null);
-            }
-        };
-
-        const handleLeave = () => {
-            setHoveredCell(null);
-            setIsPanning(false);
-            panStartRef.current = null;
-        };
-
-        const getActiveViewRange = (): ViewRange | null => effectiveViewRange;
-
-        const handlePointerDown = (event: PointerEvent) => {
-            if (event.button !== 0) return;
-            const currentView = getActiveViewRange();
-            if (!currentView) return;
-            canvas.setPointerCapture(event.pointerId);
-            panStartRef.current = { x: event.clientX, view: currentView };
-            setViewRange(currentView);
-            setUserHasInteracted(true);
-            setIsPanning(true);
-        };
-
-        const handlePointerMove = (event: PointerEvent) => {
-            if (!isPanning || !panStartRef.current) return;
-            const { view } = panStartRef.current;
-            const { chartWidth } = chartMetricsRef.current;
-            if (chartWidth <= 0) return;
-
-            const dx = event.clientX - panStartRef.current.x;
-            const span = view.end - view.start;
-            const msPerPixel = span / chartWidth;
-            const shiftMs = -dx * msPerPixel;
-
-            let start = view.start + shiftMs;
-            let end = view.end + shiftMs;
-            const viewSpan = end - start;
-
-            if (domainStart != null && start < domainStart) {
-                start = domainStart;
-                end = start + viewSpan;
-            }
-            if (domainEnd != null && end > domainEnd) {
-                end = domainEnd;
-                start = end - viewSpan;
-            }
-
-            setViewRange({ start, end });
-        };
-
-        const endPan = (event?: PointerEvent) => {
-            if (isPanning && event) {
-                canvas.releasePointerCapture(event.pointerId);
-            }
-            setIsPanning(false);
-            panStartRef.current = null;
-        };
-
-        const handleWheel = (event: WheelEvent) => {
-            const currentView = getActiveViewRange();
-            if (!currentView || domainStart == null || domainEnd == null) return;
-            event.preventDefault();
-
-            const rect = canvas.getBoundingClientRect();
-            const span = currentView.end - currentView.start;
-            if (span <= 0 || rect.width <= 0) return;
-            const x = event.clientX - rect.left;
-            const ratio = rect.width > 0 ? x / rect.width : 0.5;
-            const pivotTime = currentView.start + ratio * span;
-
-            const zoomFactor = 0.1;
-            const direction = event.deltaY > 0 ? 1 : -1;
-            const minSpan = Math.max(timeframeSeconds * 3 * 1000, 1);
-            const maxSpan = Math.max(domainEnd - domainStart, minSpan);
-
-            let newSpan = span * (1 + direction * zoomFactor);
-            newSpan = Math.max(minSpan, Math.min(maxSpan, newSpan));
-
-            let start = pivotTime - ratio * newSpan;
-            let end = start + newSpan;
-
-            if (start < domainStart) {
-                start = domainStart;
-                end = start + newSpan;
-            }
-            if (end > domainEnd) {
-                end = domainEnd;
-                start = end - newSpan;
-            }
-
-            setViewRange({ start, end });
-            setUserHasInteracted(true);
-        };
-
-        canvas.addEventListener("pointermove", handleMove);
-        canvas.addEventListener("pointerleave", handleLeave);
-        canvas.addEventListener("pointerdown", handlePointerDown);
-        canvas.addEventListener("pointermove", handlePointerMove);
-        canvas.addEventListener("pointerup", endPan);
-        canvas.addEventListener("pointercancel", endPan);
-        container.addEventListener("wheel", handleWheel, { passive: false });
-
-        return () => {
-            canvas.removeEventListener("pointermove", handleMove);
-            canvas.removeEventListener("pointerleave", handleLeave);
-            canvas.removeEventListener("pointerdown", handlePointerDown);
-            canvas.removeEventListener("pointermove", handlePointerMove);
-            canvas.removeEventListener("pointerup", endPan);
-            canvas.removeEventListener("pointercancel", endPan);
-            container.removeEventListener("wheel", handleWheel);
-        };
-    }, [domainEnd, domainStart, effectiveViewRange, isPanning, timeframeSeconds]);
+    const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
 
     return (
-        <section className="space-y-6 px-4 py-6 md:px-6 min-w-0">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
                 <div>
-                    <p className="text-xs uppercase tracking-wide text-emerald-400">Orderflow</p>
-                    <h1 className="text-3xl font-bold text-white">Footprint – {selectedSymbol.toUpperCase()}</h1>
-                    <p className="text-gray-400">Full candlestick + footprint view using live orderflow.</p>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Orderflow</p>
+                    <h1 className="text-2xl font-semibold text-white">Footprint Heatmap</h1>
+                    <p className="text-sm text-gray-400">Live trades for {selectedSymbol.toUpperCase()} · Last {windowMinutes}m</p>
                 </div>
-                <Link href="/orderflow" className="self-start md:self-auto">
-                    <Button variant="ghost" className="text-sm text-emerald-200 hover:text-emerald-100">
-                        ← Back to Orderflow
-                    </Button>
-                </Link>
-            </div>
-
-            <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20 space-y-3">
-                <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs uppercase tracking-wide text-gray-500">Symbol</span>
-                        <Select value={selectedSymbol} onValueChange={setSelectedSymbol}>
-                            <SelectTrigger size="sm" className="min-w-[140px] text-white">
-                                <SelectValue placeholder="Select symbol" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {ORDERFLOW_SYMBOL_OPTIONS.map((option) => (
-                                    <SelectItem key={option.value} value={option.value}>
-                                        {option.label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs uppercase tracking-wide text-gray-500">Window</span>
-                        <div className="flex flex-wrap gap-2">
-                            {ORDERFLOW_WINDOW_PRESETS.map((preset) => (
-                                <Button
-                                    key={preset.value}
-                                    size="sm"
-                                    variant={preset.value === windowSeconds ? "default" : "outline"}
-                                    className={cn("min-w-[3.5rem]", preset.value === windowSeconds && "bg-emerald-600")}
-                                    onClick={() => setWindowSeconds(preset.value)}
-                                >
-                                    {preset.label}
-                                </Button>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs uppercase tracking-wide text-gray-500">Timeframe</span>
-                        <div className="flex flex-wrap gap-2">
-                            {TIMEFRAME_OPTIONS.map((option) => (
-                                <Button
-                                    key={option}
-                                    size="sm"
-                                    variant={option === selectedTimeframe ? "default" : "outline"}
-                                    className={cn("min-w-[3rem]", option === selectedTimeframe && "bg-emerald-600")}
-                                    onClick={() => setSelectedTimeframe(option)}
-                                >
-                                    {option}
-                                </Button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs uppercase tracking-wide text-gray-500">Mode</span>
-                        <div className="flex flex-wrap gap-2">
-                            {MODE_OPTIONS.map((option) => (
-                                <Button
-                                    key={option}
-                                    size="sm"
-                                    variant={option === mode ? "default" : "outline"}
-                                    className={cn("min-w-[4.5rem]", option === mode && "bg-emerald-600")}
-                                    onClick={() => setMode(option)}
-                                >
-                                    {option}
-                                </Button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <label className="flex items-center gap-2 text-sm text-gray-300">
-                        <input
-                            type="checkbox"
-                            checked={showNumbers}
-                            onChange={(event) => setShowNumbers(event.target.checked)}
-                            className="h-4 w-4 rounded border-gray-700 bg-[#0f1115] text-emerald-500 focus:ring-emerald-500"
-                        />
-                        Show numbers
-                    </label>
-
-                    <label className="flex items-center gap-2 text-sm text-gray-300">
-                        <input
-                            type="checkbox"
-                            checked={highlightImbalances}
-                            onChange={(event) => setHighlightImbalances(event.target.checked)}
-                            className="h-4 w-4 rounded border-gray-700 bg-[#0f1115] text-emerald-500 focus:ring-emerald-500"
-                        />
-                        Highlight imbalances
-                    </label>
-
-                    {loadingHistory && (
-                        <span className="rounded-full bg-gray-900 px-3 py-1 text-xs text-gray-300">Syncing history…</span>
-                    )}
+                <div className="flex items-center gap-3 text-sm text-gray-400">
+                    <Link href="/orderflow" className="text-emerald-400 hover:text-emerald-300">
+                        Back to Orderflow dashboard
+                    </Link>
                 </div>
             </div>
 
-            <div className="grid items-start gap-4 lg:grid-cols-[3fr_1fr] min-w-0">
-                <div className="space-y-4 min-w-0">
+            <div className="grid gap-3 rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20 md:grid-cols-2 lg:grid-cols-3">
+                <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Symbol</p>
+                    <Select value={selectedSymbol} onValueChange={(value) => setSelectedSymbol(value)}>
+                        <SelectTrigger className="w-full bg-gray-900 text-white">
+                            <SelectValue placeholder="Select symbol" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {ORDERFLOW_SYMBOL_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Window</p>
+                    <div className="flex flex-wrap gap-2">
+                        {ORDERFLOW_WINDOW_PRESETS.map((preset) => (
+                            <Button
+                                key={preset.value}
+                                size="sm"
+                                variant={preset.value === windowSeconds ? "default" : "outline"}
+                                className={cn("min-w-[3.5rem]", preset.value === windowSeconds && "bg-emerald-600")}
+                                onClick={() => setWindowSeconds(preset.value)}
+                            >
+                                {preset.label}
+                            </Button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Bucket size</p>
+                    <div className="flex flex-wrap gap-2">
+                        {TIMEFRAME_OPTIONS.map((option) => (
+                            <Button
+                                key={option}
+                                size="sm"
+                                variant={option === selectedTimeframe ? "default" : "outline"}
+                                className={cn("min-w-[3.5rem]", option === selectedTimeframe && "bg-emerald-600")}
+                                onClick={() => setSelectedTimeframe(option)}
+                            >
+                                {option}
+                            </Button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="space-y-2 lg:col-span-3">
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Mode</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                        {MODE_OPTIONS.map((option) => (
+                            <Button
+                                key={option}
+                                size="sm"
+                                variant={option === mode ? "default" : "outline"}
+                                className={cn("min-w-[3.5rem]", option === mode && "bg-emerald-600")}
+                                onClick={() => setMode(option)}
+                            >
+                                {option}
+                            </Button>
+                        ))}
+                        <label className="flex items-center gap-2 text-sm text-gray-300">
+                            <input
+                                type="checkbox"
+                                checked={showNumbers}
+                                onChange={(event) => setShowNumbers(event.target.checked)}
+                                className="h-4 w-4 rounded border-gray-700 bg-gray-900"
+                            />
+                            Show numbers
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-300">
+                            <input
+                                type="checkbox"
+                                checked={highlightImbalances}
+                                onChange={(event) => setHighlightImbalances(event.target.checked)}
+                                className="h-4 w-4 rounded border-gray-700 bg-gray-900"
+                            />
+                            Highlight imbalances
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-3">
+                <div className="lg:col-span-2">
                     <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20">
                         <div className="flex items-center justify-between pb-3">
                             <div>
-                                <p className="text-xs uppercase tracking-wide text-gray-500">Footprint</p>
-                                <h3 className="text-lg font-semibold text-white">Footprint Heatmap</h3>
-                                <p className="text-xs text-gray-400">
-                                    Live footprint cells stacked inside each candle. Colors respond to {mode.toLowerCase()} mode
-                                    and the imbalance toggle.
-                                </p>
+                                <p className="text-xs uppercase tracking-wide text-gray-500">Footprint Heatmap</p>
+                                <h3 className="text-lg font-semibold text-white">
+                                    {selectedSymbol.toUpperCase()} · {mode}
+                                </h3>
                             </div>
-                            <span className="rounded-full bg-gray-900 px-3 py-1 text-xs text-gray-300">
-                                {barsToRender.length} buckets
+                            <span className="rounded-full bg-gray-800 px-3 py-1 text-xs text-gray-300">
+                                {footprintBars.length} buckets · {windowSeconds}s window
                             </span>
                         </div>
-                        <div
-                            ref={footprintContainerRef}
-                            className="relative h-[520px] w-full rounded-lg border border-gray-900/80 bg-[#0b0d12]"
-                        >
+                        <div className="relative h-[520px] overflow-hidden rounded-lg border border-gray-900 bg-black/20">
                             <canvas ref={canvasRef} className="h-full w-full" />
-
-                            {hoveredCell && (
-                                <div
-                                    className="pointer-events-none absolute z-10 w-64 rounded-lg border border-emerald-800/60 bg-[#0f1115] p-3 text-xs text-gray-200 shadow-lg shadow-black/40"
-                                    style={{
-                                        left: hoveredCell.tooltipX + 12,
-                                        top: hoveredCell.tooltipY + 12,
-                                    }}
-                                >
-                                    <div className="flex items-center justify-between text-[11px] text-emerald-200">
-                                        <span>
-                                            {new Date(hoveredCell.bar.bucketStart).toLocaleTimeString([], {
-                                                hour: "2-digit",
-                                                minute: "2-digit",
-                                                second: "2-digit",
-                                            })}
-                                        </span>
-                                        <span className="text-gray-400">{timeframeSeconds}s bar</span>
-                                    </div>
-                                    <div className="mt-1 text-sm font-semibold text-white">
-                                        Price {hoveredCell.cell.price.toFixed(2)}
-                                    </div>
-                                    <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-                                        <div>
-                                            <p className="text-gray-400">Buy Volume</p>
-                                            <p className="text-emerald-300 font-semibold">
-                                                {hoveredCell.cell.buyVolume.toFixed(2)}
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <p className="text-gray-400">Sell Volume</p>
-                                            <p className="text-rose-300 font-semibold">
-                                                {hoveredCell.cell.sellVolume.toFixed(2)}
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <p className="text-gray-400">Delta</p>
-                                            <p className="font-semibold">
-                                                {(hoveredCell.cell.buyVolume - hoveredCell.cell.sellVolume).toFixed(2)}
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <p className="text-gray-400">Total</p>
-                                            <p className="font-semibold">{hoveredCell.cell.totalVolume.toFixed(2)}</p>
-                                        </div>
-                                    </div>
-                                    <p className="mt-2 text-[11px] text-gray-400">
-                                        Trades: {hoveredCell.cell.tradesCount ?? 0} • Bar #{hoveredCell.barIndex + 1}
-                                    </p>
-                                </div>
-                            )}
                         </div>
                     </div>
-
-                    <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 text-sm text-gray-400 shadow-lg shadow-black/20">
-                        <p>
-                            Timeframe {selectedTimeframe} • Bar size {timeframeSeconds}s • Showing numbers:{" "}
-                            <span className="font-semibold text-white">{showNumbers ? "On" : "Off"}</span> • Highlight
-                            imbalances: <span className="font-semibold text-white">{highlightImbalances ? "On" : "Off"}</span>
-                        </p>
-                        <p className="mt-1 text-xs text-gray-500">
-                            Current mode: <span className="text-emerald-200">{mode}</span>. Cell fills and labels respond to
-                            these toggles in real time so you can quickly scan for pressure at each price level.
-                        </p>
-                    </div>
                 </div>
 
-                <div className="space-y-4">
-                    <VolumeProfile
-                        levels={volumeProfile.levels}
-                        priceStep={volumeProfile.priceStep}
-                        referencePrice={volumeProfile.referencePrice}
-                    />
-                    <div className="rounded-xl border border-dashed border-gray-800 bg-[#0f1115] p-4 text-sm text-gray-400 shadow-lg shadow-black/20">
-                        <p className="text-white font-semibold">Mini Volume Profile (coming from Phase 4 component)</p>
-                        <p className="mt-1">Side panel reserved for mini-profile reuse and per-price metrics.</p>
-                        <p className="mt-2 text-xs text-gray-500">
-                            This column mirrors the existing mini volume profile placement and will share data sources in
-                            the next phase.
-                        </p>
-                    </div>
-                </div>
+                <VolumeProfile levels={profileLevels} priceStep={priceStep} referencePrice={referencePrice} />
             </div>
-
-            <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20">
-                <div className="flex items-center justify-between pb-3">
-                    <div>
-                        <p className="text-xs uppercase tracking-wide text-gray-500">Volume Over Time</p>
-                        <h3 className="text-lg font-semibold text-white">Volume over time (Buy vs Sell stacked)</h3>
-                    </div>
-                    {!hasData && <span className="text-xs text-gray-400">Waiting for trades…</span>}
-                </div>
-                {hasData ? (
-                    <OrderflowChart buckets={effectiveBuckets} />
-                ) : (
-                    <div className="rounded-lg border border-dashed border-gray-800 bg-[#0b0d12] p-6 text-center text-sm text-gray-400">
-                        Stacked Buy vs Sell volume chart – coming in a later phase.
-                    </div>
-                )}
-            </div>
-        </section>
+        </div>
     );
 };
 
-const FootprintPage = () => {
-    try {
-        return <FootprintPageInner />;
-    } catch (error) {
-        console.error("FootprintPage runtime error", error);
-        return (
-            <div className="flex h-full items-center justify-center text-sm text-red-400">
-                Footprint chart failed to render. Please reload the page.
-            </div>
-        );
-    }
-};
-
-export default FootprintPage;
+export default function FootprintPage() {
+    return (
+        <FootprintErrorBoundary>
+            <FootprintPageInner />
+        </FootprintErrorBoundary>
+    );
+}
 
