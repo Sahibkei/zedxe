@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useState, type HTMLAttributes } from "react";
 
-import { FootprintBar, FootprintTimeframe } from "@/lib/footprint/types";
+import { FootprintStreamTimeframe, useBinanceFootprintFeed } from "@/hooks/useBinanceFootprintFeed";
+import { FootprintBar } from "@/lib/footprint/types";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/utils/formatters";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type CardProps = HTMLAttributes<HTMLDivElement>;
 type CardTitleProps = HTMLAttributes<HTMLHeadingElement>;
@@ -31,151 +34,201 @@ const CardTitle = ({ className, ...props }: CardTitleProps) => (
 
 interface FootprintPanelProps {
     symbol: string;
-    timeframe: FootprintTimeframe;
+    timeframe: FootprintStreamTimeframe | string;
 }
 
-const TIMEFRAME_OPTIONS: FootprintTimeframe[] = ["5s", "15s", "30s", "1m", "5m", "15m"];
+const TIMEFRAME_OPTIONS: FootprintStreamTimeframe[] = ["1m", "5m", "15m"];
 const MAX_BARS = 30;
-const REFRESH_INTERVAL_MS = 5000;
 
 const formatTime = (timestamp: number) =>
     new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-const parseBars = (bars: FootprintBar[]): FootprintBar[] =>
-    bars.map((bar) => ({
-        ...bar,
-        startTime: Number(bar.startTime),
-        endTime: Number(bar.endTime),
-        open: Number(bar.open),
-        high: Number(bar.high),
-        low: Number(bar.low),
-        close: Number(bar.close),
-        totalAskVolume: Number(bar.totalAskVolume),
-        totalBidVolume: Number(bar.totalBidVolume),
-        delta: Number(bar.delta),
-        cells: Array.isArray(bar.cells)
-            ? bar.cells.map((cell) => ({
-                  price: Number(cell.price),
-                  bidVolume: Number(cell.bidVolume),
-                  askVolume: Number(cell.askVolume),
-                  tradesCount: Number(cell.tradesCount),
-              }))
-            : [],
-    }));
+const parseToSupportedTimeframe = (value: string): FootprintStreamTimeframe => {
+    if (value === "5m" || value === "15m") return value;
+    return "1m";
+};
+
+const buildDemoBars = (symbol: string, timeframe: FootprintStreamTimeframe): FootprintBar[] => {
+    const now = Date.now();
+    const oneMinute = 60_000;
+    const timeframeMs = timeframe === "1m" ? oneMinute : timeframe === "5m" ? 5 * oneMinute : 15 * oneMinute;
+    const bars: FootprintBar[] = [];
+    let lastClose = 42000;
+
+    for (let index = MAX_BARS - 1; index >= 0; index -= 1) {
+        const startTime = now - index * timeframeMs;
+        const endTime = startTime + timeframeMs;
+        const open = lastClose;
+        const close = open + (Math.sin(index) * 50 + (index % 2 === 0 ? 25 : -20));
+        const high = Math.max(open, close) + 35;
+        const low = Math.min(open, close) - 35;
+        const cellCount = 6;
+        const cells: FootprintBar["cells"] = [];
+
+        for (let cellIndex = 0; cellIndex < cellCount; cellIndex += 1) {
+            const price = low + ((high - low) / cellCount) * (cellIndex + 1);
+            const askVolume = Math.max(0, 3 + Math.cos(cellIndex + index) * 2);
+            const bidVolume = Math.max(0, 3 + Math.sin(cellIndex + index) * 2);
+            cells.push({
+                price,
+                askVolume,
+                bidVolume,
+                tradesCount: 2 + ((cellIndex + index) % 3),
+            });
+        }
+
+        const totalAskVolume = cells.reduce((sum, cell) => sum + cell.askVolume, 0);
+        const totalBidVolume = cells.reduce((sum, cell) => sum + cell.bidVolume, 0);
+        lastClose = close;
+
+        bars.push({
+            symbol: symbol.toUpperCase(),
+            timeframe,
+            startTime,
+            endTime,
+            open,
+            high,
+            low,
+            close,
+            cells,
+            totalAskVolume,
+            totalBidVolume,
+            delta: totalAskVolume - totalBidVolume,
+        });
+    }
+
+    return bars;
+};
 
 export function FootprintPanel({ symbol, timeframe }: FootprintPanelProps) {
-    const [currentTimeframe, setCurrentTimeframe] = useState<FootprintTimeframe>(timeframe);
-    const [bars, setBars] = useState<FootprintBar[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [hasLoaded, setHasLoaded] = useState(false);
+    const [currentSymbol, setCurrentSymbol] = useState(symbol);
+    const [currentTimeframe, setCurrentTimeframe] = useState<FootprintStreamTimeframe>(
+        parseToSupportedTimeframe(timeframe),
+    );
+    const [isLive, setIsLive] = useState(true);
 
     useEffect(() => {
-        setCurrentTimeframe(timeframe);
-        setBars([]);
-        setHasLoaded(false);
-    }, [symbol, timeframe]);
+        setCurrentSymbol(symbol);
+    }, [symbol]);
 
     useEffect(() => {
-        let isCancelled = false;
-        let controller = new AbortController();
+        setCurrentTimeframe(parseToSupportedTimeframe(timeframe));
+    }, [timeframe]);
 
-        const fetchFootprint = async () => {
-            controller.abort();
-            controller = new AbortController();
+    const { candles, isConnected, error } = useBinanceFootprintFeed({
+        symbol: currentSymbol,
+        timeframe: currentTimeframe,
+        isLive,
+        maxCandles: 150,
+    });
 
-            setLoading(true);
-            try {
-                const params = new URLSearchParams({ symbol, timeframe: currentTimeframe });
-                const response = await fetch(`/api/footprint?${params.toString()}`, {
-                    signal: controller.signal,
-                });
+    const visibleBars = useMemo(() => candles.slice(-MAX_BARS), [candles]);
+    const fallbackBars = useMemo(
+        () => buildDemoBars(currentSymbol, currentTimeframe),
+        [currentSymbol, currentTimeframe],
+    );
 
-                if (!response.ok) {
-                    throw new Error(`Failed to load footprint (${response.status})`);
-                }
+    const showFallback = Boolean(error && process.env.NEXT_PUBLIC_FOOTPRINT_DEMO_MODE === "true");
+    const bars = showFallback ? fallbackBars : visibleBars;
+    const isWaitingForData = !bars.length && !showFallback;
 
-                const data = await response.json();
-                if (isCancelled) return;
-
-                const parsedBars: FootprintBar[] = Array.isArray(data?.bars) ? parseBars(data.bars) : [];
-                setBars(parsedBars);
-                setHasLoaded(true);
-            } catch (error) {
-                if ((error as Error).name === "AbortError") return;
-                console.error("Failed to fetch footprint", error);
-                if (!isCancelled) {
-                    setBars([]);
-                }
-            } finally {
-                if (!isCancelled) {
-                    setLoading(false);
-                }
-            }
-        };
-
-        const runFetch = () => {
-            if (!isCancelled) {
-                fetchFootprint();
-            }
-        };
-
-        runFetch();
-        const interval = setInterval(runFetch, REFRESH_INTERVAL_MS);
-
-        return () => {
-            isCancelled = true;
-            controller.abort();
-            clearInterval(interval);
-        };
-    }, [currentTimeframe, symbol]);
-
-    const visibleBars = useMemo(() => bars.slice(-MAX_BARS), [bars]);
-
-    const isInitialLoading = loading && !hasLoaded;
-    const isRefreshing = loading && hasLoaded;
+    const connectionLabel = showFallback
+        ? "Demo mode"
+        : isConnected
+          ? isLive
+              ? "Live"
+              : "Paused"
+          : "Connecting";
+    const connectionClassName = cn(
+        "rounded-full px-3 py-1 text-[11px] font-semibold",
+        showFallback
+            ? "bg-amber-500/10 text-amber-200"
+            : isConnected
+              ? isLive
+                  ? "bg-emerald-500/10 text-emerald-300"
+                  : "bg-gray-800 text-gray-200"
+              : "bg-gray-800 text-gray-200",
+    );
 
     return (
         <Card>
-            <CardHeader>
-                <div className="flex items-start justify-between gap-3">
-                    <div>
-                        <CardTitle className="text-sm text-emerald-400">FOOTPRINT</CardTitle>
-                        <p className="text-lg font-semibold">{symbol.toUpperCase()} footprint</p>
-                        <p className="text-xs text-muted-foreground">Volume split by price level and aggressor side.</p>
+            <CardHeader className="pb-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="space-y-1">
+                        <CardTitle className="text-sm text-emerald-400">Footprint (Live Binance)</CardTitle>
+                        <p className="text-lg font-semibold">{currentSymbol.toUpperCase()} footprint</p>
+                        <p className="text-xs text-muted-foreground">
+                            Live trade aggregation into bid/ask footprint bars. Scroll inside the chart to browse history.
+                        </p>
                     </div>
-                    {isRefreshing && (
-                        <span className="mt-1 rounded-full bg-gray-800 px-3 py-1 text-[11px] text-gray-300">
-                            Refreshing…
-                        </span>
-                    )}
+                    <span className={connectionClassName}>{connectionLabel}</span>
                 </div>
 
-                <div className="mt-2 flex flex-wrap gap-2">
-                    {TIMEFRAME_OPTIONS.map((option) => (
-                        <button
-                            key={option}
-                            type="button"
-                            onClick={() => setCurrentTimeframe(option)}
-                            className={cn(
-                                "rounded-full border px-3 py-1 text-xs transition-colors",
-                                option === currentTimeframe
-                                    ? "border-emerald-500 bg-emerald-500/10 text-emerald-200"
-                                    : "border-gray-800 text-gray-300 hover:border-emerald-700 hover:text-emerald-200",
-                            )}
-                        >
-                            {option}
-                        </button>
-                    ))}
+                {error && (
+                    <div className="mt-3 rounded-md border border-amber-600/50 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-100">
+                        Live Binance feed unavailable. {showFallback ? "Showing demo candles." : "Waiting for connection."}
+                    </div>
+                )}
+
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs uppercase tracking-wide text-gray-500">Symbol</span>
+                        <Select value={currentSymbol} onValueChange={setCurrentSymbol}>
+                            <SelectTrigger size="sm" className="min-w-[120px] text-white">
+                                <SelectValue placeholder="Select symbol" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {[
+                                    { label: "BTCUSDT", value: "BTCUSDT" },
+                                    { label: "ETHUSDT", value: "ETHUSDT" },
+                                    { label: "BNBUSDT", value: "BNBUSDT" },
+                                ].map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs uppercase tracking-wide text-gray-500">Timeframe</span>
+                        <div className="flex flex-wrap gap-2">
+                            {TIMEFRAME_OPTIONS.map((option) => (
+                                <Button
+                                    key={option}
+                                    size="sm"
+                                    variant={option === currentTimeframe ? "default" : "outline"}
+                                    className={cn("min-w-[3.5rem]", option === currentTimeframe && "bg-emerald-600")}
+                                    onClick={() => setCurrentTimeframe(option)}
+                                >
+                                    {option}
+                                </Button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <Button
+                        size="sm"
+                        variant={isLive ? "default" : "outline"}
+                        className={cn(
+                            "min-w-[5rem]", 
+                            isLive ? "bg-emerald-600" : "border-gray-700 text-gray-200 hover:text-white",
+                        )}
+                        onClick={() => setIsLive((prev) => !prev)}
+                    >
+                        {isLive ? "Live" : "Paused"}
+                    </Button>
                 </div>
             </CardHeader>
 
             <CardContent>
                 <div className="flex-1 min-w-0 overflow-hidden rounded-lg border border-gray-900/80 bg-[#0b0d12] p-3 shadow-inner shadow-black/10">
-                    {isInitialLoading ? (
+                    {isWaitingForData ? (
                         <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                            Loading footprint…
+                            Waiting for trades…
                         </div>
-                    ) : visibleBars.length === 0 ? (
+                    ) : bars.length === 0 ? (
                         <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                             No footprint data available.
                         </div>
@@ -183,7 +236,7 @@ export function FootprintPanel({ symbol, timeframe }: FootprintPanelProps) {
                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
                             <div className="h-full w-full max-w-full min-w-0 overflow-x-auto overflow-y-hidden pr-1">
                                 <div className="flex h-full min-w-0 items-stretch gap-3">
-                                    {visibleBars.map((bar) => {
+                                    {bars.map((bar) => {
                                         const totalTrades = bar.cells.reduce((sum, cell) => sum + (cell.tradesCount || 0), 0);
                                         const totalVolume = bar.totalAskVolume + bar.totalBidVolume;
                                         const deltaPositive = bar.delta >= 0;

@@ -55,7 +55,7 @@ interface SessionStatsResponse {
 const SESSION_WINDOW_SECONDS = 86_400;
 const SESSION_REFRESH_INTERVAL_MS = 20_000;
 const MAX_DISPLAY_TRADES = 300;
-const DEFAULT_FOOTPRINT_TIMEFRAME: FootprintTimeframe = "15s";
+const DEFAULT_FOOTPRINT_TIMEFRAME: FootprintTimeframe = "1m";
 
 const OrderflowPage = () => {
     const defaultWindowSeconds = ORDERFLOW_WINDOW_PRESETS[1]?.value ?? ORDERFLOW_WINDOW_PRESETS[0].value;
