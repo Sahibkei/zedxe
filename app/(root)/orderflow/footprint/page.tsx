@@ -27,6 +27,8 @@ import { cn } from "@/lib/utils";
 
 type FootprintMode = "Bid x Ask" | "Delta" | "Volume";
 
+type ViewRange = { start: number; end: number };
+
 type FootprintHit = {
     bar: FootprintBar;
     barIndex: number;
@@ -69,6 +71,8 @@ const FootprintPage = () => {
     const [highlightImbalances, setHighlightImbalances] = useState(true);
     const [historyTrades, setHistoryTrades] = useState<NormalizedTrade[]>([]);
     const [loadingHistory, setLoadingHistory] = useState(false);
+    const [viewRange, setViewRange] = useState<ViewRange | null>(null);
+    const [isPanning, setIsPanning] = useState(false);
 
     const { trades: liveTrades, windowedTrades: liveWindowedTrades } = useOrderflowStream({
         symbol: selectedSymbol,
@@ -183,6 +187,39 @@ const FootprintPage = () => {
         });
     }, [effectiveTrades, windowSeconds, timeframeSeconds, now, priceStep]);
 
+    const domainStart = useMemo(() => {
+        if (!footprintBars.length) return null;
+        return Math.min(...footprintBars.map((bar) => bar.bucketStart));
+    }, [footprintBars]);
+
+    const domainEnd = useMemo(() => {
+        if (!footprintBars.length) return null;
+        return Math.max(...footprintBars.map((bar) => bar.bucketEnd));
+    }, [footprintBars]);
+
+    useEffect(() => {
+        if (domainStart == null || domainEnd == null) return;
+
+        const windowMs = windowSeconds * 1000;
+        const end = domainEnd;
+        const start = Math.max(domainStart, end - windowMs);
+
+        setViewRange({ start, end });
+        setHoveredCell(null);
+    }, [domainStart, domainEnd, windowSeconds, selectedSymbol]);
+
+    useEffect(() => {
+        setHoveredCell(null);
+    }, [viewRange?.start, viewRange?.end]);
+
+    const visibleBars = useMemo(() => {
+        if (!viewRange) return footprintBars.map((bar, index) => ({ bar, index }));
+
+        return footprintBars
+            .map((bar, index) => ({ bar, index }))
+            .filter(({ bar }) => bar.bucketEnd >= viewRange.start && bar.bucketStart <= viewRange.end);
+    }, [footprintBars, viewRange]);
+
     const volumeProfile = useMemo(() => {
         if (effectiveTrades.length === 0) {
             return { levels: [] as VolumeProfileLevel[], priceStep: 0, referencePrice: null };
@@ -244,6 +281,15 @@ const FootprintPage = () => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const footprintContainerRef = useRef<HTMLDivElement | null>(null);
     const hitCellsRef = useRef<FootprintHit[]>([]);
+    const panStartRef = useRef<{ x: number; view: ViewRange } | null>(null);
+    const chartMetricsRef = useRef<{ paddingX: number; paddingY: number; chartWidth: number; chartHeight: number }>(
+        {
+            paddingX: 40,
+            paddingY: 20,
+            chartWidth: 0,
+            chartHeight: 0,
+        },
+    );
     const [hoveredCell, setHoveredCell] = useState<HoveredCell | null>(null);
 
     useEffect(() => {
@@ -272,7 +318,9 @@ const FootprintPage = () => {
             context.fillStyle = "#0b0d12";
             context.fillRect(0, 0, width, height);
 
-            if (!footprintBars.length) {
+            const barsToRender = visibleBars;
+
+            if (!barsToRender.length) {
                 setHoveredCell(null);
                 context.fillStyle = "#9ca3af";
                 context.font = "14px Inter, system-ui, -apple-system, sans-serif";
@@ -285,11 +333,13 @@ const FootprintPage = () => {
             const chartWidth = width - paddingX * 2;
             const chartHeight = height - paddingY * 2;
 
-            const minPrice = Math.min(...footprintBars.map((bar) => bar.low));
-            const maxPrice = Math.max(...footprintBars.map((bar) => bar.high));
+            chartMetricsRef.current = { paddingX, paddingY, chartWidth, chartHeight };
+
+            const minPrice = Math.min(...barsToRender.map(({ bar }) => bar.low));
+            const maxPrice = Math.max(...barsToRender.map(({ bar }) => bar.high));
             const priceRange = Math.max(maxPrice - minPrice, 1e-6);
 
-            const candleSpacing = chartWidth / Math.max(footprintBars.length, 1);
+            const candleSpacing = chartWidth / Math.max(barsToRender.length, 1);
             const bodyWidth = Math.max(candleSpacing * 0.55, 6);
 
             const yForPrice = (price: number) =>
@@ -298,7 +348,7 @@ const FootprintPage = () => {
             const inferredCellStep = (() => {
                 if (priceStep > 0) return priceStep;
                 const diffs: number[] = [];
-                footprintBars.forEach((bar) => {
+                barsToRender.forEach(({ bar }) => {
                     for (let index = 1; index < bar.cells.length; index += 1) {
                         const diff = Math.abs(bar.cells[index].price - bar.cells[index - 1].price);
                         if (diff > 0) {
@@ -310,15 +360,15 @@ const FootprintPage = () => {
                     const sorted = diffs.sort((a, b) => a - b);
                     return sorted[Math.floor(sorted.length / 2)];
                 }
-                return priceRange / Math.max(footprintBars[0]?.cells.length || 1, 12);
+                return priceRange / Math.max(barsToRender[0]?.bar.cells.length || 1, 12);
             })();
 
             const maxCellVolume = Math.max(
-                ...footprintBars.flatMap((bar) => bar.cells.map((cell) => cell.totalVolume)),
+                ...barsToRender.flatMap(({ bar }) => bar.cells.map((cell) => cell.totalVolume)),
                 0,
             );
             const maxCellDelta = Math.max(
-                ...footprintBars.flatMap((bar) =>
+                ...barsToRender.flatMap(({ bar }) =>
                     bar.cells.map((cell) => Math.abs(cell.buyVolume - cell.sellVolume)),
                 ),
                 0,
@@ -338,8 +388,21 @@ const FootprintPage = () => {
                 return value.toPrecision(2);
             };
 
-            footprintBars.forEach((bar, index) => {
-                const x = paddingX + index * candleSpacing + candleSpacing / 2;
+            const span = viewRange
+                ? Math.max(viewRange.end - viewRange.start, 1)
+                : Math.max(
+                      barsToRender[barsToRender.length - 1].bar.bucketEnd - barsToRender[0].bar.bucketStart,
+                      1,
+                  );
+
+            barsToRender.forEach(({ bar, index }) => {
+                const barMid = (bar.bucketStart + bar.bucketEnd) / 2;
+                const t = viewRange
+                    ? Math.min(Math.max((barMid - viewRange.start) / span, 0), 1)
+                    : barsToRender.length > 1
+                      ? index / (barsToRender.length - 1)
+                      : 0.5;
+                const x = paddingX + t * chartWidth;
                 const openY = yForPrice(bar.open);
                 const closeY = yForPrice(bar.close);
                 const highY = yForPrice(bar.high);
@@ -449,7 +512,15 @@ const FootprintPage = () => {
         return () => {
             window.removeEventListener("resize", render);
         };
-    }, [footprintBars, highlightImbalances, hoveredCell, mode, priceStep, showNumbers]);
+    }, [
+        highlightImbalances,
+        hoveredCell,
+        mode,
+        priceStep,
+        showNumbers,
+        visibleBars,
+        viewRange,
+    ]);
 
     useEffect(() => {
         setHoveredCell(null);
@@ -461,7 +532,8 @@ const FootprintPage = () => {
 
         if (!canvas || !container) return;
 
-        const handleMove = (event: MouseEvent) => {
+        const handleMove = (event: PointerEvent) => {
+            if (isPanning) return;
             const rect = canvas.getBoundingClientRect();
             const containerRect = container.getBoundingClientRect();
             const x = event.clientX - rect.left;
@@ -488,16 +560,106 @@ const FootprintPage = () => {
             }
         };
 
-        const handleLeave = () => setHoveredCell(null);
+        const handleLeave = () => {
+            setHoveredCell(null);
+            setIsPanning(false);
+            panStartRef.current = null;
+        };
 
-        canvas.addEventListener("mousemove", handleMove);
-        canvas.addEventListener("mouseleave", handleLeave);
+        const handlePointerDown = (event: PointerEvent) => {
+            if (event.button !== 0) return;
+            if (!viewRange) return;
+            canvas.setPointerCapture(event.pointerId);
+            panStartRef.current = { x: event.clientX, view: viewRange };
+            setIsPanning(true);
+        };
+
+        const handlePointerMove = (event: PointerEvent) => {
+            if (!isPanning || !panStartRef.current || !viewRange) return;
+            const { view } = panStartRef.current;
+            const { chartWidth } = chartMetricsRef.current;
+            if (chartWidth <= 0) return;
+
+            const dx = event.clientX - panStartRef.current.x;
+            const span = view.end - view.start;
+            const msPerPixel = span / chartWidth;
+            const shiftMs = -dx * msPerPixel;
+
+            let start = view.start + shiftMs;
+            let end = view.end + shiftMs;
+            const viewSpan = end - start;
+
+            if (domainStart != null && start < domainStart) {
+                start = domainStart;
+                end = start + viewSpan;
+            }
+            if (domainEnd != null && end > domainEnd) {
+                end = domainEnd;
+                start = end - viewSpan;
+            }
+
+            setViewRange({ start, end });
+        };
+
+        const endPan = (event?: PointerEvent) => {
+            if (isPanning && event) {
+                canvas.releasePointerCapture(event.pointerId);
+            }
+            setIsPanning(false);
+            panStartRef.current = null;
+        };
+
+        const handleWheel = (event: WheelEvent) => {
+            if (!viewRange || domainStart == null || domainEnd == null) return;
+            event.preventDefault();
+
+            const rect = canvas.getBoundingClientRect();
+            const span = viewRange.end - viewRange.start;
+            const x = event.clientX - rect.left;
+            const ratio = rect.width > 0 ? x / rect.width : 0.5;
+            const pivotTime = viewRange.start + ratio * span;
+
+            const zoomFactor = 0.1;
+            const direction = event.deltaY > 0 ? 1 : -1;
+            const minSpan = Math.max(timeframeSeconds * 3 * 1000, 1);
+            const maxSpan = Math.max(domainEnd - domainStart, minSpan);
+
+            let newSpan = span * (1 + direction * zoomFactor);
+            newSpan = Math.max(minSpan, Math.min(maxSpan, newSpan));
+
+            let start = pivotTime - ratio * newSpan;
+            let end = start + newSpan;
+
+            if (start < domainStart) {
+                start = domainStart;
+                end = start + newSpan;
+            }
+            if (end > domainEnd) {
+                end = domainEnd;
+                start = end - newSpan;
+            }
+
+            setViewRange({ start, end });
+        };
+
+        canvas.addEventListener("pointermove", handleMove);
+        canvas.addEventListener("pointerleave", handleLeave);
+        canvas.addEventListener("pointerdown", handlePointerDown);
+        canvas.addEventListener("pointermove", handlePointerMove);
+        canvas.addEventListener("pointerup", endPan);
+        canvas.addEventListener("pointercancel", endPan);
+        container.addEventListener("wheel", handleWheel, { passive: false });
 
         return () => {
-            canvas.removeEventListener("mousemove", handleMove);
-            canvas.removeEventListener("mouseleave", handleLeave);
+            canvas.removeEventListener("pointermove", handleMove);
+            canvas.removeEventListener("pointerleave", handleLeave);
+            canvas.removeEventListener("pointerdown", handlePointerDown);
+            canvas.removeEventListener("pointermove", handlePointerMove);
+            canvas.removeEventListener("pointerup", endPan);
+            canvas.removeEventListener("pointercancel", endPan);
+            container.removeEventListener("wheel", handleWheel);
         };
-    }, [footprintBars.length]);
+    }, [domainEnd, domainStart, isPanning, timeframeSeconds, viewRange]);
 
     return (
         <section className="space-y-6 px-4 py-6 md:px-6 min-w-0">
