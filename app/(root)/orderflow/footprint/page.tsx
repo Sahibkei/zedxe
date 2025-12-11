@@ -11,7 +11,6 @@ import {
     buildFootprintBars,
     BuildFootprintResult,
     FootprintBar,
-    inferPriceStepFromTrades,
     RowSizeMode,
 } from "@/app/(root)/orderflow/_utils/footprint";
 import { Button } from "@/components/ui/button";
@@ -135,7 +134,7 @@ const FootprintPageInner = () => {
     const [windowSeconds, setWindowSeconds] = useState<number>(defaultWindowSeconds);
     const [selectedTimeframe, setSelectedTimeframe] = useState<TimeframeOption>("15s");
     const [bucketSizeSeconds, setBucketSizeSeconds] = useState<number>(defaultBucketSeconds);
-    const [mode, setMode] = useState<FootprintMode>("Bid x Ask");
+    const [mode, setMode] = useState<FootprintMode>("Volume");
     const [showNumbers, setShowNumbers] = useState(true);
     const [highlightImbalances, setHighlightImbalances] = useState(true);
     const [viewRange, setViewRange] = useState<{ start: number; end: number } | null>(null);
@@ -155,28 +154,23 @@ const FootprintPageInner = () => {
         setBucketSizeSeconds(parseTimeframeSeconds(selectedTimeframe));
     }, [selectedTimeframe]);
 
-    const inferredPriceStep = useMemo(() => {
-        if (windowedTrades.length === 0) return 0;
-        const inferred = inferPriceStepFromTrades(windowedTrades);
-        const referencePrice = windowedTrades[windowedTrades.length - 1]?.price ?? 0;
-        const fallback = referencePrice > 0 ? Math.max(referencePrice * 0.0005, 0.01) : 0;
-        return inferred > 0 ? inferred : fallback;
-    }, [windowedTrades]);
-
     const rowSizeMode: RowSizeMode = useMemo(() => (mode === "Volume" ? "atr-auto" : "tick"), [mode]);
+    const tickSize = 0.01;
 
-    const { bars: footprintBars, priceStepUsed }: BuildFootprintResult = useMemo(() => {
-        if (windowedTrades.length === 0) return { bars: [], priceStepUsed: 0 };
+    const footprintResult: BuildFootprintResult = useMemo(() => {
         const referenceTimestamp = Date.now();
         return buildFootprintBars(windowedTrades, {
             windowSeconds,
             bucketSizeSeconds,
             referenceTimestamp,
             rowSizeMode,
-            tickSize: inferredPriceStep || 0,
+            tickSize,
             atrPeriod: 14,
         });
-    }, [windowedTrades, windowSeconds, bucketSizeSeconds, inferredPriceStep, rowSizeMode]);
+    }, [bucketSizeSeconds, rowSizeMode, tickSize, windowSeconds, windowedTrades]);
+
+    const footprintBars = footprintResult?.bars ?? [];
+    const priceStepUsed = footprintResult?.priceStepUsed ?? tickSize;
 
     const { levels: profileLevels, referencePrice } = useMemo(
         () => buildVolumeProfileLevels(windowedTrades, priceStepUsed),
@@ -199,18 +193,22 @@ const FootprintPageInner = () => {
     const clampViewRange = useCallback(
         (start: number, end: number) => {
             if (domainStart === null || domainEnd === null) return null;
+
             const span = end - start;
+            const domainSpan = domainEnd - domainStart;
+            const clampedSpan = Math.min(span, domainSpan);
+
             let clampedStart = start;
-            let clampedEnd = end;
+            let clampedEnd = start + clampedSpan;
 
             if (clampedStart < domainStart) {
                 clampedStart = domainStart;
-                clampedEnd = domainStart + span;
+                clampedEnd = domainStart + clampedSpan;
             }
 
             if (clampedEnd > domainEnd) {
                 clampedEnd = domainEnd;
-                clampedStart = domainEnd - span;
+                clampedStart = domainEnd - clampedSpan;
             }
 
             return { start: clampedStart, end: clampedEnd };
@@ -349,9 +347,6 @@ const FootprintPageInner = () => {
         if (!context) return;
 
         try {
-            if (renderError) {
-                setRenderError(null);
-            }
             const parent = canvas.parentElement;
             const width = parent?.clientWidth ?? 960;
             const height = parent?.clientHeight ?? 520;
@@ -372,10 +367,11 @@ const FootprintPageInner = () => {
             context.fillStyle = "#0b0d12";
             context.fillRect(0, 0, width, height);
 
-            if (!footprintBars.length || domainStart === null || domainEnd === null) {
+            if (!barsToRender.length || domainStart === null || domainEnd === null) {
                 context.fillStyle = "#9ca3af";
                 context.font = "14px Inter, system-ui, -apple-system, sans-serif";
                 context.fillText("Waiting for footprint data…", 16, height / 2);
+                setRenderError(null);
                 return;
             }
 
@@ -387,16 +383,9 @@ const FootprintPageInner = () => {
             const chartWidth = width - paddingX * 2;
             const chartHeight = height - paddingY * 2;
 
-            if (!barsToRender.length) {
-                context.fillStyle = "#9ca3af";
-                context.font = "14px Inter, system-ui, -apple-system, sans-serif";
-                context.fillText("Waiting for footprint data…", 16, height / 2);
-                return;
-            }
-
             const minPrice = Math.min(...barsToRender.map((bar) => bar.low));
             const maxPrice = Math.max(...barsToRender.map((bar) => bar.high));
-            const priceRange = Math.max(maxPrice - minPrice, 1e-6);
+            const priceRange = Math.max(maxPrice - minPrice, priceStepUsed);
 
             const candleSpacing = chartWidth / Math.max(barsToRender.length, 1);
             const bodyWidth = Math.max(candleSpacing * 0.6, 6);
@@ -412,7 +401,7 @@ const FootprintPageInner = () => {
             });
             const cellStep = priceDiffs.length
                 ? priceDiffs.sort((a, b) => a - b)[Math.floor(priceDiffs.length / 2)]
-                : priceRange / Math.max(barsToRender[0].cells.length || 1, 12);
+                : Math.max(priceStepUsed, priceRange / Math.max(barsToRender[0].cells.length || 1, 12));
 
             const cellHeight = Math.max((cellStep / priceRange) * chartHeight * 0.9, 8);
 
@@ -492,11 +481,14 @@ const FootprintPageInner = () => {
                     drawCell(x, cellY, bodyWidth, cell);
                 });
             });
+
+            setRenderError(null);
         } catch (error) {
             console.error("Failed to render footprint canvas", error);
-            setRenderError("Footprint chart failed to render. Please reload the page or try again later.");
+            const message = error instanceof Error ? error.message : "Unknown render error";
+            setRenderError(message);
         }
-    }, [barsToRender, domainEnd, domainStart, highlightImbalances, maxDelta, maxVolume, mode, renderError, showNumbers, viewRange]);
+    }, [barsToRender, domainEnd, domainStart, highlightImbalances, maxDelta, maxVolume, mode, priceStepUsed, showNumbers, viewRange]);
 
     const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
 
@@ -622,7 +614,10 @@ const FootprintPageInner = () => {
                         >
                             {renderError ? (
                                 <div className="flex h-full items-center justify-center px-4 text-center text-sm text-red-400">
-                                    {renderError}
+                                    Footprint chart failed to render. Please reload the page or try again later.
+                                    {renderError
+                                        ? ` (${renderError})`
+                                        : ""}
                                 </div>
                             ) : null}
                             <canvas

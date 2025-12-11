@@ -73,38 +73,40 @@ export const inferPriceStepFromTrades = (trades: NormalizedTrade[]): number => {
 };
 
 export const computeAtrPriceStep = (
-    bars: Pick<FootprintBar, "high" | "low" | "close">[],
+    trades: NormalizedTrade[],
     period: number,
-    fallbackStep = 0,
+    tickSize: number,
 ): number => {
-    if (!bars.length) {
-        return Math.max(fallbackStep, 0.01);
-    }
+    const safeTick = tickSize > 0 ? tickSize : 0.01;
+    if (trades.length < 2) return safeTick;
 
-    const effectivePeriod = Math.max(1, Math.min(period, bars.length));
-    const recentBars = bars.slice(-effectivePeriod);
-
-    let prevClose = recentBars[0].close;
+    const sorted = [...trades].sort((a, b) => a.timestamp - b.timestamp);
     const trueRanges: number[] = [];
 
-    recentBars.forEach((bar, index) => {
-        if (index > 0) {
-            prevClose = recentBars[index - 1].close;
+    for (let index = 1; index < sorted.length; index += 1) {
+        const prev = sorted[index - 1];
+        const current = sorted[index];
+        const high = Math.max(prev.price, current.price);
+        const low = Math.min(prev.price, current.price);
+        const prevClose = prev.price;
+        const range = high - low;
+        const highClose = Math.abs(high - prevClose);
+        const lowClose = Math.abs(low - prevClose);
+        const tr = Math.max(range, highClose, lowClose);
+        if (Number.isFinite(tr) && tr > 0) {
+            trueRanges.push(tr);
         }
+    }
 
-        const range = bar.high - bar.low;
-        const highClose = Math.abs(bar.high - prevClose);
-        const lowClose = Math.abs(bar.low - prevClose);
-        const trueRange = Math.max(range, highClose, lowClose);
-        trueRanges.push(trueRange);
-    });
+    if (!trueRanges.length) return safeTick;
 
-    const atr = trueRanges.reduce((sum, value) => sum + value, 0) / trueRanges.length;
-    const referencePrice = recentBars[recentBars.length - 1]?.close ?? 0;
-    const minimumStep = fallbackStep > 0 ? fallbackStep : resolveFallbackStep(0, referencePrice);
-    const step = Math.max(minimumStep, atr / 20);
+    const effectivePeriod = Math.max(1, Math.min(period, trueRanges.length));
+    const recent = trueRanges.slice(-effectivePeriod);
+    const atr = recent.reduce((sum, value) => sum + value, 0) / recent.length;
+    const multiplier = Math.max(1, Math.round(atr / safeTick));
+    const step = multiplier * safeTick;
 
-    return Number.isFinite(step) && step > 0 ? step : minimumStep;
+    return Number.isFinite(step) && step > 0 ? step : safeTick;
 };
 
 export const buildFootprintBars = (
@@ -166,8 +168,9 @@ export const buildFootprintBars = (
     const inferredStep = tickSize > 0 ? tickSize : inferPriceStepFromTrades(trades);
     const fallbackStep = inferredStep > 0 ? inferredStep : resolveFallbackStep(0, referencePrice);
 
-    const atrPriceStep = rowSizeMode === "atr-auto" ? computeAtrPriceStep(rawBars, atrPeriod, fallbackStep) : undefined;
-    const resolvedPriceStep = Math.max(rowSizeMode === "tick" ? fallbackStep : atrPriceStep ?? fallbackStep, 0.01);
+    const rawPriceStep = rowSizeMode === "atr-auto" ? computeAtrPriceStep(trades, atrPeriod, fallbackStep) : fallbackStep;
+    const priceStepUsed = !Number.isFinite(rawPriceStep) || rawPriceStep <= 0 ? fallbackStep : rawPriceStep;
+    const resolvedPriceStep = Math.max(priceStepUsed, 0.01);
 
     const bars: FootprintBar[] = rawBars.map((bar) => {
         const cellsMap = new Map<number, FootprintCell>();
