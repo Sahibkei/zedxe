@@ -7,6 +7,7 @@ import Link from "next/link";
 import OrderflowChart from "@/app/(root)/orderflow/_components/orderflow-chart";
 import VolumeProfile, { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
 import { bucketTrades } from "@/app/(root)/orderflow/_utils/bucketing";
+import { buildFootprintBars, FootprintBar, inferPriceStepFromTrades } from "@/app/(root)/orderflow/_utils/footprint";
 import { Button } from "@/components/ui/button";
 import {
     Select,
@@ -27,74 +28,9 @@ import { cn } from "@/lib/utils";
 
 type FootprintMode = "Bid x Ask" | "Delta" | "Volume";
 
-interface FootprintCandle {
-    timestamp: number;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-}
-
 const TIMEFRAME_OPTIONS = ["5s", "15s", "30s", "1m", "5m", "15m"] as const;
 const MODE_OPTIONS: FootprintMode[] = ["Bid x Ask", "Delta", "Volume"];
 const DEFAULT_TIMEFRAME: (typeof TIMEFRAME_OPTIONS)[number] = "15s";
-
-const buildCandles = (
-    trades: NormalizedTrade[],
-    windowSeconds: number,
-    bucketSizeSeconds: number,
-    referenceTimestamp: number,
-): FootprintCandle[] => {
-    const windowStart = referenceTimestamp - windowSeconds * 1000;
-    const bucketSizeMs = bucketSizeSeconds * 1000;
-    const bucketCount = Math.ceil(windowSeconds / bucketSizeSeconds);
-    const buckets: { timestamp: number; prices: number[] }[] = Array.from({ length: bucketCount }).map((_, index) => ({
-        timestamp: windowStart + index * bucketSizeMs,
-        prices: [],
-    }));
-
-    trades.forEach((trade) => {
-        if (trade.timestamp < windowStart) return;
-        const bucketIndex = Math.floor((trade.timestamp - windowStart) / bucketSizeMs);
-        if (bucketIndex < 0 || bucketIndex >= buckets.length) return;
-        buckets[bucketIndex]?.prices.push(trade.price);
-    });
-
-    let lastClose: number | null = null;
-
-    return buckets
-        .map((bucket) => {
-            if (bucket.prices.length === 0) {
-                if (lastClose === null) return null;
-                return {
-                    timestamp: bucket.timestamp,
-                    open: lastClose,
-                    high: lastClose,
-                    low: lastClose,
-                    close: lastClose,
-                } satisfies FootprintCandle;
-            }
-
-            const open = bucket.prices[0];
-            const close = bucket.prices[bucket.prices.length - 1];
-            const high = Math.max(...bucket.prices);
-            const low = Math.min(...bucket.prices);
-
-            lastClose = close;
-
-            return {
-                timestamp: bucket.timestamp,
-                open,
-                high,
-                low,
-                close,
-            } satisfies FootprintCandle;
-        })
-        .filter(Boolean) as FootprintCandle[];
-};
-
-const formatTime = (timestamp: number) =>
-    new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 const FootprintPage = () => {
     const defaultWindowSeconds = ORDERFLOW_WINDOW_PRESETS[1]?.value ?? ORDERFLOW_WINDOW_PRESETS[0].value;
@@ -193,11 +129,6 @@ const FootprintPage = () => {
         [combinedTrades, windowStart],
     );
 
-    const candles = useMemo(
-        () => buildCandles(effectiveTrades, windowSeconds, bucketSizeSeconds, now),
-        [effectiveTrades, windowSeconds, bucketSizeSeconds, now],
-    );
-
     const effectiveBuckets = useMemo(
         () => bucketTrades(effectiveTrades, windowSeconds, bucketSizeSeconds, now),
         [effectiveTrades, windowSeconds, bucketSizeSeconds, now],
@@ -206,31 +137,23 @@ const FootprintPage = () => {
     const priceStep = useMemo(() => {
         if (effectiveTrades.length === 0) return 0;
 
-        const sortedPrices = [...effectiveTrades].map((trade) => trade.price).sort((a, b) => a - b);
-        const deltas: number[] = [];
-
-        for (let index = 1; index < sortedPrices.length; index += 1) {
-            const diff = sortedPrices[index] - sortedPrices[index - 1];
-            if (diff > 0) {
-                deltas.push(diff);
-            }
-        }
-
-        const medianDelta = (() => {
-            if (!deltas.length) return 0;
-            const sorted = deltas.sort((a, b) => a - b);
-            const middle = Math.floor(sorted.length / 2);
-            if (sorted.length % 2 === 0) {
-                return (sorted[middle - 1] + sorted[middle]) / 2;
-            }
-            return sorted[middle];
-        })();
-
+        const inferred = inferPriceStepFromTrades(effectiveTrades);
         const referencePrice = effectiveTrades[effectiveTrades.length - 1]?.price ?? 0;
-        const fallbackStep = Math.max(referencePrice * 0.0005, 0.01);
+        const fallbackStep = referencePrice > 0 ? Math.max(referencePrice * 0.0005, 0.01) : 0;
 
-        return Math.max(medianDelta, fallbackStep);
+        return inferred > 0 ? inferred : fallbackStep;
     }, [effectiveTrades]);
+
+    const footprintBars = useMemo<FootprintBar[]>(() => {
+        if (effectiveTrades.length === 0) return [];
+
+        return buildFootprintBars(effectiveTrades, {
+            windowSeconds,
+            bucketSizeSeconds,
+            referenceTimestamp: now,
+            priceStep: priceStep || undefined,
+        });
+    }, [effectiveTrades, windowSeconds, bucketSizeSeconds, now, priceStep]);
 
     const volumeProfile = useMemo(() => {
         if (effectiveTrades.length === 0) {
@@ -288,7 +211,7 @@ const FootprintPage = () => {
         return { levels, priceStep: step, referencePrice };
     }, [effectiveTrades, priceStep]);
 
-    const hasData = effectiveTrades.length > 0 || effectiveBuckets.some((bucket) => bucket.totalVolume > 0);
+    const hasData = footprintBars.length > 0 || effectiveBuckets.some((bucket) => bucket.totalVolume > 0);
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -299,7 +222,7 @@ const FootprintPage = () => {
         const context = canvas.getContext("2d");
         if (!context) return;
 
-        const resize = () => {
+        const render = () => {
             const parent = canvas.parentElement;
             const width = parent?.clientWidth ?? 800;
             const height = parent?.clientHeight ?? 520;
@@ -316,27 +239,56 @@ const FootprintPage = () => {
             context.fillStyle = "#0b0d12";
             context.fillRect(0, 0, width, height);
 
-            if (!candles.length) {
+            if (!footprintBars.length) {
                 context.fillStyle = "#9ca3af";
                 context.font = "14px Inter, system-ui, -apple-system, sans-serif";
                 context.fillText("Waiting for footprint data…", 16, height / 2);
                 return;
             }
 
-            const paddingX = 20;
+            const paddingX = 40;
             const paddingY = 20;
             const chartWidth = width - paddingX * 2;
             const chartHeight = height - paddingY * 2;
 
-            const minPrice = Math.min(...candles.map((candle) => candle.low));
-            const maxPrice = Math.max(...candles.map((candle) => candle.high));
-            const priceRange = Math.max(maxPrice - minPrice, 1);
+            const minPrice = Math.min(...footprintBars.map((bar) => bar.low));
+            const maxPrice = Math.max(...footprintBars.map((bar) => bar.high));
+            const priceRange = Math.max(maxPrice - minPrice, 1e-6);
 
-            const candleSpacing = chartWidth / Math.max(candles.length, 1);
-            const bodyWidth = Math.max(candleSpacing * 0.6, 4);
+            const candleSpacing = chartWidth / Math.max(footprintBars.length, 1);
+            const bodyWidth = Math.max(candleSpacing * 0.55, 6);
 
             const yForPrice = (price: number) =>
                 paddingY + (1 - (price - minPrice) / priceRange) * chartHeight;
+
+            const inferredCellStep = (() => {
+                if (priceStep > 0) return priceStep;
+                const diffs: number[] = [];
+                footprintBars.forEach((bar) => {
+                    for (let index = 1; index < bar.cells.length; index += 1) {
+                        const diff = Math.abs(bar.cells[index].price - bar.cells[index - 1].price);
+                        if (diff > 0) {
+                            diffs.push(diff);
+                        }
+                    }
+                });
+                if (diffs.length) {
+                    const sorted = diffs.sort((a, b) => a - b);
+                    return sorted[Math.floor(sorted.length / 2)];
+                }
+                return priceRange / Math.max(footprintBars[0]?.cells.length || 1, 12);
+            })();
+
+            const maxCellVolume = Math.max(
+                ...footprintBars.flatMap((bar) => bar.cells.map((cell) => cell.totalVolume)),
+                0,
+            );
+            const maxCellDelta = Math.max(
+                ...footprintBars.flatMap((bar) =>
+                    bar.cells.map((cell) => Math.abs(cell.buyVolume - cell.sellVolume)),
+                ),
+                0,
+            );
 
             context.strokeStyle = "#1f2937";
             context.lineWidth = 1;
@@ -346,18 +298,24 @@ const FootprintPage = () => {
             context.lineTo(paddingX + chartWidth, paddingY + chartHeight);
             context.stroke();
 
-            candles.forEach((candle, index) => {
+            const formatVolume = (value: number) => {
+                if (Math.abs(value) >= 1000) return value.toFixed(0);
+                if (Math.abs(value) >= 1) return value.toFixed(2);
+                return value.toPrecision(2);
+            };
+
+            footprintBars.forEach((bar, index) => {
                 const x = paddingX + index * candleSpacing + candleSpacing / 2;
-                const openY = yForPrice(candle.open);
-                const closeY = yForPrice(candle.close);
-                const highY = yForPrice(candle.high);
-                const lowY = yForPrice(candle.low);
+                const openY = yForPrice(bar.open);
+                const closeY = yForPrice(bar.close);
+                const highY = yForPrice(bar.high);
+                const lowY = yForPrice(bar.low);
 
-                const bullish = candle.close > candle.open;
-                const bearish = candle.close < candle.open;
-                const color = bullish ? "#34d399" : bearish ? "#f87171" : "#9ca3af";
+                const bullish = bar.close > bar.open;
+                const bearish = bar.close < bar.open;
+                const wickColor = bullish ? "#34d399" : bearish ? "#f87171" : "#9ca3af";
 
-                context.strokeStyle = color;
+                context.strokeStyle = wickColor;
                 context.beginPath();
                 context.moveTo(x, highY);
                 context.lineTo(x, lowY);
@@ -367,27 +325,74 @@ const FootprintPage = () => {
                 const bodyY = Math.min(openY, closeY);
                 const bodyHeight = Math.max(Math.abs(closeY - openY), 2);
 
-                context.fillStyle = color;
+                context.fillStyle = "#111827";
                 context.fillRect(bodyX, bodyY, bodyWidth, bodyHeight);
-            });
 
-            context.fillStyle = "#6b7280";
-            context.font = "11px Inter, system-ui, -apple-system, sans-serif";
-            const lastCandles = candles.slice(-5);
-            lastCandles.forEach((candle, index) => {
-                const label = formatTime(candle.timestamp);
-                const labelX = paddingX + (candles.length - lastCandles.length + index) * candleSpacing;
-                context.fillText(label, labelX, height - 6);
+                bar.cells.forEach((cell) => {
+                    const halfStep = inferredCellStep > 0 ? inferredCellStep / 2 : priceRange / 40;
+                    const cellTop = yForPrice(cell.price + halfStep);
+                    const cellBottom = yForPrice(cell.price - halfStep);
+                    const cellHeight = Math.max(cellBottom - cellTop, 3);
+                    const cellWidth = bodyWidth;
+                    const cellX = x - cellWidth / 2;
+
+                    const totalVolume = cell.totalVolume;
+                    const delta = cell.buyVolume - cell.sellVolume;
+                    const volumeRatio = maxCellVolume > 0 ? Math.min(totalVolume / maxCellVolume, 1) : 0;
+                    const deltaRatio = maxCellDelta > 0 ? Math.min(Math.abs(delta) / maxCellDelta, 1) : 0;
+
+                    if (mode === "Bid x Ask") {
+                        const sellWidth = totalVolume > 0 ? (cell.sellVolume / totalVolume) * cellWidth : cellWidth / 2;
+                        const buyWidth = cellWidth - sellWidth;
+                        const sharedAlpha = 0.2 + volumeRatio * 0.65;
+
+                        context.fillStyle = `rgba(248, 113, 113, ${sharedAlpha})`;
+                        context.fillRect(cellX, cellTop, sellWidth, cellHeight);
+                        context.fillStyle = `rgba(52, 211, 153, ${sharedAlpha})`;
+                        context.fillRect(cellX + sellWidth, cellTop, buyWidth, cellHeight);
+                    } else if (mode === "Volume") {
+                        const alpha = 0.15 + volumeRatio * 0.75;
+                        context.fillStyle = `rgba(59, 130, 246, ${alpha})`;
+                        context.fillRect(cellX, cellTop, cellWidth, cellHeight);
+                    } else {
+                        const alpha = 0.2 + deltaRatio * 0.7;
+                        context.fillStyle = delta >= 0
+                            ? `rgba(52, 211, 153, ${alpha})`
+                            : `rgba(248, 113, 113, ${alpha})`;
+                        context.fillRect(cellX, cellTop, cellWidth, cellHeight);
+                    }
+
+                    if (highlightImbalances && cell.imbalancePercent >= 60) {
+                        context.strokeStyle = cell.dominantSide === "buy" ? "#10b981" : "#f43f5e";
+                        context.lineWidth = 1;
+                        context.strokeRect(cellX, cellTop, cellWidth, cellHeight);
+                    }
+
+                    if (showNumbers) {
+                        context.fillStyle = "#e5e7eb";
+                        context.font = "10px Inter, system-ui, -apple-system, sans-serif";
+                        let label = formatVolume(totalVolume);
+
+                        if (mode === "Bid x Ask") {
+                            label = `${formatVolume(cell.sellVolume)} | ${formatVolume(cell.buyVolume)}`;
+                        } else if (mode === "Delta") {
+                            const deltaLabel = formatVolume(Math.abs(delta));
+                            label = `${delta >= 0 ? "+" : "-"}${deltaLabel}`;
+                        }
+
+                        context.fillText(label, cellX + 4, cellBottom - 4);
+                    }
+                });
             });
         };
 
-        resize();
+        render();
 
-        window.addEventListener("resize", resize);
+        window.addEventListener("resize", render);
         return () => {
-            window.removeEventListener("resize", resize);
+            window.removeEventListener("resize", render);
         };
-    }, [candles]);
+    }, [footprintBars, highlightImbalances, mode, priceStep, showNumbers]);
 
     return (
         <section className="space-y-6 px-4 py-6 md:px-6 min-w-0">
@@ -524,13 +529,14 @@ const FootprintPage = () => {
                         <div className="flex items-center justify-between pb-3">
                             <div>
                                 <p className="text-xs uppercase tracking-wide text-gray-500">Footprint</p>
-                                <h3 className="text-lg font-semibold text-white">Footprint Chart (canvas placeholder)</h3>
+                                <h3 className="text-lg font-semibold text-white">Footprint Heatmap</h3>
                                 <p className="text-xs text-gray-400">
-                                    Rendering basic candles now. Footprint clusters and imbalances will attach here later.
+                                    Live footprint cells stacked inside each candle. Colors respond to {mode.toLowerCase()} mode
+                                    and the imbalance toggle.
                                 </p>
                             </div>
                             <span className="rounded-full bg-gray-900 px-3 py-1 text-xs text-gray-300">
-                                {effectiveBuckets.length} buckets
+                                {footprintBars.length} buckets
                             </span>
                         </div>
                         <div className="h-[520px] w-full rounded-lg border border-gray-900/80 bg-[#0b0d12]">
@@ -545,8 +551,8 @@ const FootprintPage = () => {
                             imbalances: <span className="font-semibold text-white">{highlightImbalances ? "On" : "Off"}</span>
                         </p>
                         <p className="mt-1 text-xs text-gray-500">
-                            Current mode: <span className="text-emerald-200">{mode}</span>. Control wiring is ready for the
-                            full ATAS-style footprint renderer in the next phase.
+                            Current mode: <span className="text-emerald-200">{mode}</span>. Cell fills and labels respond to
+                            these toggles in real time so you can quickly scan for pressure at each price level.
                         </p>
                     </div>
                 </div>
