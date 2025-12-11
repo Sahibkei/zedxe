@@ -19,6 +19,7 @@ interface SessionStatsProps {
     symbol: string;
     windowLabel: string;
     loading: boolean;
+    error?: string | null;
     stats: {
         buyVolume: number;
         sellVolume: number;
@@ -57,7 +58,7 @@ const ValueBlock = ({
     </div>
 );
 
-export const SessionStats = ({ symbol, windowLabel, loading, stats }: SessionStatsProps) => {
+export const SessionStats = ({ symbol, windowLabel, loading, error, stats }: SessionStatsProps) => {
     const { buyVolume, sellVolume, netDelta, vwap, largestCluster } = stats;
     const deltaPositive = netDelta >= 0;
 
@@ -72,10 +73,14 @@ export const SessionStats = ({ symbol, windowLabel, loading, stats }: SessionSta
                 </div>
                 <span
                     className={`rounded-full px-3 py-1 text-xs ${
-                        loading ? "bg-amber-500/20 text-amber-200" : "bg-gray-800 text-gray-300"
+                        loading
+                            ? "bg-amber-500/20 text-amber-200"
+                            : error
+                              ? "bg-rose-500/20 text-rose-200"
+                              : "bg-gray-800 text-gray-300"
                     }`}
                 >
-                    {loading ? "Refreshing" : "Live"}
+                    {loading ? "Refreshing" : error ? "Error" : "Live"}
                 </span>
             </div>
 
@@ -104,6 +109,10 @@ export const SessionStats = ({ symbol, windowLabel, loading, stats }: SessionSta
                     icon={<Activity size={14} className="text-gray-400" />}
                 />
             </div>
+
+            {error ? (
+                <p className="mt-2 text-xs text-rose-200">{error}</p>
+            ) : null}
         </div>
     );
 };

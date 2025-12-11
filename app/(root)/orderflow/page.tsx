@@ -53,7 +53,7 @@ interface SessionStatsResponse {
 }
 
 const SESSION_WINDOW_SECONDS = 86_400;
-const SESSION_REFRESH_INTERVAL_MS = 20_000;
+const SESSION_REFRESH_INTERVAL_MS = 30_000;
 const MAX_DISPLAY_TRADES = 300;
 const DEFAULT_FOOTPRINT_TIMEFRAME: FootprintTimeframe = "15s";
 
@@ -83,6 +83,7 @@ const OrderflowPage = () => {
         largestCluster: null,
     });
     const [sessionStatsLoading, setSessionStatsLoading] = useState(false);
+    const [sessionStatsError, setSessionStatsError] = useState<string | null>(null);
 
     usePersistOrderflowTrades(selectedSymbol, liveTrades, true);
 
@@ -145,15 +146,27 @@ const OrderflowPage = () => {
     useEffect(() => {
         let isCancelled = false;
 
+        let timeout: NodeJS.Timeout | null = null;
+        let abortController: AbortController | null = null;
+
         const fetchSessionStats = async () => {
+            if (isCancelled) return;
+            abortController?.abort();
+            const controller = new AbortController();
+            abortController = controller;
+
             setSessionStatsLoading(true);
+            setSessionStatsError(null);
+
             try {
                 const params = new URLSearchParams({
                     symbol: selectedSymbol,
                     sessionWindowSeconds: String(SESSION_WINDOW_SECONDS),
                 });
 
-                const response = await fetch(`/api/orderflow/session-stats?${params.toString()}`);
+                const response = await fetch(`/api/orderflow/session-stats?${params.toString()}`, {
+                    signal: controller.signal,
+                });
                 if (!response.ok) {
                     throw new Error(`Failed to load session stats (${response.status})`);
                 }
@@ -179,21 +192,25 @@ const OrderflowPage = () => {
                     vwap: Number.isFinite(Number(data?.vwap)) ? Number(data?.vwap) : null,
                     largestCluster: parsedLargestCluster,
                 });
+                setSessionStatsError(null);
             } catch (fetchError) {
+                if ((fetchError as Error)?.name === "AbortError") return;
                 console.error("Failed to fetch session stats", fetchError);
+                setSessionStatsError("Failed to refresh session overview");
             } finally {
                 if (!isCancelled) {
                     setSessionStatsLoading(false);
+                    timeout = setTimeout(fetchSessionStats, SESSION_REFRESH_INTERVAL_MS);
                 }
             }
         };
 
         fetchSessionStats();
-        const interval = setInterval(fetchSessionStats, SESSION_REFRESH_INTERVAL_MS);
 
         return () => {
             isCancelled = true;
-            clearInterval(interval);
+            abortController?.abort();
+            if (timeout) clearTimeout(timeout);
         };
     }, [selectedSymbol]);
 
@@ -212,7 +229,7 @@ const OrderflowPage = () => {
         });
 
         return Array.from(uniqueTrades.values()).sort((a, b) => a.timestamp - b.timestamp);
-    }, [historyTrades, liveTrades]);
+    }, [historyTrades, liveWindowedTrades]);
 
     const now = Date.now();
 
@@ -568,6 +585,7 @@ const OrderflowPage = () => {
                     symbol={selectedSymbol}
                     windowLabel={sessionWindowLabel}
                     loading={sessionStatsLoading}
+                    error={sessionStatsError}
                     stats={sessionStats}
                 />
                 <ReplayControls
