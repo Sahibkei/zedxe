@@ -1,35 +1,38 @@
-import type { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
 import type { NormalizedTrade } from "@/hooks/useOrderflowStream";
 
-export type FootprintCell = VolumeProfileLevel & {
-    tradesCount?: number;
-};
+export type RowSizeMode = "tick" | "atr-auto";
 
-export type FootprintBar = {
-    bucketStart: number;
-    bucketEnd: number;
+export interface FootprintCell {
+    price: number;
+    buyVolume: number;
+    sellVolume: number;
+    totalVolume: number;
+    delta: number;
+}
+
+export interface FootprintBar {
+    startTime: number;
+    endTime: number;
     open: number;
     high: number;
     low: number;
     close: number;
-    totalVolume: number;
-    totalDelta: number;
     cells: FootprintCell[];
-};
-
-export interface BuildFootprintOptions {
-    windowSeconds: number;
-    bucketSizeSeconds: number;
-    referenceTimestamp: number;
-    priceStep?: number;
+    buyVolume: number;
+    sellVolume: number;
+    totalVolume: number;
+    delta: number;
 }
 
-const bucketPrice = (price: number, priceStep?: number) => {
-    if (!priceStep || priceStep <= 0) return price;
-    const decimals = (priceStep.toString().split(".")[1] ?? "").length;
-    const bucketed = Math.floor(price / priceStep) * priceStep;
-    return Number(bucketed.toFixed(decimals));
-};
+export interface BuildFootprintResult {
+    bars: FootprintBar[];
+    priceStepUsed: number;
+    domainStart: number | null;
+    domainEnd: number | null;
+}
+
+const isFiniteTrade = (trade: NormalizedTrade): boolean =>
+    Number.isFinite(trade.price) && Number.isFinite(trade.quantity) && Number.isFinite(trade.timestamp);
 
 export const inferPriceStepFromTrades = (trades: NormalizedTrade[]): number => {
     if (trades.length < 2) return 0;
@@ -57,101 +60,188 @@ export const inferPriceStepFromTrades = (trades: NormalizedTrade[]): number => {
     return sorted[middle];
 };
 
-export const buildFootprintBars = (
-    trades: NormalizedTrade[],
-    { windowSeconds, bucketSizeSeconds, referenceTimestamp, priceStep }: BuildFootprintOptions,
-): FootprintBar[] => {
-    if (!trades.length) return [];
+const normalizeStep = (step: number): number | null => {
+    if (!Number.isFinite(step) || step <= 0) return null;
+    const exponent = Math.floor(Math.log10(step));
+    const base = 10 ** exponent;
+    const candidates = [1, 2, 5, 10];
+    const normalized = candidates.map((candidate) => candidate * base).find((value) => value >= step) ?? step;
+    return Number.isFinite(normalized) && normalized > 0 ? normalized : null;
+};
 
-    const windowStart = referenceTimestamp - windowSeconds * 1000;
-    const bucketSizeMs = bucketSizeSeconds * 1000;
-    const bucketCount = Math.ceil(windowSeconds / bucketSizeSeconds);
+export function computeAtrPriceStep(
+    bars: { high: number; low: number; close: number }[],
+    atrPeriod: number,
+): number | null {
+    try {
+        if (!Array.isArray(bars) || bars.length === 0) return null;
+        const period = Math.max(1, atrPeriod);
+        const recentBars = bars.slice(-period);
 
-    const buckets = new Map<number, NormalizedTrade[]>();
+        let prevClose: number | null = null;
+        const trueRanges: number[] = [];
 
-    trades.forEach((trade) => {
-        if (trade.timestamp < windowStart) return;
-        const bucketIndex = Math.floor((trade.timestamp - windowStart) / bucketSizeMs);
-        if (bucketIndex < 0 || bucketIndex >= bucketCount) return;
-
-        const bucketTrades = buckets.get(bucketIndex) ?? [];
-        bucketTrades.push(trade);
-        buckets.set(bucketIndex, bucketTrades);
-    });
-
-    let lastClose: number | null = null;
-    const bars: FootprintBar[] = [];
-
-    for (let index = 0; index < bucketCount; index += 1) {
-        const bucketStart = windowStart + index * bucketSizeMs;
-        const bucketEnd = bucketStart + bucketSizeMs;
-        const bucketTrades = buckets.get(index)?.sort((a, b) => a.timestamp - b.timestamp) ?? [];
-
-        if (!bucketTrades.length && lastClose === null) {
-            continue;
+        for (const bar of recentBars) {
+            if (!Number.isFinite(bar.high) || !Number.isFinite(bar.low) || !Number.isFinite(bar.close)) {
+                continue;
+            }
+            const range = bar.high - bar.low;
+            const highClose = prevClose !== null ? Math.abs(bar.high - prevClose) : range;
+            const lowClose = prevClose !== null ? Math.abs(bar.low - prevClose) : range;
+            const trueRange = Math.max(range, highClose, lowClose);
+            if (Number.isFinite(trueRange) && trueRange > 0) {
+                trueRanges.push(trueRange);
+            }
+            prevClose = bar.close;
         }
 
-        const open = bucketTrades[0]?.price ?? lastClose ?? 0;
-        const close = bucketTrades[bucketTrades.length - 1]?.price ?? open;
-        const high = bucketTrades.length ? Math.max(...bucketTrades.map((trade) => trade.price)) : open;
-        const low = bucketTrades.length ? Math.min(...bucketTrades.map((trade) => trade.price)) : open;
+        if (!trueRanges.length) return null;
 
-        lastClose = close;
-
-        const cellsMap = new Map<number, FootprintCell>();
-
-        bucketTrades.forEach((trade) => {
-            const cellPrice = bucketPrice(trade.price, priceStep);
-            const existing = cellsMap.get(cellPrice) ?? {
-                price: cellPrice,
-                buyVolume: 0,
-                sellVolume: 0,
-                totalVolume: 0,
-                imbalancePercent: 0,
-                dominantSide: null,
-                tradesCount: 0,
-            };
-
-            if (trade.side === "buy") {
-                existing.buyVolume += trade.quantity;
-            } else {
-                existing.sellVolume += trade.quantity;
-            }
-            existing.tradesCount = (existing.tradesCount ?? 0) + 1;
-            cellsMap.set(cellPrice, existing);
-        });
-
-        const cells = Array.from(cellsMap.values())
-            .map((cell) => {
-                const totalVolume = cell.buyVolume + cell.sellVolume;
-                const dominantSide = totalVolume === 0 ? null : cell.buyVolume >= cell.sellVolume ? "buy" : "sell";
-                const imbalancePercent = totalVolume > 0 ? (Math.abs(cell.buyVolume - cell.sellVolume) / totalVolume) * 100 : 0;
-
-                return {
-                    ...cell,
-                    totalVolume,
-                    imbalancePercent,
-                    dominantSide,
-                } satisfies FootprintCell;
-            })
-            .sort((a, b) => b.price - a.price);
-
-        const totalBuyVolume = cells.reduce((sum, cell) => sum + cell.buyVolume, 0);
-        const totalSellVolume = cells.reduce((sum, cell) => sum + cell.sellVolume, 0);
-
-        bars.push({
-            bucketStart,
-            bucketEnd,
-            open,
-            high,
-            low,
-            close,
-            totalVolume: totalBuyVolume + totalSellVolume,
-            totalDelta: totalBuyVolume - totalSellVolume,
-            cells,
-        });
+        const atr = trueRanges.reduce((sum, value) => sum + value, 0) / trueRanges.length;
+        const rawStep = atr / 12;
+        const normalized = normalizeStep(rawStep ?? 0);
+        return normalized && normalized > 0 ? normalized : null;
+    } catch (error) {
+        console.error("computeAtrPriceStep failed", error);
+        return null;
     }
+}
 
-    return bars;
+const computeFallbackPriceStep = (trades: NormalizedTrade[]): number => {
+    const lastPrice = trades[trades.length - 1]?.price ?? 0;
+    if (lastPrice > 0) {
+        return Math.max(lastPrice * 0.0005, 0.01);
+    }
+    return 0.01;
 };
+
+const buildCells = (bucketTrades: NormalizedTrade[], priceStep: number): FootprintCell[] => {
+    const cellsMap = new Map<number, FootprintCell>();
+    const decimals = (priceStep.toString().split(".")[1] ?? "").length;
+
+    bucketTrades.forEach((trade) => {
+        const bucketedPrice = priceStep > 0 ? Math.floor(trade.price / priceStep) * priceStep : trade.price;
+        const price = Number(bucketedPrice.toFixed(decimals));
+        const existing = cellsMap.get(price) ?? {
+            price,
+            buyVolume: 0,
+            sellVolume: 0,
+            totalVolume: 0,
+            delta: 0,
+        };
+
+        if (trade.side === "buy") {
+            existing.buyVolume += trade.quantity;
+        } else {
+            existing.sellVolume += trade.quantity;
+        }
+        existing.totalVolume = existing.buyVolume + existing.sellVolume;
+        existing.delta = existing.buyVolume - existing.sellVolume;
+        cellsMap.set(price, existing);
+    });
+
+    return Array.from(cellsMap.values()).sort((a, b) => b.price - a.price);
+};
+
+export function buildFootprintBars(
+    trades: NormalizedTrade[],
+    options: {
+        bucketSeconds: number;
+        rowSizeMode: RowSizeMode;
+        atrPeriod?: number;
+    },
+): BuildFootprintResult | null {
+    try {
+        if (!Array.isArray(trades) || trades.length === 0) {
+            return null;
+        }
+
+        const validTrades = trades.filter(isFiniteTrade).sort((a, b) => a.timestamp - b.timestamp);
+        if (validTrades.length === 0) {
+            return null;
+        }
+
+        const bucketMs = Math.max(1, options.bucketSeconds * 1000);
+        const atrPeriod = options.atrPeriod ?? 14;
+        const anchor = Math.floor(validTrades[0].timestamp / bucketMs) * bucketMs;
+
+        const buckets = new Map<number, NormalizedTrade[]>();
+        validTrades.forEach((trade) => {
+            const bucketIndex = Math.floor((trade.timestamp - anchor) / bucketMs);
+            const bucketStart = anchor + bucketIndex * bucketMs;
+            const bucketTrades = buckets.get(bucketStart) ?? [];
+            bucketTrades.push(trade);
+            buckets.set(bucketStart, bucketTrades);
+        });
+
+        const bucketEntries = Array.from(buckets.entries()).sort(([a], [b]) => a - b);
+        const ohlcBars = bucketEntries.map(([bucketStart, bucketTrades]) => {
+            const sortedBucket = bucketTrades.slice().sort((a, b) => a.timestamp - b.timestamp);
+            const open = sortedBucket[0]?.price ?? 0;
+            const close = sortedBucket[sortedBucket.length - 1]?.price ?? open;
+            const high = Math.max(...sortedBucket.map((trade) => trade.price));
+            const low = Math.min(...sortedBucket.map((trade) => trade.price));
+            return { high, low, close };
+        });
+
+        let priceStep = 0;
+        if (options.rowSizeMode === "atr-auto") {
+            priceStep = computeAtrPriceStep(ohlcBars, atrPeriod) ?? 0;
+        }
+        if (priceStep <= 0) {
+            priceStep = inferPriceStepFromTrades(validTrades);
+        }
+        if (!Number.isFinite(priceStep) || priceStep <= 0) {
+            priceStep = computeFallbackPriceStep(validTrades);
+        }
+        const priceStepUsed = Number.isFinite(priceStep) && priceStep > 0 ? priceStep : 0.01;
+
+        let lastClose: number | null = null;
+        const bars: FootprintBar[] = bucketEntries.map(([bucketStart, bucketTrades]) => {
+            const sortedBucket = bucketTrades.slice().sort((a, b) => a.timestamp - b.timestamp);
+            const open = sortedBucket[0]?.price ?? lastClose ?? 0;
+            const close = sortedBucket[sortedBucket.length - 1]?.price ?? open;
+            const high = sortedBucket.length ? Math.max(...sortedBucket.map((trade) => trade.price)) : open;
+            const low = sortedBucket.length ? Math.min(...sortedBucket.map((trade) => trade.price)) : open;
+            lastClose = close;
+
+            const cells = buildCells(sortedBucket, priceStepUsed);
+            const buyVolume = cells.reduce((sum, cell) => sum + cell.buyVolume, 0);
+            const sellVolume = cells.reduce((sum, cell) => sum + cell.sellVolume, 0);
+
+            return {
+                startTime: bucketStart,
+                endTime: bucketStart + bucketMs,
+                open,
+                high,
+                low,
+                close,
+                cells,
+                buyVolume,
+                sellVolume,
+                totalVolume: buyVolume + sellVolume,
+                delta: buyVolume - sellVolume,
+            } satisfies FootprintBar;
+        });
+
+        const domainStart = bars.length ? bars[0].startTime : null;
+        const domainEnd = bars.length ? bars[bars.length - 1].endTime : null;
+
+        return {
+            bars,
+            priceStepUsed,
+            domainStart,
+            domainEnd,
+        } satisfies BuildFootprintResult;
+    } catch (error) {
+        console.error("buildFootprintBars failed", error);
+        const fallback = computeFallbackPriceStep(trades.filter(isFiniteTrade));
+        return {
+            bars: [],
+            priceStepUsed: fallback,
+            domainStart: null,
+            domainEnd: null,
+        } satisfies BuildFootprintResult;
+    }
+}
 
