@@ -17,7 +17,6 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import {
-    ORDERFLOW_BUCKET_PRESETS,
     ORDERFLOW_DEFAULT_SYMBOL,
     ORDERFLOW_SYMBOL_OPTIONS,
     ORDERFLOW_WINDOW_PRESETS,
@@ -28,18 +27,42 @@ import { cn } from "@/lib/utils";
 
 type FootprintMode = "Bid x Ask" | "Delta" | "Volume";
 
+type FootprintHit = {
+    bar: FootprintBar;
+    barIndex: number;
+    cell: FootprintBar["cells"][number];
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+};
+
+type HoveredCell = FootprintHit & {
+    tooltipX: number;
+    tooltipY: number;
+};
+
 const TIMEFRAME_OPTIONS = ["5s", "15s", "30s", "1m", "5m", "15m"] as const;
 const MODE_OPTIONS: FootprintMode[] = ["Bid x Ask", "Delta", "Volume"];
 const DEFAULT_TIMEFRAME: (typeof TIMEFRAME_OPTIONS)[number] = "15s";
 
+const parseTimeframeToSeconds = (value: (typeof TIMEFRAME_OPTIONS)[number]) => {
+    const unit = value.slice(-1);
+    const numeric = Number(value.slice(0, -1));
+
+    if (!Number.isFinite(numeric)) return 15;
+    if (unit === "m") return numeric * 60;
+    return numeric;
+};
+
 const FootprintPage = () => {
     const defaultWindowSeconds = ORDERFLOW_WINDOW_PRESETS[1]?.value ?? ORDERFLOW_WINDOW_PRESETS[0].value;
-    const defaultBucketSize = ORDERFLOW_BUCKET_PRESETS[1]?.value ?? ORDERFLOW_BUCKET_PRESETS[0].value;
+    const defaultTimeframeSeconds = parseTimeframeToSeconds(DEFAULT_TIMEFRAME);
 
     const [selectedSymbol, setSelectedSymbol] = useState<string>(ORDERFLOW_DEFAULT_SYMBOL);
     const [selectedTimeframe, setSelectedTimeframe] = useState<(typeof TIMEFRAME_OPTIONS)[number]>(DEFAULT_TIMEFRAME);
+    const [timeframeSeconds, setTimeframeSeconds] = useState<number>(defaultTimeframeSeconds);
     const [windowSeconds, setWindowSeconds] = useState<number>(defaultWindowSeconds);
-    const [bucketSizeSeconds, setBucketSizeSeconds] = useState<number>(defaultBucketSize);
     const [mode, setMode] = useState<FootprintMode>("Bid x Ask");
     const [showNumbers, setShowNumbers] = useState(true);
     const [highlightImbalances, setHighlightImbalances] = useState(true);
@@ -52,6 +75,10 @@ const FootprintPage = () => {
     });
 
     usePersistOrderflowTrades(selectedSymbol, liveTrades, true);
+
+    useEffect(() => {
+        setTimeframeSeconds(parseTimeframeToSeconds(selectedTimeframe));
+    }, [selectedTimeframe]);
 
     useEffect(() => {
         let isCancelled = false;
@@ -130,8 +157,8 @@ const FootprintPage = () => {
     );
 
     const effectiveBuckets = useMemo(
-        () => bucketTrades(effectiveTrades, windowSeconds, bucketSizeSeconds, now),
-        [effectiveTrades, windowSeconds, bucketSizeSeconds, now],
+        () => bucketTrades(effectiveTrades, windowSeconds, timeframeSeconds, now),
+        [effectiveTrades, windowSeconds, timeframeSeconds, now],
     );
 
     const priceStep = useMemo(() => {
@@ -149,11 +176,11 @@ const FootprintPage = () => {
 
         return buildFootprintBars(effectiveTrades, {
             windowSeconds,
-            bucketSizeSeconds,
+            bucketSizeSeconds: timeframeSeconds,
             referenceTimestamp: now,
             priceStep: priceStep || undefined,
         });
-    }, [effectiveTrades, windowSeconds, bucketSizeSeconds, now, priceStep]);
+    }, [effectiveTrades, windowSeconds, timeframeSeconds, now, priceStep]);
 
     const volumeProfile = useMemo(() => {
         if (effectiveTrades.length === 0) {
@@ -214,6 +241,9 @@ const FootprintPage = () => {
     const hasData = footprintBars.length > 0 || effectiveBuckets.some((bucket) => bucket.totalVolume > 0);
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const footprintContainerRef = useRef<HTMLDivElement | null>(null);
+    const hitCellsRef = useRef<FootprintHit[]>([]);
+    const [hoveredCell, setHoveredCell] = useState<HoveredCell | null>(null);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -223,6 +253,8 @@ const FootprintPage = () => {
         if (!context) return;
 
         const render = () => {
+            hitCellsRef.current = [];
+
             const parent = canvas.parentElement;
             const width = parent?.clientWidth ?? 800;
             const height = parent?.clientHeight ?? 520;
@@ -240,6 +272,7 @@ const FootprintPage = () => {
             context.fillRect(0, 0, width, height);
 
             if (!footprintBars.length) {
+                setHoveredCell(null);
                 context.fillStyle = "#9ca3af";
                 context.font = "14px Inter, system-ui, -apple-system, sans-serif";
                 context.fillText("Waiting for footprint data…", 16, height / 2);
@@ -382,6 +415,16 @@ const FootprintPage = () => {
 
                         context.fillText(label, cellX + 4, cellBottom - 4);
                     }
+
+                    hitCellsRef.current.push({
+                        bar,
+                        barIndex: index,
+                        cell,
+                        x: cellX,
+                        y: cellTop,
+                        width: cellWidth,
+                        height: cellHeight,
+                    });
                 });
             });
         };
@@ -393,6 +436,44 @@ const FootprintPage = () => {
             window.removeEventListener("resize", render);
         };
     }, [footprintBars, highlightImbalances, mode, priceStep, showNumbers]);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        const container = footprintContainerRef.current;
+
+        if (!canvas || !container) return;
+
+        const handleMove = (event: MouseEvent) => {
+            const rect = canvas.getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+
+            const hit = hitCellsRef.current.find(
+                (cell) => x >= cell.x && x <= cell.x + cell.width && y >= cell.y && y <= cell.y + cell.height,
+            );
+
+            if (hit) {
+                setHoveredCell({
+                    ...hit,
+                    tooltipX: event.clientX - containerRect.left,
+                    tooltipY: event.clientY - containerRect.top,
+                });
+            } else {
+                setHoveredCell(null);
+            }
+        };
+
+        const handleLeave = () => setHoveredCell(null);
+
+        canvas.addEventListener("mousemove", handleMove);
+        canvas.addEventListener("mouseleave", handleLeave);
+
+        return () => {
+            canvas.removeEventListener("mousemove", handleMove);
+            canvas.removeEventListener("mouseleave", handleLeave);
+        };
+    }, [footprintBars.length]);
 
     return (
         <section className="space-y-6 px-4 py-6 md:px-6 min-w-0">
@@ -437,23 +518,6 @@ const FootprintPage = () => {
                                     variant={preset.value === windowSeconds ? "default" : "outline"}
                                     className={cn("min-w-[3.5rem]", preset.value === windowSeconds && "bg-emerald-600")}
                                     onClick={() => setWindowSeconds(preset.value)}
-                                >
-                                    {preset.label}
-                                </Button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs uppercase tracking-wide text-gray-500">Bucket</span>
-                        <div className="flex flex-wrap gap-2">
-                            {ORDERFLOW_BUCKET_PRESETS.map((preset) => (
-                                <Button
-                                    key={preset.value}
-                                    size="sm"
-                                    variant={preset.value === bucketSizeSeconds ? "default" : "outline"}
-                                    className={cn("min-w-[3.5rem]", preset.value === bucketSizeSeconds && "bg-emerald-600")}
-                                    onClick={() => setBucketSizeSeconds(preset.value)}
                                 >
                                     {preset.label}
                                 </Button>
@@ -539,14 +603,68 @@ const FootprintPage = () => {
                                 {footprintBars.length} buckets
                             </span>
                         </div>
-                        <div className="h-[520px] w-full rounded-lg border border-gray-900/80 bg-[#0b0d12]">
+                        <div
+                            ref={footprintContainerRef}
+                            className="relative h-[520px] w-full rounded-lg border border-gray-900/80 bg-[#0b0d12]"
+                        >
                             <canvas ref={canvasRef} className="h-full w-full" />
+
+                            {hoveredCell && (
+                                <div
+                                    className="pointer-events-none absolute z-10 w-64 rounded-lg border border-emerald-800/60 bg-[#0f1115] p-3 text-xs text-gray-200 shadow-lg shadow-black/40"
+                                    style={{
+                                        left: hoveredCell.tooltipX + 12,
+                                        top: hoveredCell.tooltipY + 12,
+                                    }}
+                                >
+                                    <div className="flex items-center justify-between text-[11px] text-emerald-200">
+                                        <span>
+                                            {new Date(hoveredCell.bar.bucketStart).toLocaleTimeString([], {
+                                                hour: "2-digit",
+                                                minute: "2-digit",
+                                                second: "2-digit",
+                                            })}
+                                        </span>
+                                        <span className="text-gray-400">{timeframeSeconds}s bar</span>
+                                    </div>
+                                    <div className="mt-1 text-sm font-semibold text-white">
+                                        Price {hoveredCell.cell.price.toFixed(2)}
+                                    </div>
+                                    <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+                                        <div>
+                                            <p className="text-gray-400">Buy Volume</p>
+                                            <p className="text-emerald-300 font-semibold">
+                                                {hoveredCell.cell.buyVolume.toFixed(2)}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-gray-400">Sell Volume</p>
+                                            <p className="text-rose-300 font-semibold">
+                                                {hoveredCell.cell.sellVolume.toFixed(2)}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-gray-400">Delta</p>
+                                            <p className="font-semibold">
+                                                {(hoveredCell.cell.buyVolume - hoveredCell.cell.sellVolume).toFixed(2)}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-gray-400">Total</p>
+                                            <p className="font-semibold">{hoveredCell.cell.totalVolume.toFixed(2)}</p>
+                                        </div>
+                                    </div>
+                                    <p className="mt-2 text-[11px] text-gray-400">
+                                        Trades: {hoveredCell.cell.tradesCount ?? 0} • Bar #{hoveredCell.barIndex + 1}
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     </div>
 
                     <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 text-sm text-gray-400 shadow-lg shadow-black/20">
                         <p>
-                            Timeframe {selectedTimeframe} • Bucket size {bucketSizeSeconds}s • Showing numbers:{" "}
+                            Timeframe {selectedTimeframe} • Bar size {timeframeSeconds}s • Showing numbers:{" "}
                             <span className="font-semibold text-white">{showNumbers ? "On" : "Off"}</span> • Highlight
                             imbalances: <span className="font-semibold text-white">{highlightImbalances ? "On" : "Off"}</span>
                         </p>
