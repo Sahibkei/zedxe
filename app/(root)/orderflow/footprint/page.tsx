@@ -3,12 +3,18 @@
 // NOTE: Rewritten in Phase 4 stabilisation to avoid client-side crashes.
 // Simplified footprint view (no drag pan/zoom) plus local error boundary.
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Link from "next/link";
 
 import VolumeProfile, { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
-import { buildFootprintBars, FootprintBar, inferPriceStepFromTrades } from "@/app/(root)/orderflow/_utils/footprint";
+import {
+    buildFootprintBars,
+    BuildFootprintResult,
+    FootprintBar,
+    inferPriceStepFromTrades,
+    RowSizeMode,
+} from "@/app/(root)/orderflow/_utils/footprint";
 import { Button } from "@/components/ui/button";
 import {
     Select,
@@ -133,8 +139,15 @@ const FootprintPageInner = () => {
     const [mode, setMode] = useState<FootprintMode>("Bid x Ask");
     const [showNumbers, setShowNumbers] = useState(true);
     const [highlightImbalances, setHighlightImbalances] = useState(true);
+    const [viewRange, setViewRange] = useState<{ start: number; end: number } | null>(null);
+    const [domainStart, setDomainStart] = useState<number | null>(null);
+    const [domainEnd, setDomainEnd] = useState<number | null>(null);
+    const [isPanning, setIsPanning] = useState(false);
+    const [userHasInteracted, setUserHasInteracted] = useState(false);
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const panStartXRef = useRef<number | null>(null);
+    const panStartViewRangeRef = useRef<{ start: number; end: number } | null>(null);
 
     const { windowedTrades } = useOrderflowStream({ symbol: selectedSymbol, windowSeconds });
 
@@ -142,7 +155,7 @@ const FootprintPageInner = () => {
         setBucketSizeSeconds(parseTimeframeSeconds(selectedTimeframe));
     }, [selectedTimeframe]);
 
-    const priceStep = useMemo(() => {
+    const inferredPriceStep = useMemo(() => {
         if (windowedTrades.length === 0) return 0;
         const inferred = inferPriceStepFromTrades(windowedTrades);
         const referencePrice = windowedTrades[windowedTrades.length - 1]?.price ?? 0;
@@ -150,30 +163,181 @@ const FootprintPageInner = () => {
         return inferred > 0 ? inferred : fallback;
     }, [windowedTrades]);
 
-    const footprintBars = useMemo<FootprintBar[]>(() => {
-        if (windowedTrades.length === 0) return [];
+    const rowSize: RowSizeMode = useMemo(
+        () => (mode === "Volume" ? { type: "atr-auto", period: 14 } : { type: "tick", priceStep: inferredPriceStep || 0 }),
+        [mode, inferredPriceStep],
+    );
+
+    const { bars: footprintBars, priceStepUsed }: BuildFootprintResult = useMemo(() => {
+        if (windowedTrades.length === 0) return { bars: [], priceStepUsed: 0 };
         const referenceTimestamp = Date.now();
         return buildFootprintBars(windowedTrades, {
             windowSeconds,
             bucketSizeSeconds,
             referenceTimestamp,
-            priceStep: priceStep || undefined,
+            priceStep: inferredPriceStep || undefined,
+            rowSize,
         });
-    }, [windowedTrades, windowSeconds, bucketSizeSeconds, priceStep]);
+    }, [windowedTrades, windowSeconds, bucketSizeSeconds, inferredPriceStep, rowSize]);
 
     const { levels: profileLevels, referencePrice } = useMemo(
-        () => buildVolumeProfileLevels(windowedTrades, priceStep),
-        [windowedTrades, priceStep],
+        () => buildVolumeProfileLevels(windowedTrades, priceStepUsed),
+        [windowedTrades, priceStepUsed],
     );
 
+    useEffect(() => {
+        if (!footprintBars.length) {
+            setDomainStart(null);
+            setDomainEnd(null);
+            return;
+        }
+
+        const start = Math.min(...footprintBars.map((bar) => bar.bucketStart));
+        const end = Math.max(...footprintBars.map((bar) => bar.bucketEnd));
+        setDomainStart(start);
+        setDomainEnd(end);
+    }, [footprintBars]);
+
+    const clampViewRange = useCallback(
+        (start: number, end: number) => {
+            if (domainStart === null || domainEnd === null) return null;
+            const span = end - start;
+            let clampedStart = start;
+            let clampedEnd = end;
+
+            if (clampedStart < domainStart) {
+                clampedStart = domainStart;
+                clampedEnd = domainStart + span;
+            }
+
+            if (clampedEnd > domainEnd) {
+                clampedEnd = domainEnd;
+                clampedStart = domainEnd - span;
+            }
+
+            return { start: clampedStart, end: clampedEnd };
+        },
+        [domainEnd, domainStart],
+    );
+
+    useEffect(() => {
+        if (!domainStart || !domainEnd) {
+            setViewRange(null);
+            return;
+        }
+
+        const windowMs = windowSeconds * 1000;
+        const end = domainEnd;
+        const start = Math.max(end - windowMs, domainStart);
+        const defaultRange = { start, end };
+
+        if (!userHasInteracted) {
+            setViewRange(defaultRange);
+            return;
+        }
+
+        if (!viewRange) {
+            setViewRange(defaultRange);
+            return;
+        }
+
+        const clamped = clampViewRange(viewRange.start, viewRange.end);
+        if (clamped && (clamped.start !== viewRange.start || clamped.end !== viewRange.end)) {
+            setViewRange(clamped);
+        }
+    }, [clampViewRange, domainStart, domainEnd, userHasInteracted, viewRange, windowSeconds]);
+
+    useEffect(() => {
+        setUserHasInteracted(false);
+    }, [selectedSymbol, windowSeconds, bucketSizeSeconds]);
+
+    const barsToRender = useMemo(() => {
+        if (!footprintBars.length) return [];
+        if (!viewRange) return footprintBars;
+        return footprintBars.filter((bar) => !(bar.bucketEnd < viewRange.start || bar.bucketStart > viewRange.end));
+    }, [footprintBars, viewRange]);
+
     const maxVolume = useMemo(
-        () => Math.max(...footprintBars.map((bar) => bar.totalVolume), 0),
-        [footprintBars],
+        () => Math.max(...barsToRender.map((bar) => bar.totalVolume), 0),
+        [barsToRender],
     );
     const maxDelta = useMemo(
-        () => Math.max(...footprintBars.map((bar) => Math.abs(bar.totalDelta)), 0),
-        [footprintBars],
+        () => Math.max(...barsToRender.map((bar) => Math.abs(bar.totalDelta)), 0),
+        [barsToRender],
     );
+
+    const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+        if (event.button !== 0 || !viewRange || domainStart === null || domainEnd === null) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        setIsPanning(true);
+        panStartXRef.current = event.clientX;
+        panStartViewRangeRef.current = viewRange;
+        canvas.setPointerCapture?.(event.pointerId);
+    };
+
+    const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+        if (!isPanning || !panStartViewRangeRef.current || domainStart === null || domainEnd === null) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const canvasWidth = canvas.clientWidth;
+        if (canvasWidth <= 0) return;
+
+        const panStartX = panStartXRef.current ?? event.clientX;
+        const dx = event.clientX - panStartX;
+        const spanMs = panStartViewRangeRef.current.end - panStartViewRangeRef.current.start;
+        const msPerPixel = spanMs / canvasWidth;
+        const deltaMs = -dx * msPerPixel;
+
+        let start = panStartViewRangeRef.current.start + deltaMs;
+        let end = panStartViewRangeRef.current.end + deltaMs;
+        const clamped = clampViewRange(start, end);
+        if (!clamped) return;
+
+        setViewRange(clamped);
+        setUserHasInteracted(true);
+    };
+
+    const handlePointerEnd = (event: React.PointerEvent<HTMLCanvasElement>) => {
+        if (isPanning) {
+            setIsPanning(false);
+            panStartXRef.current = null;
+            panStartViewRangeRef.current = null;
+            canvasRef.current?.releasePointerCapture?.(event.pointerId);
+        }
+    };
+
+    const handleWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
+        if (!viewRange || domainStart === null || domainEnd === null) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        event.preventDefault();
+
+        const rect = canvas.getBoundingClientRect();
+        if (!rect.width) return;
+
+        const t = (event.clientX - rect.left) / rect.width;
+        const currentSpan = viewRange.end - viewRange.start;
+        const cursorTime = viewRange.start + t * currentSpan;
+        const zoomFactor = event.deltaY < 0 ? 0.8 : 1.25;
+
+        const maxSpan = domainEnd - domainStart;
+        const minSpan = windowSeconds * 1000 * 0.2;
+        let newSpan = currentSpan * zoomFactor;
+        newSpan = Math.min(Math.max(newSpan, minSpan), maxSpan);
+
+        let start = cursorTime - newSpan * t;
+        let end = cursorTime + newSpan * (1 - t);
+
+        const clamped = clampViewRange(start, end);
+        if (!clamped) return;
+
+        setViewRange(clamped);
+        setUserHasInteracted(true);
+    };
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -198,27 +362,37 @@ const FootprintPageInner = () => {
         context.fillStyle = "#0b0d12";
         context.fillRect(0, 0, width, height);
 
-        if (!footprintBars.length) {
+        if (!footprintBars.length || !domainStart || !domainEnd) {
             context.fillStyle = "#9ca3af";
             context.font = "14px Inter, system-ui, -apple-system, sans-serif";
             context.fillText("Waiting for footprint data…", 16, height / 2);
             return;
         }
 
+        const effectiveRange = viewRange ?? { start: domainStart, end: domainEnd };
+        const span = Math.max(effectiveRange.end - effectiveRange.start, 1);
+
         const paddingX = 48;
         const paddingY = 28;
         const chartWidth = width - paddingX * 2;
         const chartHeight = height - paddingY * 2;
 
-        const minPrice = Math.min(...footprintBars.map((bar) => bar.low));
-        const maxPrice = Math.max(...footprintBars.map((bar) => bar.high));
+        if (!barsToRender.length) {
+            context.fillStyle = "#9ca3af";
+            context.font = "14px Inter, system-ui, -apple-system, sans-serif";
+            context.fillText("Waiting for footprint data…", 16, height / 2);
+            return;
+        }
+
+        const minPrice = Math.min(...barsToRender.map((bar) => bar.low));
+        const maxPrice = Math.max(...barsToRender.map((bar) => bar.high));
         const priceRange = Math.max(maxPrice - minPrice, 1e-6);
 
-        const candleSpacing = chartWidth / Math.max(footprintBars.length, 1);
+        const candleSpacing = chartWidth / Math.max(barsToRender.length, 1);
         const bodyWidth = Math.max(candleSpacing * 0.6, 6);
 
         const priceDiffs: number[] = [];
-        footprintBars.forEach((bar) => {
+        barsToRender.forEach((bar) => {
             bar.cells.forEach((cell, index) => {
                 const next = bar.cells[index + 1];
                 if (!next) return;
@@ -228,7 +402,7 @@ const FootprintPageInner = () => {
         });
         const cellStep = priceDiffs.length
             ? priceDiffs.sort((a, b) => a - b)[Math.floor(priceDiffs.length / 2)]
-            : priceRange / Math.max(footprintBars[0].cells.length || 1, 12);
+            : priceRange / Math.max(barsToRender[0].cells.length || 1, 12);
 
         const cellHeight = Math.max((cellStep / priceRange) * chartHeight * 0.9, 8);
 
@@ -241,8 +415,6 @@ const FootprintPageInner = () => {
         context.lineTo(paddingX, paddingY + chartHeight);
         context.lineTo(paddingX + chartWidth, paddingY + chartHeight);
         context.stroke();
-
-        const span = footprintBars[footprintBars.length - 1].bucketEnd - footprintBars[0].bucketStart || 1;
 
         const drawCell = (x: number, y: number, widthPx: number, cell: FootprintBar["cells"][number]) => {
             const total = cell.totalVolume;
@@ -281,9 +453,9 @@ const FootprintPageInner = () => {
             }
         };
 
-        footprintBars.forEach((bar, index) => {
+        barsToRender.forEach((bar) => {
             const barMid = (bar.bucketStart + bar.bucketEnd) / 2;
-            const t = footprintBars.length > 1 ? (barMid - footprintBars[0].bucketStart) / span : 0.5;
+            const t = Math.min(Math.max((barMid - effectiveRange.start) / span, 0), 1);
             const x = paddingX + t * chartWidth;
             const openY = yForPrice(bar.open);
             const closeY = yForPrice(bar.close);
@@ -310,7 +482,7 @@ const FootprintPageInner = () => {
                 drawCell(x, cellY, bodyWidth, cell);
             });
         });
-    }, [footprintBars, highlightImbalances, maxDelta, maxVolume, mode, showNumbers]);
+    }, [barsToRender, domainEnd, domainStart, highlightImbalances, maxDelta, maxVolume, mode, showNumbers, viewRange]);
 
     const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
 
@@ -430,13 +602,23 @@ const FootprintPageInner = () => {
                                 {footprintBars.length} buckets · {windowSeconds}s window
                             </span>
                         </div>
-                        <div className="relative h-[520px] overflow-hidden rounded-lg border border-gray-900 bg-black/20">
-                            <canvas ref={canvasRef} className="h-full w-full" />
+                        <div
+                            className="relative h-[520px] overflow-hidden rounded-lg border border-gray-900 bg-black/20"
+                            onWheel={handleWheel}
+                        >
+                            <canvas
+                                ref={canvasRef}
+                                className="h-full w-full"
+                                onPointerDown={handlePointerDown}
+                                onPointerMove={handlePointerMove}
+                                onPointerUp={handlePointerEnd}
+                                onPointerLeave={handlePointerEnd}
+                            />
                         </div>
                     </div>
                 </div>
 
-                <VolumeProfile levels={profileLevels} priceStep={priceStep} referencePrice={referencePrice} />
+                <VolumeProfile levels={profileLevels} priceStep={priceStepUsed} referencePrice={referencePrice} />
             </div>
         </div>
     );

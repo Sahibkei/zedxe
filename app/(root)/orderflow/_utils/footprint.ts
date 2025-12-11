@@ -17,11 +17,21 @@ export type FootprintBar = {
     cells: FootprintCell[];
 };
 
+export type RowSizeMode =
+    | { type: "tick"; priceStep: number }
+    | { type: "atr-auto"; period: number };
+
 export interface BuildFootprintOptions {
     windowSeconds: number;
     bucketSizeSeconds: number;
     referenceTimestamp: number;
     priceStep?: number;
+    rowSize?: RowSizeMode;
+}
+
+export interface BuildFootprintResult {
+    bars: FootprintBar[];
+    priceStepUsed: number;
 }
 
 const bucketPrice = (price: number, priceStep?: number) => {
@@ -57,11 +67,42 @@ export const inferPriceStepFromTrades = (trades: NormalizedTrade[]): number => {
     return sorted[middle];
 };
 
+export const computeAtrPriceStep = (bars: Pick<FootprintBar, "high" | "low" | "close">[], period: number, fallbackStep = 0): number => {
+    if (!bars.length) {
+        return Math.max(fallbackStep, 0);
+    }
+
+    const effectivePeriod = Math.max(1, Math.min(period, bars.length));
+    const recentBars = bars.slice(-effectivePeriod);
+
+    let prevClose = recentBars[0].close;
+    const trueRanges: number[] = [];
+
+    recentBars.forEach((bar, index) => {
+        if (index > 0) {
+            prevClose = recentBars[index - 1].close;
+        }
+
+        const range = bar.high - bar.low;
+        const highClose = Math.abs(bar.high - prevClose);
+        const lowClose = Math.abs(bar.low - prevClose);
+        const trueRange = Math.max(range, highClose, lowClose);
+        trueRanges.push(trueRange);
+    });
+
+    const atr = trueRanges.reduce((sum, value) => sum + value, 0) / trueRanges.length;
+    const referencePrice = recentBars[recentBars.length - 1]?.close ?? 0;
+    const minimumStep = fallbackStep > 0 ? fallbackStep : referencePrice > 0 ? Math.max(referencePrice * 0.0005, 0.01) : 0.01;
+    const step = Math.max(minimumStep, atr / 20);
+
+    return Number.isFinite(step) && step > 0 ? step : minimumStep;
+};
+
 export const buildFootprintBars = (
     trades: NormalizedTrade[],
-    { windowSeconds, bucketSizeSeconds, referenceTimestamp, priceStep }: BuildFootprintOptions,
-): FootprintBar[] => {
-    if (!trades.length) return [];
+    { windowSeconds, bucketSizeSeconds, referenceTimestamp, priceStep, rowSize }: BuildFootprintOptions,
+): BuildFootprintResult => {
+    if (!trades.length) return { bars: [], priceStepUsed: priceStep ?? 0 };
 
     const windowStart = referenceTimestamp - windowSeconds * 1000;
     const bucketSizeMs = bucketSizeSeconds * 1000;
@@ -80,7 +121,9 @@ export const buildFootprintBars = (
     });
 
     let lastClose: number | null = null;
-    const bars: FootprintBar[] = [];
+    const rawBars: (Pick<FootprintBar, "bucketStart" | "bucketEnd" | "open" | "high" | "low" | "close"> & {
+        trades: NormalizedTrade[];
+    })[] = [];
 
     for (let index = 0; index < bucketCount; index += 1) {
         const bucketStart = windowStart + index * bucketSizeMs;
@@ -98,10 +141,34 @@ export const buildFootprintBars = (
 
         lastClose = close;
 
+        rawBars.push({ bucketStart, bucketEnd, open, high, low, close, trades: bucketTrades });
+    }
+
+    if (!rawBars.length) {
+        return { bars: [], priceStepUsed: priceStep ?? 0 };
+    }
+
+    const resolvedRowSize = rowSize ?? { type: "tick", priceStep: priceStep ?? 0 };
+    const atrPriceStep =
+        resolvedRowSize.type === "atr-auto" ? computeAtrPriceStep(rawBars, resolvedRowSize.period, priceStep) : undefined;
+    let resolvedPriceStep = resolvedRowSize.type === "tick" ? resolvedRowSize.priceStep : atrPriceStep ?? 0;
+
+    if (!Number.isFinite(resolvedPriceStep) || resolvedPriceStep <= 0) {
+        const inferred = inferPriceStepFromTrades(trades);
+        if (inferred > 0) {
+            resolvedPriceStep = inferred;
+        } else {
+            const referencePrice = rawBars[rawBars.length - 1]?.close ?? 0;
+            const fallback = referencePrice > 0 ? Math.max(referencePrice * 0.0005, 0.01) : 0.01;
+            resolvedPriceStep = fallback;
+        }
+    }
+
+    const bars: FootprintBar[] = rawBars.map((bar) => {
         const cellsMap = new Map<number, FootprintCell>();
 
-        bucketTrades.forEach((trade) => {
-            const cellPrice = bucketPrice(trade.price, priceStep);
+        bar.trades.forEach((trade) => {
+            const cellPrice = bucketPrice(trade.price, resolvedPriceStep);
             const existing = cellsMap.get(cellPrice) ?? {
                 price: cellPrice,
                 buyVolume: 0,
@@ -139,19 +206,19 @@ export const buildFootprintBars = (
         const totalBuyVolume = cells.reduce((sum, cell) => sum + cell.buyVolume, 0);
         const totalSellVolume = cells.reduce((sum, cell) => sum + cell.sellVolume, 0);
 
-        bars.push({
-            bucketStart,
-            bucketEnd,
-            open,
-            high,
-            low,
-            close,
+        return {
+            bucketStart: bar.bucketStart,
+            bucketEnd: bar.bucketEnd,
+            open: bar.open,
+            high: bar.high,
+            low: bar.low,
+            close: bar.close,
             totalVolume: totalBuyVolume + totalSellVolume,
             totalDelta: totalBuyVolume - totalSellVolume,
             cells,
-        });
-    }
+        } satisfies FootprintBar;
+    });
 
-    return bars;
+    return { bars, priceStepUsed: resolvedPriceStep };
 };
 
