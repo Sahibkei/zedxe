@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Radio } from "lucide-react";
 import Link from "next/link";
 
@@ -83,6 +83,8 @@ const OrderflowPage = () => {
         largestCluster: null,
     });
     const [sessionStatsLoading, setSessionStatsLoading] = useState(false);
+    const sessionStatsAbortRef = useRef<AbortController | null>(null);
+    const sessionStatsInFlightRef = useRef(false);
 
     usePersistOrderflowTrades(selectedSymbol, liveTrades, true);
 
@@ -146,14 +148,23 @@ const OrderflowPage = () => {
         let isCancelled = false;
 
         const fetchSessionStats = async () => {
+            if (sessionStatsInFlightRef.current) return;
+
+            sessionStatsInFlightRef.current = true;
             setSessionStatsLoading(true);
+            const controller = new AbortController();
+            sessionStatsAbortRef.current = controller;
+            const timeoutId = setTimeout(() => controller.abort(), 10_000);
+
             try {
                 const params = new URLSearchParams({
                     symbol: selectedSymbol,
                     sessionWindowSeconds: String(SESSION_WINDOW_SECONDS),
                 });
 
-                const response = await fetch(`/api/orderflow/session-stats?${params.toString()}`);
+                const response = await fetch(`/api/orderflow/session-stats?${params.toString()}`, {
+                    signal: controller.signal,
+                });
                 if (!response.ok) {
                     throw new Error(`Failed to load session stats (${response.status})`);
                 }
@@ -180,8 +191,15 @@ const OrderflowPage = () => {
                     largestCluster: parsedLargestCluster,
                 });
             } catch (fetchError) {
-                console.error("Failed to fetch session stats", fetchError);
+                if (fetchError instanceof DOMException && fetchError.name === "AbortError") {
+                    console.warn("Session stats request aborted due to timeout");
+                } else {
+                    console.error("Failed to fetch session stats", fetchError);
+                }
             } finally {
+                clearTimeout(timeoutId);
+                sessionStatsAbortRef.current = null;
+                sessionStatsInFlightRef.current = false;
                 if (!isCancelled) {
                     setSessionStatsLoading(false);
                 }
@@ -193,6 +211,7 @@ const OrderflowPage = () => {
 
         return () => {
             isCancelled = true;
+            sessionStatsAbortRef.current?.abort();
             clearInterval(interval);
         };
     }, [selectedSymbol]);

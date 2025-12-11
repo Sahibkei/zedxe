@@ -378,8 +378,31 @@ const FootprintPage = () => {
             const chartWidth = width - paddingX * 2;
             const chartHeight = height - paddingY * 2;
 
-            const minPrice = Math.min(...visibleBars.map((bar) => bar.low));
-            const maxPrice = Math.max(...visibleBars.map((bar) => bar.high));
+            if (chartWidth <= 0 || chartHeight <= 0) {
+                renderStateRef.current = null;
+                return;
+            }
+
+            const priceExtents = visibleBars.reduce(
+                (acc, bar) => {
+                    if (Number.isFinite(bar.low)) acc.min = Math.min(acc.min, bar.low);
+                    if (Number.isFinite(bar.high)) acc.max = Math.max(acc.max, bar.high);
+                    return acc;
+                },
+                { min: Number.POSITIVE_INFINITY, max: Number.NEGATIVE_INFINITY },
+            );
+
+            if (!Number.isFinite(priceExtents.min) || !Number.isFinite(priceExtents.max)) {
+                context.clearRect(0, 0, width, height);
+                context.fillStyle = "#9ca3af";
+                context.font = "14px Inter, system-ui, -apple-system, sans-serif";
+                context.fillText("No price data available", 16, height / 2);
+                renderStateRef.current = null;
+                return;
+            }
+
+            const minPrice = priceExtents.min;
+            const maxPrice = priceExtents.max;
             const priceRange = Math.max(maxPrice - minPrice, 1e-6);
 
             const candleWidth = Math.max((bucketMs / rangeDuration) * chartWidth * 0.8, 6);
@@ -392,7 +415,7 @@ const FootprintPage = () => {
                 if (priceStep > 0) return priceStep;
                 const diffs: number[] = [];
                 footprintBars.forEach((bar) => {
-                    for (let index = 1; index < bar.cells.length; index += 1) {
+                    for (let index = 1; index < (bar.cells?.length ?? 0); index += 1) {
                         const diff = Math.abs(bar.cells[index].price - bar.cells[index - 1].price);
                         if (diff > 0) {
                             diffs.push(diff);
@@ -407,12 +430,12 @@ const FootprintPage = () => {
             })();
 
             const maxCellVolume = Math.max(
-                ...footprintBars.flatMap((bar) => bar.cells.map((cell) => cell.totalVolume)),
+                ...footprintBars.flatMap((bar) => (bar.cells ?? []).map((cell) => cell.totalVolume)),
                 0,
             );
             const maxCellDelta = Math.max(
                 ...footprintBars.flatMap((bar) =>
-                    bar.cells.map((cell) => Math.abs(cell.buyVolume - cell.sellVolume)),
+                    (bar.cells ?? []).map((cell) => Math.abs(cell.buyVolume - cell.sellVolume)),
                 ),
                 0,
             );
