@@ -40,6 +40,12 @@ const bucketPrice = (price: number, priceStep?: number) => {
     return Number(bucketed.toFixed(decimals));
 };
 
+const resolveFallbackStep = (tickSize: number, referencePrice: number = 0): number => {
+    if (tickSize > 0) return tickSize;
+    if (referencePrice > 0) return Math.max(referencePrice * 0.0005, 0.01);
+    return 0.01;
+};
+
 export const inferPriceStepFromTrades = (trades: NormalizedTrade[]): number => {
     if (trades.length < 2) return 0;
 
@@ -72,7 +78,7 @@ export const computeAtrPriceStep = (
     fallbackStep = 0,
 ): number => {
     if (!bars.length) {
-        return Math.max(fallbackStep, 0);
+        return Math.max(fallbackStep, 0.01);
     }
 
     const effectivePeriod = Math.max(1, Math.min(period, bars.length));
@@ -95,7 +101,7 @@ export const computeAtrPriceStep = (
 
     const atr = trueRanges.reduce((sum, value) => sum + value, 0) / trueRanges.length;
     const referencePrice = recentBars[recentBars.length - 1]?.close ?? 0;
-    const minimumStep = fallbackStep > 0 ? fallbackStep : referencePrice > 0 ? Math.max(referencePrice * 0.0005, 0.01) : 0.01;
+    const minimumStep = fallbackStep > 0 ? fallbackStep : resolveFallbackStep(0, referencePrice);
     const step = Math.max(minimumStep, atr / 20);
 
     return Number.isFinite(step) && step > 0 ? step : minimumStep;
@@ -105,7 +111,10 @@ export const buildFootprintBars = (
     trades: NormalizedTrade[],
     { windowSeconds, bucketSizeSeconds, referenceTimestamp, rowSizeMode, tickSize, atrPeriod }: BuildFootprintOptions,
 ): BuildFootprintResult => {
-    if (!trades.length) return { bars: [], priceStepUsed: tickSize };
+    if (!trades.length) {
+        const safeStep = resolveFallbackStep(tickSize);
+        return { bars: [], priceStepUsed: safeStep };
+    }
 
     const windowStart = referenceTimestamp - windowSeconds * 1000;
     const bucketSizeMs = bucketSizeSeconds * 1000;
@@ -148,15 +157,17 @@ export const buildFootprintBars = (
     }
 
     if (!rawBars.length) {
-        return { bars: [], priceStepUsed: tickSize };
+        const lastTradePrice = trades[trades.length - 1]?.price ?? 0;
+        const safeStep = resolveFallbackStep(tickSize, lastTradePrice);
+        return { bars: [], priceStepUsed: safeStep };
     }
 
-    const inferredStep = tickSize > 0 ? tickSize : inferPriceStepFromTrades(trades);
     const referencePrice = rawBars[rawBars.length - 1]?.close ?? 0;
-    const fallbackStep = inferredStep > 0 ? inferredStep : referencePrice > 0 ? Math.max(referencePrice * 0.0005, 0.01) : 0.01;
+    const inferredStep = tickSize > 0 ? tickSize : inferPriceStepFromTrades(trades);
+    const fallbackStep = inferredStep > 0 ? inferredStep : resolveFallbackStep(0, referencePrice);
 
     const atrPriceStep = rowSizeMode === "atr-auto" ? computeAtrPriceStep(rawBars, atrPeriod, fallbackStep) : undefined;
-    const resolvedPriceStep = rowSizeMode === "tick" ? fallbackStep : atrPriceStep ?? fallbackStep;
+    const resolvedPriceStep = Math.max(rowSizeMode === "tick" ? fallbackStep : atrPriceStep ?? fallbackStep, 0.01);
 
     const bars: FootprintBar[] = rawBars.map((bar) => {
         const cellsMap = new Map<number, FootprintCell>();

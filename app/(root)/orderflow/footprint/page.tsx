@@ -143,6 +143,7 @@ const FootprintPageInner = () => {
     const [domainEnd, setDomainEnd] = useState<number | null>(null);
     const [isPanning, setIsPanning] = useState(false);
     const [userHasInteracted, setUserHasInteracted] = useState(false);
+    const [renderError, setRenderError] = useState<string | null>(null);
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const panStartXRef = useRef<number | null>(null);
@@ -248,6 +249,10 @@ const FootprintPageInner = () => {
         setUserHasInteracted(false);
     }, [selectedSymbol, windowSeconds, bucketSizeSeconds]);
 
+    useEffect(() => {
+        setRenderError(null);
+    }, [selectedSymbol, windowSeconds, bucketSizeSeconds, mode, rowSizeMode]);
+
     const barsToRender = useMemo(() => {
         if (!footprintBars.length) return [];
         if (!viewRange) return footprintBars;
@@ -343,143 +348,155 @@ const FootprintPageInner = () => {
         const context = canvas.getContext("2d");
         if (!context) return;
 
-        const parent = canvas.parentElement;
-        const width = parent?.clientWidth ?? 960;
-        const height = parent?.clientHeight ?? 520;
-        const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+        try {
+            if (renderError) {
+                setRenderError(null);
+            }
+            const parent = canvas.parentElement;
+            const width = parent?.clientWidth ?? 960;
+            const height = parent?.clientHeight ?? 520;
+            const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
-        canvas.style.width = `${width}px`;
-        canvas.style.height = `${height}px`;
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+            canvas.style.width = `${width}px`;
+            canvas.style.height = `${height}px`;
 
-        context.resetTransform();
-        context.scale(dpr, dpr);
-
-        context.fillStyle = "#0b0d12";
-        context.fillRect(0, 0, width, height);
-
-        if (!footprintBars.length || domainStart === null || domainEnd === null) {
-            context.fillStyle = "#9ca3af";
-            context.font = "14px Inter, system-ui, -apple-system, sans-serif";
-            context.fillText("Waiting for footprint data…", 16, height / 2);
-            return;
-        }
-
-        const effectiveRange = viewRange ?? { start: domainStart, end: domainEnd };
-        const span = Math.max(effectiveRange.end - effectiveRange.start, 1);
-
-        const paddingX = 48;
-        const paddingY = 28;
-        const chartWidth = width - paddingX * 2;
-        const chartHeight = height - paddingY * 2;
-
-        if (!barsToRender.length) {
-            context.fillStyle = "#9ca3af";
-            context.font = "14px Inter, system-ui, -apple-system, sans-serif";
-            context.fillText("Waiting for footprint data…", 16, height / 2);
-            return;
-        }
-
-        const minPrice = Math.min(...barsToRender.map((bar) => bar.low));
-        const maxPrice = Math.max(...barsToRender.map((bar) => bar.high));
-        const priceRange = Math.max(maxPrice - minPrice, 1e-6);
-
-        const candleSpacing = chartWidth / Math.max(barsToRender.length, 1);
-        const bodyWidth = Math.max(candleSpacing * 0.6, 6);
-
-        const priceDiffs: number[] = [];
-        barsToRender.forEach((bar) => {
-            bar.cells.forEach((cell, index) => {
-                const next = bar.cells[index + 1];
-                if (!next) return;
-                const diff = Math.abs(cell.price - next.price);
-                if (diff > 0) priceDiffs.push(diff);
-            });
-        });
-        const cellStep = priceDiffs.length
-            ? priceDiffs.sort((a, b) => a - b)[Math.floor(priceDiffs.length / 2)]
-            : priceRange / Math.max(barsToRender[0].cells.length || 1, 12);
-
-        const cellHeight = Math.max((cellStep / priceRange) * chartHeight * 0.9, 8);
-
-        const yForPrice = (price: number) => paddingY + (1 - (price - minPrice) / priceRange) * chartHeight;
-
-        context.strokeStyle = "#1f2937";
-        context.lineWidth = 1;
-        context.beginPath();
-        context.moveTo(paddingX, paddingY);
-        context.lineTo(paddingX, paddingY + chartHeight);
-        context.lineTo(paddingX + chartWidth, paddingY + chartHeight);
-        context.stroke();
-
-        const drawCell = (x: number, y: number, widthPx: number, cell: FootprintBar["cells"][number]) => {
-            const total = cell.totalVolume;
-            const delta = cell.buyVolume - cell.sellVolume;
-            let fill = "#374151";
-            if (mode === "Bid x Ask") {
-                const buyRatio = total > 0 ? cell.buyVolume / total : 0.5;
-                const sellRatio = 1 - buyRatio;
-                const g = Math.min(255, Math.round(80 + buyRatio * 140));
-                const r = Math.min(255, Math.round(80 + sellRatio * 140));
-                fill = `rgb(${r}, ${g}, 120)`;
-            } else if (mode === "Delta") {
-                const intensity = maxDelta > 0 ? Math.min(Math.abs(delta) / maxDelta, 1) : 0;
-                fill = delta >= 0 ? `rgba(52, 211, 153, ${0.25 + intensity * 0.65})` : `rgba(248, 113, 113, ${0.25 + intensity * 0.65})`;
+            if (typeof context.resetTransform === "function") {
+                context.resetTransform();
             } else {
-                const intensity = maxVolume > 0 ? Math.min(total / maxVolume, 1) : 0;
-                fill = `rgba(129, 140, 248, ${0.2 + intensity * 0.7})`;
+                context.setTransform(1, 0, 0, 1, 0, 0);
+            }
+            context.scale(dpr, dpr);
+
+            context.fillStyle = "#0b0d12";
+            context.fillRect(0, 0, width, height);
+
+            if (!footprintBars.length || domainStart === null || domainEnd === null) {
+                context.fillStyle = "#9ca3af";
+                context.font = "14px Inter, system-ui, -apple-system, sans-serif";
+                context.fillText("Waiting for footprint data…", 16, height / 2);
+                return;
             }
 
-            context.fillStyle = fill;
-            context.fillRect(x - widthPx / 2, y - cellHeight / 2, widthPx, cellHeight);
+            const effectiveRange = viewRange ?? { start: domainStart, end: domainEnd };
+            const span = Math.max(effectiveRange.end - effectiveRange.start, 1);
 
-            if (highlightImbalances && cell.imbalancePercent >= 60) {
-                context.strokeStyle = "#fcd34d";
-                context.lineWidth = 1;
-                context.strokeRect(x - widthPx / 2, y - cellHeight / 2, widthPx, cellHeight);
+            const paddingX = 48;
+            const paddingY = 28;
+            const chartWidth = width - paddingX * 2;
+            const chartHeight = height - paddingY * 2;
+
+            if (!barsToRender.length) {
+                context.fillStyle = "#9ca3af";
+                context.font = "14px Inter, system-ui, -apple-system, sans-serif";
+                context.fillText("Waiting for footprint data…", 16, height / 2);
+                return;
             }
 
-            if (showNumbers) {
-                context.fillStyle = "#e5e7eb";
-                context.font = "10px Inter, system-ui, -apple-system, sans-serif";
-                context.textAlign = "center";
-                context.textBaseline = "middle";
-                const label = mode === "Volume" ? formatNumber(total) : `${formatNumber(cell.buyVolume)} / ${formatNumber(cell.sellVolume)}`;
-                context.fillText(label, x, y);
-            }
-        };
+            const minPrice = Math.min(...barsToRender.map((bar) => bar.low));
+            const maxPrice = Math.max(...barsToRender.map((bar) => bar.high));
+            const priceRange = Math.max(maxPrice - minPrice, 1e-6);
 
-        barsToRender.forEach((bar) => {
-            const barMid = (bar.bucketStart + bar.bucketEnd) / 2;
-            const t = Math.min(Math.max((barMid - effectiveRange.start) / span, 0), 1);
-            const x = paddingX + t * chartWidth;
-            const openY = yForPrice(bar.open);
-            const closeY = yForPrice(bar.close);
-            const highY = yForPrice(bar.high);
-            const lowY = yForPrice(bar.low);
+            const candleSpacing = chartWidth / Math.max(barsToRender.length, 1);
+            const bodyWidth = Math.max(candleSpacing * 0.6, 6);
 
-            const bullish = bar.close >= bar.open;
-            const color = bullish ? "#34d399" : "#f87171";
+            const priceDiffs: number[] = [];
+            barsToRender.forEach((bar) => {
+                bar.cells.forEach((cell, index) => {
+                    const next = bar.cells[index + 1];
+                    if (!next) return;
+                    const diff = Math.abs(cell.price - next.price);
+                    if (diff > 0) priceDiffs.push(diff);
+                });
+            });
+            const cellStep = priceDiffs.length
+                ? priceDiffs.sort((a, b) => a - b)[Math.floor(priceDiffs.length / 2)]
+                : priceRange / Math.max(barsToRender[0].cells.length || 1, 12);
 
-            context.strokeStyle = color;
+            const cellHeight = Math.max((cellStep / priceRange) * chartHeight * 0.9, 8);
+
+            const yForPrice = (price: number) => paddingY + (1 - (price - minPrice) / priceRange) * chartHeight;
+
+            context.strokeStyle = "#1f2937";
+            context.lineWidth = 1;
             context.beginPath();
-            context.moveTo(x, highY);
-            context.lineTo(x, lowY);
+            context.moveTo(paddingX, paddingY);
+            context.lineTo(paddingX, paddingY + chartHeight);
+            context.lineTo(paddingX + chartWidth, paddingY + chartHeight);
             context.stroke();
 
-            const bodyY = Math.min(openY, closeY);
-            const bodyHeight = Math.max(Math.abs(openY - closeY), 2);
+            const drawCell = (x: number, y: number, widthPx: number, cell: FootprintBar["cells"][number]) => {
+                const total = cell.totalVolume;
+                const delta = cell.buyVolume - cell.sellVolume;
+                let fill = "#374151";
+                if (mode === "Bid x Ask") {
+                    const buyRatio = total > 0 ? cell.buyVolume / total : 0.5;
+                    const sellRatio = 1 - buyRatio;
+                    const g = Math.min(255, Math.round(80 + buyRatio * 140));
+                    const r = Math.min(255, Math.round(80 + sellRatio * 140));
+                    fill = `rgb(${r}, ${g}, 120)`;
+                } else if (mode === "Delta") {
+                    const intensity = maxDelta > 0 ? Math.min(Math.abs(delta) / maxDelta, 1) : 0;
+                    fill = delta >= 0 ? `rgba(52, 211, 153, ${0.25 + intensity * 0.65})` : `rgba(248, 113, 113, ${0.25 + intensity * 0.65})`;
+                } else {
+                    const intensity = maxVolume > 0 ? Math.min(total / maxVolume, 1) : 0;
+                    fill = `rgba(129, 140, 248, ${0.2 + intensity * 0.7})`;
+                }
 
-            context.fillStyle = color;
-            context.fillRect(x - bodyWidth / 2, bodyY, bodyWidth, bodyHeight);
+                context.fillStyle = fill;
+                context.fillRect(x - widthPx / 2, y - cellHeight / 2, widthPx, cellHeight);
 
-            bar.cells.forEach((cell) => {
-                const cellY = yForPrice(cell.price);
-                drawCell(x, cellY, bodyWidth, cell);
+                if (highlightImbalances && cell.imbalancePercent >= 60) {
+                    context.strokeStyle = "#fcd34d";
+                    context.lineWidth = 1;
+                    context.strokeRect(x - widthPx / 2, y - cellHeight / 2, widthPx, cellHeight);
+                }
+
+                if (showNumbers) {
+                    context.fillStyle = "#e5e7eb";
+                    context.font = "10px Inter, system-ui, -apple-system, sans-serif";
+                    context.textAlign = "center";
+                    context.textBaseline = "middle";
+                    const label = mode === "Volume" ? formatNumber(total) : `${formatNumber(cell.buyVolume)} / ${formatNumber(cell.sellVolume)}`;
+                    context.fillText(label, x, y);
+                }
+            };
+
+            barsToRender.forEach((bar) => {
+                const barMid = (bar.bucketStart + bar.bucketEnd) / 2;
+                const t = Math.min(Math.max((barMid - effectiveRange.start) / span, 0), 1);
+                const x = paddingX + t * chartWidth;
+                const openY = yForPrice(bar.open);
+                const closeY = yForPrice(bar.close);
+                const highY = yForPrice(bar.high);
+                const lowY = yForPrice(bar.low);
+
+                const bullish = bar.close >= bar.open;
+                const color = bullish ? "#34d399" : "#f87171";
+
+                context.strokeStyle = color;
+                context.beginPath();
+                context.moveTo(x, highY);
+                context.lineTo(x, lowY);
+                context.stroke();
+
+                const bodyY = Math.min(openY, closeY);
+                const bodyHeight = Math.max(Math.abs(openY - closeY), 2);
+
+                context.fillStyle = color;
+                context.fillRect(x - bodyWidth / 2, bodyY, bodyWidth, bodyHeight);
+
+                bar.cells.forEach((cell) => {
+                    const cellY = yForPrice(cell.price);
+                    drawCell(x, cellY, bodyWidth, cell);
+                });
             });
-        });
-    }, [barsToRender, domainEnd, domainStart, highlightImbalances, maxDelta, maxVolume, mode, showNumbers, viewRange]);
+        } catch (error) {
+            console.error("Failed to render footprint canvas", error);
+            setRenderError("Footprint chart failed to render. Please reload the page or try again later.");
+        }
+    }, [barsToRender, domainEnd, domainStart, highlightImbalances, maxDelta, maxVolume, mode, renderError, showNumbers, viewRange]);
 
     const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
 
@@ -603,9 +620,14 @@ const FootprintPageInner = () => {
                             className="relative h-[520px] overflow-hidden rounded-lg border border-gray-900 bg-black/20"
                             onWheel={handleWheel}
                         >
+                            {renderError ? (
+                                <div className="flex h-full items-center justify-center px-4 text-center text-sm text-red-400">
+                                    {renderError}
+                                </div>
+                            ) : null}
                             <canvas
                                 ref={canvasRef}
-                                className="h-full w-full"
+                                className={cn("h-full w-full", renderError && "pointer-events-none opacity-30")}
                                 onPointerDown={handlePointerDown}
                                 onPointerMove={handlePointerMove}
                                 onPointerUp={handlePointerEnd}
