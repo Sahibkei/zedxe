@@ -31,6 +31,7 @@ type FootprintHit = {
     bar: FootprintBar;
     barIndex: number;
     cell: FootprintBar["cells"][number];
+    cellIndex: number;
     x: number;
     y: number;
     width: number;
@@ -361,7 +362,7 @@ const FootprintPage = () => {
                 context.fillStyle = "#111827";
                 context.fillRect(bodyX, bodyY, bodyWidth, bodyHeight);
 
-                bar.cells.forEach((cell) => {
+                bar.cells.forEach((cell, cellIndex) => {
                     const halfStep = inferredCellStep > 0 ? inferredCellStep / 2 : priceRange / 40;
                     const cellTop = yForPrice(cell.price + halfStep);
                     const cellBottom = yForPrice(cell.price - halfStep);
@@ -416,10 +417,23 @@ const FootprintPage = () => {
                         context.fillText(label, cellX + 4, cellBottom - 4);
                     }
 
+                    const isHovered =
+                        hoveredCell?.barIndex === index && hoveredCell?.cellIndex === cellIndex;
+
+                    if (isHovered) {
+                        context.save();
+                        context.strokeStyle = "#f5f5f5";
+                        context.lineWidth = 1.25;
+                        context.setLineDash([4, 2]);
+                        context.strokeRect(cellX - 1, cellTop - 1, cellWidth + 2, cellHeight + 2);
+                        context.restore();
+                    }
+
                     hitCellsRef.current.push({
                         bar,
                         barIndex: index,
                         cell,
+                        cellIndex,
                         x: cellX,
                         y: cellTop,
                         width: cellWidth,
@@ -435,7 +449,11 @@ const FootprintPage = () => {
         return () => {
             window.removeEventListener("resize", render);
         };
-    }, [footprintBars, highlightImbalances, mode, priceStep, showNumbers]);
+    }, [footprintBars, highlightImbalances, hoveredCell, mode, priceStep, showNumbers]);
+
+    useEffect(() => {
+        setHoveredCell(null);
+    }, [footprintBars]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -456,8 +474,14 @@ const FootprintPage = () => {
             if (hit) {
                 setHoveredCell({
                     ...hit,
-                    tooltipX: event.clientX - containerRect.left,
-                    tooltipY: event.clientY - containerRect.top,
+                    tooltipX: Math.min(
+                        Math.max(event.clientX - containerRect.left, 8),
+                        Math.max(containerRect.width - 180, 8),
+                    ),
+                    tooltipY: Math.min(
+                        Math.max(event.clientY - containerRect.top, 8),
+                        Math.max(containerRect.height - 140, 8),
+                    ),
                 });
             } else {
                 setHoveredCell(null);
