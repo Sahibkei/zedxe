@@ -72,6 +72,7 @@ const FootprintPage = () => {
     const [historyTrades, setHistoryTrades] = useState<NormalizedTrade[]>([]);
     const [loadingHistory, setLoadingHistory] = useState(false);
     const [viewRange, setViewRange] = useState<ViewRange | null>(null);
+    const [userHasInteracted, setUserHasInteracted] = useState(false);
     const [isPanning, setIsPanning] = useState(false);
 
     const { trades: liveTrades, windowedTrades: liveWindowedTrades } = useOrderflowStream({
@@ -197,8 +198,10 @@ const FootprintPage = () => {
         return Math.max(...footprintBars.map((bar) => bar.bucketEnd));
     }, [footprintBars]);
 
+    // Auto-center on the latest window while the user has not interacted. Once the user pans or zooms we
+    // preserve their view even as new bars stream in.
     useEffect(() => {
-        if (domainStart == null || domainEnd == null) return;
+        if (domainStart == null || domainEnd == null || userHasInteracted) return;
 
         const windowMs = windowSeconds * 1000;
         const end = domainEnd;
@@ -206,13 +209,18 @@ const FootprintPage = () => {
 
         setViewRange({ start, end });
         setHoveredCell(null);
-    }, [domainStart, domainEnd, windowSeconds, selectedSymbol]);
+    }, [domainStart, domainEnd, windowSeconds, selectedSymbol, userHasInteracted]);
+
+    useEffect(() => {
+        setUserHasInteracted(false);
+    }, [selectedSymbol, windowSeconds, timeframeSeconds]);
 
     useEffect(() => {
         setHoveredCell(null);
     }, [viewRange?.start, viewRange?.end]);
 
-    const visibleBars = useMemo(() => {
+    const barsToRender = useMemo(() => {
+        if (!footprintBars.length) return [] as { bar: FootprintBar; index: number }[];
         if (!viewRange) return footprintBars.map((bar, index) => ({ bar, index }));
 
         return footprintBars
@@ -220,12 +228,19 @@ const FootprintPage = () => {
             .filter(({ bar }) => bar.bucketEnd >= viewRange.start && bar.bucketStart <= viewRange.end);
     }, [footprintBars, viewRange]);
 
+    const viewAlignedTrades = useMemo(() => {
+        if (!viewRange) return effectiveTrades;
+        return effectiveTrades.filter(
+            (trade) => trade.timestamp >= viewRange.start && trade.timestamp <= viewRange.end,
+        );
+    }, [effectiveTrades, viewRange]);
+
     const volumeProfile = useMemo(() => {
-        if (effectiveTrades.length === 0) {
+        if (viewAlignedTrades.length === 0) {
             return { levels: [] as VolumeProfileLevel[], priceStep: 0, referencePrice: null };
         }
 
-        const sortedTrades = [...effectiveTrades].sort((a, b) => a.timestamp - b.timestamp);
+        const sortedTrades = [...viewAlignedTrades].sort((a, b) => a.timestamp - b.timestamp);
         const referencePrice = sortedTrades[sortedTrades.length - 1]?.price ?? null;
         if (!referencePrice) {
             return { levels: [] as VolumeProfileLevel[], priceStep: 0, referencePrice: null };
@@ -274,9 +289,19 @@ const FootprintPage = () => {
         }
 
         return { levels, priceStep: step, referencePrice };
-    }, [effectiveTrades, priceStep]);
+    }, [priceStep, viewAlignedTrades]);
 
     const hasData = footprintBars.length > 0 || effectiveBuckets.some((bucket) => bucket.totalVolume > 0);
+
+    useEffect(() => {
+        if (footprintBars.length === 0) {
+            setViewRange(null);
+            setHoveredCell(null);
+            setUserHasInteracted(false);
+            setIsPanning(false);
+            panStartRef.current = null;
+        }
+    }, [footprintBars.length]);
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const footprintContainerRef = useRef<HTMLDivElement | null>(null);
@@ -317,8 +342,6 @@ const FootprintPage = () => {
 
             context.fillStyle = "#0b0d12";
             context.fillRect(0, 0, width, height);
-
-            const barsToRender = visibleBars;
 
             if (!barsToRender.length) {
                 setHoveredCell(null);
@@ -518,7 +541,7 @@ const FootprintPage = () => {
         mode,
         priceStep,
         showNumbers,
-        visibleBars,
+        barsToRender,
         viewRange,
     ]);
 
@@ -566,16 +589,25 @@ const FootprintPage = () => {
             panStartRef.current = null;
         };
 
+        const getActiveViewRange = (): ViewRange | null => {
+            if (viewRange) return viewRange;
+            if (domainStart != null && domainEnd != null) return { start: domainStart, end: domainEnd };
+            return null;
+        };
+
         const handlePointerDown = (event: PointerEvent) => {
             if (event.button !== 0) return;
-            if (!viewRange) return;
+            const currentView = getActiveViewRange();
+            if (!currentView) return;
             canvas.setPointerCapture(event.pointerId);
-            panStartRef.current = { x: event.clientX, view: viewRange };
+            panStartRef.current = { x: event.clientX, view: currentView };
+            setViewRange(currentView);
+            setUserHasInteracted(true);
             setIsPanning(true);
         };
 
         const handlePointerMove = (event: PointerEvent) => {
-            if (!isPanning || !panStartRef.current || !viewRange) return;
+            if (!isPanning || !panStartRef.current) return;
             const { view } = panStartRef.current;
             const { chartWidth } = chartMetricsRef.current;
             if (chartWidth <= 0) return;
@@ -610,14 +642,15 @@ const FootprintPage = () => {
         };
 
         const handleWheel = (event: WheelEvent) => {
-            if (!viewRange || domainStart == null || domainEnd == null) return;
+            const currentView = getActiveViewRange();
+            if (!currentView || domainStart == null || domainEnd == null) return;
             event.preventDefault();
 
             const rect = canvas.getBoundingClientRect();
-            const span = viewRange.end - viewRange.start;
+            const span = currentView.end - currentView.start;
             const x = event.clientX - rect.left;
             const ratio = rect.width > 0 ? x / rect.width : 0.5;
-            const pivotTime = viewRange.start + ratio * span;
+            const pivotTime = currentView.start + ratio * span;
 
             const zoomFactor = 0.1;
             const direction = event.deltaY > 0 ? 1 : -1;
@@ -640,6 +673,7 @@ const FootprintPage = () => {
             }
 
             setViewRange({ start, end });
+            setUserHasInteracted(true);
         };
 
         canvas.addEventListener("pointermove", handleMove);
@@ -786,7 +820,7 @@ const FootprintPage = () => {
                                 </p>
                             </div>
                             <span className="rounded-full bg-gray-900 px-3 py-1 text-xs text-gray-300">
-                                {footprintBars.length} buckets
+                                {barsToRender.length} buckets
                             </span>
                         </div>
                         <div
