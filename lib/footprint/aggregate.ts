@@ -26,7 +26,7 @@ const bucketPrice = (price: number, priceStep?: number) => {
     return Number(bucket.toFixed(getBucketDecimals(priceStep)));
 };
 
-interface MutableFootprintBar extends Omit<FootprintBar, 'cells' | 'delta'> {
+interface MutableFootprintBar extends Omit<FootprintBar, 'cells' | 'delta' | 'totalVolume'> {
     cells: Map<number, FootprintCell>;
 }
 
@@ -87,6 +87,8 @@ export const aggregateFootprintBars = (
             price: bucketedPrice,
             bidVolume: 0,
             askVolume: 0,
+            totalVolume: 0,
+            delta: 0,
             tradesCount: 0,
         };
 
@@ -98,6 +100,9 @@ export const aggregateFootprintBars = (
             bar.totalBidVolume += trade.quantity;
         }
 
+        cell.totalVolume = cell.bidVolume + cell.askVolume;
+        cell.delta = cell.askVolume - cell.bidVolume;
+
         cell.tradesCount += 1;
         bar.cells.set(bucketedPrice, cell);
     }
@@ -107,6 +112,7 @@ export const aggregateFootprintBars = (
             ...bar,
             cells: Array.from(bar.cells.values()).sort((a, b) => a.price - b.price),
             delta: bar.totalAskVolume - bar.totalBidVolume,
+            totalVolume: bar.totalAskVolume + bar.totalBidVolume,
         }))
         .sort((a, b) =>
             a.symbol === b.symbol ? a.startTime - b.startTime : a.symbol.localeCompare(b.symbol)

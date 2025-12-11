@@ -45,11 +45,12 @@ test('aggregates trades into chronologically ordered footprint bars', () => {
     expectEqual(firstBar.totalAskVolume, 4);
     expectEqual(firstBar.totalBidVolume, 2);
     expectEqual(firstBar.delta, 2);
+    expectEqual(firstBar.totalVolume, 6);
 
     expectDeepEqual(firstBar.cells, [
-        { price: 100, bidVolume: 0, askVolume: 1, tradesCount: 1 },
-        { price: 101, bidVolume: 2, askVolume: 0, tradesCount: 1 },
-        { price: 102, bidVolume: 0, askVolume: 3, tradesCount: 1 },
+        { price: 100, bidVolume: 0, askVolume: 1, totalVolume: 1, delta: 1, tradesCount: 1 },
+        { price: 101, bidVolume: 2, askVolume: 0, totalVolume: 2, delta: -2, tradesCount: 1 },
+        { price: 102, bidVolume: 0, askVolume: 3, totalVolume: 3, delta: 3, tradesCount: 1 },
     ]);
 
     expectEqual(secondBar.startTime, 60_000);
@@ -61,10 +62,11 @@ test('aggregates trades into chronologically ordered footprint bars', () => {
     expectEqual(secondBar.totalAskVolume, 0.5);
     expectEqual(secondBar.totalBidVolume, 1.5);
     expectEqual(secondBar.delta, -1);
+    expectEqual(secondBar.totalVolume, 2);
 
     expectDeepEqual(secondBar.cells, [
-        { price: 98, bidVolume: 0, askVolume: 0.5, tradesCount: 1 },
-        { price: 99, bidVolume: 1.5, askVolume: 0, tradesCount: 1 },
+        { price: 98, bidVolume: 0, askVolume: 0.5, totalVolume: 0.5, delta: 0.5, tradesCount: 1 },
+        { price: 99, bidVolume: 1.5, askVolume: 0, totalVolume: 1.5, delta: -1.5, tradesCount: 1 },
     ]);
 });
 
@@ -89,15 +91,15 @@ test('buckets trades by price step and separates symbols', () => {
     }
 
     expectDeepEqual(ethBar.cells, [
-        { price: 2500, bidVolume: 0.5, askVolume: 1, tradesCount: 2 },
-        { price: 2500.5, bidVolume: 0, askVolume: 0.4, tradesCount: 1 },
+        { price: 2500, bidVolume: 0.5, askVolume: 1, totalVolume: 1.5, delta: 0.5, tradesCount: 2 },
+        { price: 2500.5, bidVolume: 0, askVolume: 0.4, totalVolume: 0.4, delta: 0.4, tradesCount: 1 },
     ]);
     expectEqual(ethBar.totalAskVolume, 1.4);
     expectEqual(ethBar.totalBidVolume, 0.5);
 
     expectDeepEqual(btcBar.cells, [
-        { price: 30_000, bidVolume: 0.2, askVolume: 0, tradesCount: 1 },
-        { price: 30_000.5, bidVolume: 0, askVolume: 0.6, tradesCount: 1 },
+        { price: 30_000, bidVolume: 0.2, askVolume: 0, totalVolume: 0.2, delta: -0.2, tradesCount: 1 },
+        { price: 30_000.5, bidVolume: 0, askVolume: 0.6, totalVolume: 0.6, delta: 0.6, tradesCount: 1 },
     ]);
     expectEqual(btcBar.startTime, 0);
     expectEqual(btcBar.endTime, 300_000);

@@ -23,6 +23,8 @@ export interface FootprintCell {
     price: number; // price level (after rounding to priceStep if provided)
     bidVolume: number; // total volume traded while hitting the bid at this price
     askVolume: number; // total volume traded while lifting the ask at this price
+    totalVolume: number; // bidVolume + askVolume
+    delta: number; // askVolume - bidVolume
     tradesCount: number; // number of trades that occurred at this price level
 }
 
@@ -43,6 +45,7 @@ export interface FootprintBar {
     totalBidVolume: number;
     totalAskVolume: number;
     delta: number; // totalAskVolume - totalBidVolume
+    totalVolume: number;
 }
 
 export interface AggregateFootprintOptions {
