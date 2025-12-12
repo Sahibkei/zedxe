@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
-import { createChart, IChartApi, ISeriesApi, PriceScaleMode } from "lightweight-charts";
+import { createChart, IChartApi, ISeriesApi, PriceScaleMode, Time } from "lightweight-charts";
 
 import { DomDepthLevel, FootprintCandle, VolumeProfileDatum } from "@/lib/orderflow/lightweightFeed";
 
@@ -10,6 +10,8 @@ export interface FootprintLightweightChartProps {
     candles: FootprintCandle[];
     volumeProfile: VolumeProfileDatum[];
     domDepth: DomDepthLevel[];
+    ma9?: Array<{ time: number; value: number }>;
+    ma21?: Array<{ time: number; value: number }>;
     options: {
         mode: "bid-ask" | "delta" | "volume";
         showNumbers: boolean;
@@ -30,6 +32,8 @@ export default function FootprintLightweightChart({
     candles,
     volumeProfile,
     domDepth,
+    ma9 = [],
+    ma21 = [],
     options,
     onRenderError,
 }: FootprintLightweightChartProps) {
@@ -37,10 +41,20 @@ export default function FootprintLightweightChart({
     const overlayRef = useRef<HTMLCanvasElement | null>(null);
     const chartRef = useRef<IChartApi | null>(null);
     const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+    const ma9SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+    const ma21SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
 
     const devicePixelRatio = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
     const candleTimes = useMemo(() => candles.map((candle) => Math.round(candle.time / 1000)), [candles]);
+
+    const formatTimeLabel = useMemo(() => {
+        const formatter = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+        return (time: Time): string => {
+            const timestamp = typeof time === "number" ? time * 1000 : (time as number) * 1000;
+            return formatter.format(new Date(timestamp));
+        };
+    }, []);
 
     useEffect(() => {
         const container = containerRef.current;
@@ -65,8 +79,9 @@ export default function FootprintLightweightChart({
                 },
                 timeScale: {
                     borderColor: "#1f2937",
-                    secondsVisible: true,
+                    secondsVisible: false,
                     timeVisible: true,
+                    tickMarkFormatter: (time) => formatTimeLabel(time as Time),
                 },
                 rightPriceScale: {
                     borderColor: "#1f2937",
@@ -82,6 +97,20 @@ export default function FootprintLightweightChart({
                 wickDownColor: "#f87171",
             });
 
+            const ma9Series = chart.addLineSeries({
+                color: "#60a5fa",
+                lineWidth: 2,
+                lastValueVisible: false,
+                priceLineVisible: false,
+            });
+
+            const ma21Series = chart.addLineSeries({
+                color: "#fbbf24",
+                lineWidth: 2,
+                lastValueVisible: false,
+                priceLineVisible: false,
+            });
+
             overlayCanvas = document.createElement("canvas");
             overlayCanvas.style.position = "absolute";
             overlayCanvas.style.inset = "0";
@@ -92,6 +121,8 @@ export default function FootprintLightweightChart({
 
             chartRef.current = chart;
             candleSeriesRef.current = candleSeries;
+            ma9SeriesRef.current = ma9Series;
+            ma21SeriesRef.current = ma21Series;
 
             const resize = () => {
                 const { clientWidth, clientHeight } = container;
@@ -114,6 +145,8 @@ export default function FootprintLightweightChart({
                 chart?.remove();
                 overlayRef.current = null;
                 candleSeriesRef.current = null;
+                ma9SeriesRef.current = null;
+                ma21SeriesRef.current = null;
                 chartRef.current = null;
             };
         } catch (error) {
@@ -125,8 +158,13 @@ export default function FootprintLightweightChart({
             if (chart) {
                 chart.remove();
             }
+            overlayRef.current = null;
+            candleSeriesRef.current = null;
+            ma9SeriesRef.current = null;
+            ma21SeriesRef.current = null;
+            chartRef.current = null;
         }
-    }, [devicePixelRatio, onRenderError, options.scale]);
+    }, [devicePixelRatio, formatTimeLabel, onRenderError, options.scale]);
 
     useEffect(() => {
         const candleSeries = candleSeriesRef.current;
@@ -142,6 +180,28 @@ export default function FootprintLightweightChart({
             })),
         );
     }, [candles]);
+
+    useEffect(() => {
+        if (!ma9SeriesRef.current) return;
+        ma9SeriesRef.current.setData(ma9.map((point) => ({ time: point.time, value: point.value })));
+    }, [ma9]);
+
+    useEffect(() => {
+        if (!ma21SeriesRef.current) return;
+        ma21SeriesRef.current.setData(ma21.map((point) => ({ time: point.time, value: point.value })));
+    }, [ma21]);
+
+    useEffect(() => {
+        const chart = chartRef.current;
+        if (!chart) return;
+
+        chart.applyOptions({
+            rightPriceScale: {
+                borderColor: "#1f2937",
+                mode: options.scale === "log" ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+            },
+        });
+    }, [options.scale]);
 
     const drawOverlay = useCallback(() => {
         try {

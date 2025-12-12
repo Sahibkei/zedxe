@@ -9,6 +9,7 @@ import Link from "next/link";
 
 import type { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
 import { buildFootprintBars, FootprintBar, inferPriceStepFromTrades } from "@/app/(root)/orderflow/_utils/footprint";
+import FootprintLightweightChart, { FootprintLightweightChartProps } from "@/components/orderflow/FootprintLightweightChart";
 import { Button } from "@/components/ui/button";
 import {
     Select,
@@ -17,30 +18,45 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import {
-    ORDERFLOW_BUCKET_PRESETS,
-    ORDERFLOW_DEFAULT_SYMBOL,
-    ORDERFLOW_SYMBOL_OPTIONS,
-    ORDERFLOW_WINDOW_PRESETS,
-} from "@/lib/constants";
-import FootprintLightweightChart, { FootprintLightweightChartProps } from "@/components/orderflow/FootprintLightweightChart";
+import { ORDERFLOW_DEFAULT_SYMBOL, ORDERFLOW_SYMBOL_OPTIONS } from "@/lib/constants";
 import { combineOrderbookDepth, mapFootprintBarsToCandles, mapVolumeProfileToHistogram } from "@/lib/orderflow/lightweightFeed";
 import { useOrderbookStream } from "@/hooks/useOrderbookStream";
 import { NormalizedTrade, useOrderflowStream } from "@/hooks/useOrderflowStream";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/utils/formatters";
 
-const TIMEFRAME_OPTIONS = ["5s", "15s", "30s", "1m", "5m", "15m"] as const;
 const MODE_OPTIONS = ["Bid x Ask", "Delta", "Volume"] as const;
 type FootprintMode = (typeof MODE_OPTIONS)[number];
 
-type TimeframeOption = (typeof TIMEFRAME_OPTIONS)[number];
+type ChartTimeframe = "1m" | "5m" | "15m";
 
-const parseTimeframeSeconds = (value: TimeframeOption): number => {
-    const unit = value.slice(-1);
-    const numeric = Number(value.slice(0, -1));
-    if (!Number.isFinite(numeric)) return 15;
-    return unit === "m" ? numeric * 60 : numeric;
+const TIMEFRAME_OPTIONS: ChartTimeframe[] = ["1m", "5m", "15m"];
+
+const TIMEFRAME_SECONDS: Record<ChartTimeframe, number> = {
+    "1m": 60,
+    "5m": 300,
+    "15m": 900,
+};
+
+const MAX_CANDLES: Record<ChartTimeframe, number> = {
+    "1m": 60,
+    "5m": 12,
+    "15m": 4,
+};
+
+const buildSimpleMovingAverage = (candles: FootprintLightweightChartProps["candles"], length: number) => {
+    if (!candles.length || length <= 0) return [] as Array<{ time: number; value: number }>;
+    const points: Array<{ time: number; value: number }> = [];
+
+    for (let index = 0; index < candles.length; index += 1) {
+        const start = Math.max(0, index - length + 1);
+        const window = candles.slice(start, index + 1);
+        if (window.length < length) continue;
+        const average = window.reduce((sum, candle) => sum + candle.close, 0) / window.length;
+        points.push({ time: Math.round(candles[index].time / 1000), value: average });
+    }
+
+    return points;
 };
 
 const buildVolumeProfileLevels = (
@@ -96,26 +112,22 @@ const buildVolumeProfileLevels = (
 };
 
 const FootprintPageInner = () => {
-    const defaultWindowSeconds = ORDERFLOW_WINDOW_PRESETS[1]?.value ?? ORDERFLOW_WINDOW_PRESETS[0].value;
-    const defaultBucketSeconds = ORDERFLOW_BUCKET_PRESETS[1]?.value ?? ORDERFLOW_BUCKET_PRESETS[0].value;
-
     // renderError is only set when Lightweight Charts itself fails to initialise; overlays log errors to the console.
     const [renderError, setRenderError] = useState<Error | null>(null);
 
     const [selectedSymbol, setSelectedSymbol] = useState<string>(ORDERFLOW_DEFAULT_SYMBOL);
-    const [windowSeconds, setWindowSeconds] = useState<number>(defaultWindowSeconds);
-    const [selectedTimeframe, setSelectedTimeframe] = useState<TimeframeOption>("15s");
-    const [bucketSizeSeconds, setBucketSizeSeconds] = useState<number>(defaultBucketSeconds);
+    const [timeframe, setTimeframe] = useState<ChartTimeframe>("5m");
     const [mode, setMode] = useState<FootprintMode>("Bid x Ask");
     const [showNumbers, setShowNumbers] = useState(true);
     const [highlightImbalances, setHighlightImbalances] = useState(true);
+    const [showMa9, setShowMa9] = useState(true);
+    const [showMa21, setShowMa21] = useState(true);
 
-    const { windowedTrades } = useOrderflowStream({ symbol: selectedSymbol, windowSeconds });
+    const bucketSizeSeconds = TIMEFRAME_SECONDS[timeframe];
+    const targetWindowSeconds = TIMEFRAME_SECONDS[timeframe] * MAX_CANDLES[timeframe];
+
+    const { windowedTrades } = useOrderflowStream({ symbol: selectedSymbol, windowSeconds: targetWindowSeconds });
     const { bids, asks } = useOrderbookStream(selectedSymbol, 24);
-
-    useEffect(() => {
-        setBucketSizeSeconds(parseTimeframeSeconds(selectedTimeframe));
-    }, [selectedTimeframe]);
 
     const handleRenderError = useCallback((error: Error) => {
         console.error("Footprint chart fatal render error", error);
@@ -134,14 +146,27 @@ const FootprintPageInner = () => {
         if (windowedTrades.length === 0) return [];
         const referenceTimestamp = Date.now();
         return buildFootprintBars(windowedTrades, {
-            windowSeconds,
+            windowSeconds: targetWindowSeconds,
             bucketSizeSeconds,
             referenceTimestamp,
             priceStep: priceStep || undefined,
         });
-    }, [windowedTrades, windowSeconds, bucketSizeSeconds, priceStep]);
+    }, [bucketSizeSeconds, priceStep, targetWindowSeconds, windowedTrades]);
 
-    const footprintCandles = useMemo(() => mapFootprintBarsToCandles(footprintBars), [footprintBars]);
+    const footprintCandles = useMemo(() => {
+        const candles = mapFootprintBarsToCandles(footprintBars);
+        return candles.slice(-MAX_CANDLES[timeframe]);
+    }, [footprintBars, timeframe]);
+
+    const ma9 = useMemo(
+        () => (showMa9 ? buildSimpleMovingAverage(footprintCandles, 9) : []),
+        [footprintCandles, showMa9],
+    );
+
+    const ma21 = useMemo(
+        () => (showMa21 ? buildSimpleMovingAverage(footprintCandles, 21) : []),
+        [footprintCandles, showMa21],
+    );
 
     const { levels: profileLevels, referencePrice } = useMemo(
         () => buildVolumeProfileLevels(windowedTrades, priceStep),
@@ -164,7 +189,7 @@ const FootprintPageInner = () => {
         [highlightImbalances, mode, showNumbers],
     );
 
-    const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
+    const windowMinutes = Math.max(1, Math.round(targetWindowSeconds / 60));
 
     return (
         <div className="flex flex-col gap-4">
@@ -199,36 +224,26 @@ const FootprintPageInner = () => {
                 </div>
 
                 <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Window</p>
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Chart timeframe</p>
                     <div className="flex flex-wrap gap-2">
-                        {ORDERFLOW_WINDOW_PRESETS.map((preset) => (
+                        {TIMEFRAME_OPTIONS.map((option) => (
                             <Button
-                                key={preset.value}
+                                key={option}
                                 size="sm"
-                                variant={preset.value === windowSeconds ? "default" : "outline"}
-                                className={cn("min-w-[3.5rem]", preset.value === windowSeconds && "bg-emerald-600")}
-                                onClick={() => setWindowSeconds(preset.value)}
+                                variant={option === timeframe ? "default" : "outline"}
+                                className={cn("min-w-[3.5rem]", option === timeframe && "bg-emerald-600")}
+                                onClick={() => setTimeframe(option)}
                             >
-                                {preset.label}
+                                {option}
                             </Button>
                         ))}
                     </div>
                 </div>
 
                 <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Bucket size</p>
-                    <div className="flex flex-wrap gap-2">
-                        {TIMEFRAME_OPTIONS.map((option) => (
-                            <Button
-                                key={option}
-                                size="sm"
-                                variant={option === selectedTimeframe ? "default" : "outline"}
-                                className={cn("min-w-[3.5rem]", option === selectedTimeframe && "bg-emerald-600")}
-                                onClick={() => setSelectedTimeframe(option)}
-                            >
-                                {option}
-                            </Button>
-                        ))}
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Lookback</p>
+                    <div className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-200">
+                        ~1 hour (up to {MAX_CANDLES[timeframe]} candles)
                     </div>
                 </div>
 
@@ -264,6 +279,24 @@ const FootprintPageInner = () => {
                             />
                             Highlight imbalances
                         </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-300">
+                            <input
+                                type="checkbox"
+                                checked={showMa9}
+                                onChange={(event) => setShowMa9(event.target.checked)}
+                                className="h-4 w-4 rounded border-gray-700 bg-gray-900"
+                            />
+                            MA 9
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-300">
+                            <input
+                                type="checkbox"
+                                checked={showMa21}
+                                onChange={(event) => setShowMa21(event.target.checked)}
+                                className="h-4 w-4 rounded border-gray-700 bg-gray-900"
+                            />
+                            MA 21
+                        </label>
                     </div>
                 </div>
             </div>
@@ -279,7 +312,7 @@ const FootprintPageInner = () => {
                                 </h3>
                             </div>
                             <span className="rounded-full bg-gray-800 px-3 py-1 text-xs text-gray-300">
-                                {footprintBars.length} buckets · {windowSeconds}s window
+                                {footprintCandles.length} candles · ~{windowMinutes}m lookback
                             </span>
                         </div>
                         <div className="relative h-[520px] overflow-hidden rounded-lg border border-gray-900 bg-black/20">
@@ -287,6 +320,8 @@ const FootprintPageInner = () => {
                                 candles={footprintCandles}
                                 volumeProfile={volumeProfileHistogram}
                                 domDepth={domDepthLevels}
+                                ma9={ma9}
+                                ma21={ma21}
                                 options={chartOptions}
                                 onRenderError={handleRenderError}
                             />
