@@ -34,7 +34,7 @@ type PaneRenderer = {
 };
 
 type PaneView = {
-    renderer: (height: number, width: number) => PaneRenderer | null;
+    renderer: () => PaneRenderer | null;
 };
 
 export class FootprintLadderPrimitive {
@@ -46,6 +46,7 @@ export class FootprintLadderPrimitive {
     private paneView: PaneView;
     private renderer: PaneRenderer;
     private requestUpdate: (() => void) | null = null;
+    private pendingUpdate = false;
 
     constructor(params: {
         chart: any;
@@ -82,13 +83,15 @@ export class FootprintLadderPrimitive {
         };
     }
 
-    attached?(params: { chart?: any; requestUpdate?: () => void }): void {
+    attached?(params: { chart?: any; series?: any; requestUpdate?: () => void }): void {
         if (params.chart) this.chart = params.chart;
+        if (params.series) this.series = params.series;
         if (params.requestUpdate) this.requestUpdate = params.requestUpdate;
     }
 
     detached?(): void {
         this.requestUpdate = null;
+        this.pendingUpdate = false;
     }
 
     paneViews(): readonly PaneView[] {
@@ -96,7 +99,7 @@ export class FootprintLadderPrimitive {
     }
 
     updateAllViews(): void {
-        // noop – rendering is driven by requestUpdate when options/data change.
+        this.invalidate();
     }
 
     updateOptions(options: Partial<PrimitiveOptions>): void {
@@ -106,7 +109,12 @@ export class FootprintLadderPrimitive {
 
     invalidate(): void {
         if (this.requestUpdate) {
-            this.requestUpdate();
+            if (this.pendingUpdate) return;
+            this.pendingUpdate = true;
+            requestAnimationFrame(() => {
+                this.pendingUpdate = false;
+                this.requestUpdate?.();
+            });
         } else {
             // Fallback: try to invalidate via time scale change without affecting view.
             const timeScale = this.chart?.timeScale?.();
@@ -138,7 +146,7 @@ export class FootprintLadderPrimitive {
             const visibleCount = Math.max(toIndex - fromIndex + 1, 1);
             const approxBarSpacing = width / Math.max(visibleCount + 2, 1);
 
-            if (!Number.isFinite(approxBarSpacing) || approxBarSpacing < 8) return;
+            if (!Number.isFinite(approxBarSpacing) || approxBarSpacing < 6) return;
 
             const ladderWidth = approxBarSpacing * (this.options.mode === "bidAsk" ? 0.9 : 0.6);
             const halfWidth = this.options.mode === "bidAsk" ? ladderWidth / 2 : ladderWidth;

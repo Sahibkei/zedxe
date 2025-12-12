@@ -272,8 +272,12 @@ export function FootprintCandleChart({
             resizeObserverRef.current?.disconnect();
             resizeObserverRef.current = null;
 
-            if (ladderPrimitiveRef.current && chartRef.current) {
-                (chartRef.current as any).removePrimitive?.(ladderPrimitiveRef.current);
+            if (ladderPrimitiveRef.current && seriesRef.current) {
+                try {
+                    (seriesRef.current as any).detachPrimitive?.(ladderPrimitiveRef.current);
+                } catch (err) {
+                    console.warn("Failed to detach ladder primitive on cleanup", err);
+                }
             }
             ladderPrimitiveRef.current = null;
 
@@ -300,12 +304,16 @@ export function FootprintCandleChart({
             highlightImbalances,
         });
 
-        chart.addPrimitive?.(primitive);
+        series.attachPrimitive?.(primitive);
         ladderPrimitiveRef.current = primitive;
 
         return () => {
-            if (chart?.removePrimitive) {
-                chart.removePrimitive(primitive);
+            if (series?.detachPrimitive && ladderPrimitiveRef.current === primitive) {
+                try {
+                    series.detachPrimitive(primitive);
+                } catch (err) {
+                    console.warn("Failed to detach ladder primitive", err);
+                }
             }
             if (ladderPrimitiveRef.current === primitive) {
                 ladderPrimitiveRef.current = null;
