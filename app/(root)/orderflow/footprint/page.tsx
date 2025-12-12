@@ -3,11 +3,11 @@
 // NOTE: Rewritten in Phase 4 stabilisation to avoid client-side crashes.
 // Simplified footprint view (no drag pan/zoom) plus local error boundary.
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 import Link from "next/link";
 
-import VolumeProfile, { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
+import type { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
 import { buildFootprintBars, FootprintBar, inferPriceStepFromTrades } from "@/app/(root)/orderflow/_utils/footprint";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +23,9 @@ import {
     ORDERFLOW_SYMBOL_OPTIONS,
     ORDERFLOW_WINDOW_PRESETS,
 } from "@/lib/constants";
+import FootprintLightweightChart, { FootprintLightweightChartProps } from "@/components/orderflow/FootprintLightweightChart";
+import { combineOrderbookDepth, mapFootprintBarsToCandles, mapVolumeProfileToHistogram } from "@/lib/orderflow/lightweightFeed";
+import { useOrderbookStream } from "@/hooks/useOrderbookStream";
 import { NormalizedTrade, useOrderflowStream } from "@/hooks/useOrderflowStream";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/utils/formatters";
@@ -134,9 +137,8 @@ const FootprintPageInner = () => {
     const [showNumbers, setShowNumbers] = useState(true);
     const [highlightImbalances, setHighlightImbalances] = useState(true);
 
-    const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
     const { windowedTrades } = useOrderflowStream({ symbol: selectedSymbol, windowSeconds });
+    const { bids, asks } = useOrderbookStream(selectedSymbol, 24);
 
     useEffect(() => {
         setBucketSizeSeconds(parseTimeframeSeconds(selectedTimeframe));
@@ -161,156 +163,28 @@ const FootprintPageInner = () => {
         });
     }, [windowedTrades, windowSeconds, bucketSizeSeconds, priceStep]);
 
+    const footprintCandles = useMemo(() => mapFootprintBarsToCandles(footprintBars), [footprintBars]);
+
     const { levels: profileLevels, referencePrice } = useMemo(
         () => buildVolumeProfileLevels(windowedTrades, priceStep),
         [windowedTrades, priceStep],
     );
 
-    const maxVolume = useMemo(
-        () => Math.max(...footprintBars.map((bar) => bar.totalVolume), 0),
-        [footprintBars],
+    const volumeProfileHistogram = useMemo(() => mapVolumeProfileToHistogram(profileLevels), [profileLevels]);
+
+    const domDepthLevels = useMemo(() => combineOrderbookDepth(bids, asks, 24), [asks, bids]);
+
+    const chartOptions = useMemo<FootprintLightweightChartProps["options"]>(
+        () => ({
+            mode: mode === "Bid x Ask" ? "bid-ask" : mode === "Delta" ? "delta" : "volume",
+            showNumbers,
+            highlightImbalances,
+            rowSizeTicks: 1,
+            candleSize: "normal",
+            scale: "linear",
+        }),
+        [highlightImbalances, mode, showNumbers],
     );
-    const maxDelta = useMemo(
-        () => Math.max(...footprintBars.map((bar) => Math.abs(bar.totalDelta)), 0),
-        [footprintBars],
-    );
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        const context = canvas.getContext("2d");
-        if (!context) return;
-
-        const parent = canvas.parentElement;
-        const width = parent?.clientWidth ?? 960;
-        const height = parent?.clientHeight ?? 520;
-        const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
-        canvas.style.width = `${width}px`;
-        canvas.style.height = `${height}px`;
-
-        context.resetTransform();
-        context.scale(dpr, dpr);
-
-        context.fillStyle = "#0b0d12";
-        context.fillRect(0, 0, width, height);
-
-        if (!footprintBars.length) {
-            context.fillStyle = "#9ca3af";
-            context.font = "14px Inter, system-ui, -apple-system, sans-serif";
-            context.fillText("Waiting for footprint data…", 16, height / 2);
-            return;
-        }
-
-        const paddingX = 48;
-        const paddingY = 28;
-        const chartWidth = width - paddingX * 2;
-        const chartHeight = height - paddingY * 2;
-
-        const minPrice = Math.min(...footprintBars.map((bar) => bar.low));
-        const maxPrice = Math.max(...footprintBars.map((bar) => bar.high));
-        const priceRange = Math.max(maxPrice - minPrice, 1e-6);
-
-        const candleSpacing = chartWidth / Math.max(footprintBars.length, 1);
-        const bodyWidth = Math.max(candleSpacing * 0.6, 6);
-
-        const priceDiffs: number[] = [];
-        footprintBars.forEach((bar) => {
-            bar.cells.forEach((cell, index) => {
-                const next = bar.cells[index + 1];
-                if (!next) return;
-                const diff = Math.abs(cell.price - next.price);
-                if (diff > 0) priceDiffs.push(diff);
-            });
-        });
-        const cellStep = priceDiffs.length
-            ? priceDiffs.sort((a, b) => a - b)[Math.floor(priceDiffs.length / 2)]
-            : priceRange / Math.max(footprintBars[0].cells.length || 1, 12);
-
-        const cellHeight = Math.max((cellStep / priceRange) * chartHeight * 0.9, 8);
-
-        const yForPrice = (price: number) => paddingY + (1 - (price - minPrice) / priceRange) * chartHeight;
-
-        context.strokeStyle = "#1f2937";
-        context.lineWidth = 1;
-        context.beginPath();
-        context.moveTo(paddingX, paddingY);
-        context.lineTo(paddingX, paddingY + chartHeight);
-        context.lineTo(paddingX + chartWidth, paddingY + chartHeight);
-        context.stroke();
-
-        const span = footprintBars[footprintBars.length - 1].bucketEnd - footprintBars[0].bucketStart || 1;
-
-        const drawCell = (x: number, y: number, widthPx: number, cell: FootprintBar["cells"][number]) => {
-            const total = cell.totalVolume;
-            const delta = cell.buyVolume - cell.sellVolume;
-            let fill = "#374151";
-            if (mode === "Bid x Ask") {
-                const buyRatio = total > 0 ? cell.buyVolume / total : 0.5;
-                const sellRatio = 1 - buyRatio;
-                const g = Math.min(255, Math.round(80 + buyRatio * 140));
-                const r = Math.min(255, Math.round(80 + sellRatio * 140));
-                fill = `rgb(${r}, ${g}, 120)`;
-            } else if (mode === "Delta") {
-                const intensity = maxDelta > 0 ? Math.min(Math.abs(delta) / maxDelta, 1) : 0;
-                fill = delta >= 0 ? `rgba(52, 211, 153, ${0.25 + intensity * 0.65})` : `rgba(248, 113, 113, ${0.25 + intensity * 0.65})`;
-            } else {
-                const intensity = maxVolume > 0 ? Math.min(total / maxVolume, 1) : 0;
-                fill = `rgba(129, 140, 248, ${0.2 + intensity * 0.7})`;
-            }
-
-            context.fillStyle = fill;
-            context.fillRect(x - widthPx / 2, y - cellHeight / 2, widthPx, cellHeight);
-
-            if (highlightImbalances && cell.imbalancePercent >= 60) {
-                context.strokeStyle = "#fcd34d";
-                context.lineWidth = 1;
-                context.strokeRect(x - widthPx / 2, y - cellHeight / 2, widthPx, cellHeight);
-            }
-
-            if (showNumbers) {
-                context.fillStyle = "#e5e7eb";
-                context.font = "10px Inter, system-ui, -apple-system, sans-serif";
-                context.textAlign = "center";
-                context.textBaseline = "middle";
-                const label = mode === "Volume" ? formatNumber(total) : `${formatNumber(cell.buyVolume)} / ${formatNumber(cell.sellVolume)}`;
-                context.fillText(label, x, y);
-            }
-        };
-
-        footprintBars.forEach((bar, index) => {
-            const barMid = (bar.bucketStart + bar.bucketEnd) / 2;
-            const t = footprintBars.length > 1 ? (barMid - footprintBars[0].bucketStart) / span : 0.5;
-            const x = paddingX + t * chartWidth;
-            const openY = yForPrice(bar.open);
-            const closeY = yForPrice(bar.close);
-            const highY = yForPrice(bar.high);
-            const lowY = yForPrice(bar.low);
-
-            const bullish = bar.close >= bar.open;
-            const color = bullish ? "#34d399" : "#f87171";
-
-            context.strokeStyle = color;
-            context.beginPath();
-            context.moveTo(x, highY);
-            context.lineTo(x, lowY);
-            context.stroke();
-
-            const bodyY = Math.min(openY, closeY);
-            const bodyHeight = Math.max(Math.abs(openY - closeY), 2);
-
-            context.fillStyle = color;
-            context.fillRect(x - bodyWidth / 2, bodyY, bodyWidth, bodyHeight);
-
-            bar.cells.forEach((cell) => {
-                const cellY = yForPrice(cell.price);
-                drawCell(x, cellY, bodyWidth, cell);
-            });
-        });
-    }, [footprintBars, highlightImbalances, maxDelta, maxVolume, mode, showNumbers]);
 
     const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
 
@@ -417,7 +291,7 @@ const FootprintPageInner = () => {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-3">
-                <div className="lg:col-span-2">
+                <div className="lg:col-span-3">
                     <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20">
                         <div className="flex items-center justify-between pb-3">
                             <div>
@@ -431,12 +305,20 @@ const FootprintPageInner = () => {
                             </span>
                         </div>
                         <div className="relative h-[520px] overflow-hidden rounded-lg border border-gray-900 bg-black/20">
-                            <canvas ref={canvasRef} className="h-full w-full" />
+                            <FootprintLightweightChart
+                                candles={footprintCandles}
+                                volumeProfile={volumeProfileHistogram}
+                                domDepth={domDepthLevels}
+                                options={chartOptions}
+                            />
                         </div>
+                        {referencePrice ? (
+                            <p className="mt-2 text-xs text-gray-500">
+                                Volume profile anchored near {formatNumber(referencePrice)} (step {formatNumber(priceStep)})
+                            </p>
+                        ) : null}
                     </div>
                 </div>
-
-                <VolumeProfile levels={profileLevels} priceStep={priceStep} referencePrice={referencePrice} />
             </div>
         </div>
     );
