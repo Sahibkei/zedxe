@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ORDERFLOW_DEFAULT_SYMBOL } from "@/lib/constants";
+import { ORDERFLOW_DEFAULT_SYMBOL, ORDERFLOW_SYMBOL_CONFIGS } from "@/lib/constants";
 
 export const DEFAULT_SYMBOL = ORDERFLOW_DEFAULT_SYMBOL;
 export const MAX_TRADES = 1000;
@@ -31,11 +31,21 @@ export interface UseOrderflowStreamResult {
     error: string | null;
 }
 
-const BASE_WS_URL = "wss://stream.binance.com:9443/ws";
+const BASE_SPOT_WS_URL = "wss://stream.binance.com:9443/ws";
+const BASE_FUTURES_WS_URL = "wss://fstream.binance.com/ws";
+
+const resolveSymbolConfig = (symbol: string) => {
+    const normalized = symbol.toLowerCase();
+    return ORDERFLOW_SYMBOL_CONFIGS.find((config) => config.value === normalized);
+};
 
 const buildStreamUrl = (symbol: string) => {
+    const config = resolveSymbolConfig(symbol);
     const normalizedSymbol = symbol.toLowerCase();
-    return `${BASE_WS_URL}/${normalizedSymbol}@aggTrade`;
+    const streamSymbol = config?.streamSymbol ?? normalizedSymbol;
+    const baseUrl = config?.market === "futures" ? BASE_FUTURES_WS_URL : BASE_SPOT_WS_URL;
+
+    return `${baseUrl}/${streamSymbol}@aggTrade`;
 };
 
 const parseMessage = (event: MessageEvent): NormalizedTrade | null => {

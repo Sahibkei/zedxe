@@ -353,15 +353,28 @@ export const WATCHLIST_TABLE_HEADER = [
 ];
 
 // Orderflow defaults & presets
+export type OrderflowMarketType = 'spot' | 'futures';
+
+export interface OrderflowSymbolConfig {
+    label: string;
+    value: string;
+    exchange: 'binance';
+    market: OrderflowMarketType;
+    streamSymbol: string;
+}
+
 export const ORDERFLOW_DEFAULT_SYMBOL = 'btcusdt';
 
-export const ORDERFLOW_SYMBOL_OPTIONS = [
-    { label: 'BTCUSDT', value: 'btcusdt' },
-    { label: 'ETHUSDT', value: 'ethusdt' },
-    { label: 'SOLUSDT', value: 'solusdt' },
-    { label: 'BNBUSDT', value: 'bnbusdt' },
-    { label: 'XRPUSDT', value: 'xrpusdt' },
+export const ORDERFLOW_SYMBOL_CONFIGS: OrderflowSymbolConfig[] = [
+    { label: 'BTCUSDT', value: 'btcusdt', exchange: 'binance', market: 'spot', streamSymbol: 'btcusdt' },
+    { label: 'BTCUSDT (Futures)', value: 'btcusdt-futures', exchange: 'binance', market: 'futures', streamSymbol: 'btcusdt' },
+    { label: 'ETHUSDT', value: 'ethusdt', exchange: 'binance', market: 'spot', streamSymbol: 'ethusdt' },
+    { label: 'SOLUSDT', value: 'solusdt', exchange: 'binance', market: 'spot', streamSymbol: 'solusdt' },
+    { label: 'BNBUSDT', value: 'bnbusdt', exchange: 'binance', market: 'spot', streamSymbol: 'bnbusdt' },
+    { label: 'XRPUSDT', value: 'xrpusdt', exchange: 'binance', market: 'spot', streamSymbol: 'xrpusdt' },
 ];
+
+export const ORDERFLOW_SYMBOL_OPTIONS = ORDERFLOW_SYMBOL_CONFIGS.map(({ label, value }) => ({ label, value }));
 
 export const ORDERFLOW_WINDOW_PRESETS = [
     { label: '1m', value: 60 },
