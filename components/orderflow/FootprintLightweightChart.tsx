@@ -97,6 +97,9 @@ export default function FootprintLightweightChart({ candles, volumeProfile, domD
 
         return () => {
             resizeObserver.disconnect();
+            if (overlayCanvas.parentElement === container) {
+                container.removeChild(overlayCanvas);
+            }
             chart.remove();
             overlayRef.current = null;
             candleSeriesRef.current = null;
@@ -142,13 +145,13 @@ export default function FootprintLightweightChart({ candles, volumeProfile, domD
 
         const times = candleTimes;
         const spacingCandidates: number[] = [];
-        times.forEach((time, index) => {
-            const current = timeScale.timeToCoordinate(time);
+        for (let index = 0; index < times.length - 1; index += 1) {
+            const current = timeScale.timeToCoordinate(times[index]);
             const next = timeScale.timeToCoordinate(times[index + 1]);
             if (current !== null && next !== null) {
                 spacingCandidates.push(Math.abs(next - current));
             }
-        });
+        }
         const medianSpacing = spacingCandidates.length
             ? spacingCandidates.sort((a, b) => a - b)[Math.floor(spacingCandidates.length / 2)]
             : 12;
@@ -197,15 +200,22 @@ export default function FootprintLightweightChart({ candles, volumeProfile, domD
             : 0;
 
         const priceStep = Math.max(medianPriceStep || 0, 1) * Math.max(options.rowSizeTicks, 1);
-        const stepHeight = priceScale.priceToCoordinate(priceStep) ?? priceScale.priceToCoordinate(pricePositions[0]);
-        const zeroHeight = priceScale.priceToCoordinate(0) ?? 0;
-        const cellHeight = Math.max(Math.abs((stepHeight ?? 0) - zeroHeight), 8);
+        const referencePrice = pricePositions[0] ?? candles[0].close ?? candles[0].open ?? 0;
+        const stepHeight =
+            referencePrice !== undefined
+                ? priceScale.priceToCoordinate(referencePrice + priceStep)
+                : priceScale.priceToCoordinate(priceStep);
+        const zeroHeight = priceScale.priceToCoordinate(referencePrice) ?? 0;
+        const cellHeight = Math.max(Math.abs((stepHeight ?? zeroHeight ?? 0) - (zeroHeight ?? 0)), 8);
 
         candles.forEach((candle, index) => {
-            const x = timeScale.timeToCoordinate(Math.round(candle.time / 1000));
+            const currentTime = Math.round(candle.time / 1000);
+            const x = timeScale.timeToCoordinate(currentTime);
             if (x === null) return;
-            const nextX = timeScale.timeToCoordinate(Math.round(candles[index + 1]?.time / 1000 ?? candle.time / 1000));
-            const prevX = timeScale.timeToCoordinate(Math.round(candles[index - 1]?.time / 1000 ?? candle.time / 1000));
+            const nextTime = candles[index + 1]?.time;
+            const prevTime = candles[index - 1]?.time;
+            const nextX = typeof nextTime === "number" ? timeScale.timeToCoordinate(Math.round(nextTime / 1000)) : null;
+            const prevX = typeof prevTime === "number" ? timeScale.timeToCoordinate(Math.round(prevTime / 1000)) : null;
             const spacing =
                 nextX !== null && prevX !== null
                     ? Math.min(Math.abs(nextX - x), Math.abs(x - prevX))
@@ -300,10 +310,6 @@ export default function FootprintLightweightChart({ candles, volumeProfile, domD
         return () => {
             chartRef.current?.timeScale().unsubscribeVisibleTimeRangeChange(handleVisibleChange);
         };
-    }, [drawOverlay]);
-
-    useEffect(() => {
-        drawOverlay();
     }, [drawOverlay]);
 
     return <div ref={containerRef} className="relative h-full w-full" />;

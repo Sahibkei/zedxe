@@ -63,7 +63,7 @@ export const combineOrderbookDepth = (
     asks: OrderbookLevel[],
     maxLevels = 18,
 ): DomDepthLevel[] => {
-    const combined: DomDepthLevel[] = [];
+    const combined = new Map<number, DomDepthLevel>();
     const capped = Math.max(1, maxLevels);
 
     for (let index = 0; index < capped; index += 1) {
@@ -71,12 +71,14 @@ export const combineOrderbookDepth = (
         const ask = asks[index];
 
         if (bid) {
-            combined.push({ price: bid.price, bidSize: bid.size, askSize: 0 });
+            const existing = combined.get(bid.price) ?? { price: bid.price, bidSize: 0, askSize: 0 };
+            combined.set(bid.price, { ...existing, bidSize: existing.bidSize + bid.size });
         }
         if (ask) {
-            combined.push({ price: ask.price, bidSize: 0, askSize: ask.size });
+            const existing = combined.get(ask.price) ?? { price: ask.price, bidSize: 0, askSize: 0 };
+            combined.set(ask.price, { ...existing, askSize: existing.askSize + ask.size });
         }
     }
 
-    return combined.sort((a, b) => b.price - a.price);
+    return Array.from(combined.values()).sort((a, b) => b.price - a.price);
 };
