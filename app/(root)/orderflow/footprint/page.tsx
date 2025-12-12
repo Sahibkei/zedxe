@@ -144,7 +144,7 @@ const FootprintPageInner = () => {
             : "1m";
     }, [selectedTimeframe]);
 
-    const { latestSummary: footprintSummary } = useFootprintAggTrades({
+    const { latestSummary: footprintSummary, priceStep: ladderPriceStep, getFootprintForCandle } = useFootprintAggTrades({
         symbol: selectedSymbol,
         interval: candlestickInterval,
         windowMs: footprintWindowMs,
@@ -154,7 +154,7 @@ const FootprintPageInner = () => {
         setBucketSizeSeconds(parseTimeframeSeconds(selectedTimeframe));
     }, [selectedTimeframe]);
 
-    const priceStep = useMemo(() => {
+    const tradePriceStep = useMemo(() => {
         if (windowedTrades.length === 0) return 0;
         const inferred = inferPriceStepFromTrades(windowedTrades);
         const referencePrice = windowedTrades[windowedTrades.length - 1]?.price ?? 0;
@@ -169,13 +169,13 @@ const FootprintPageInner = () => {
             windowSeconds,
             bucketSizeSeconds,
             referenceTimestamp,
-            priceStep: priceStep || undefined,
+            priceStep: tradePriceStep || undefined,
         });
-    }, [windowedTrades, windowSeconds, bucketSizeSeconds, priceStep]);
+    }, [windowedTrades, windowSeconds, bucketSizeSeconds, tradePriceStep]);
 
     const { levels: profileLevels, referencePrice } = useMemo(
-        () => buildVolumeProfileLevels(windowedTrades, priceStep),
-        [windowedTrades, priceStep],
+        () => buildVolumeProfileLevels(windowedTrades, tradePriceStep),
+        [windowedTrades, tradePriceStep],
     );
 
     const maxVolume = useMemo(
@@ -313,12 +313,25 @@ const FootprintPageInner = () => {
                             </span>
                         </div>
                         <div className="relative h-[520px] overflow-hidden rounded-lg border border-gray-900 bg-black/20">
-                            <FootprintCandleChart symbol={selectedSymbol} interval={candlestickInterval} />
+                            <FootprintCandleChart
+                                symbol={selectedSymbol}
+                                interval={candlestickInterval}
+                                getFootprintForCandle={getFootprintForCandle}
+                                priceStep={ladderPriceStep ?? undefined}
+                                mode={mode === "Bid x Ask" ? "bidAsk" : mode === "Delta" ? "delta" : "volume"}
+                                showNumbers={showNumbers}
+                                highlightImbalances={highlightImbalances}
+                                footprintUpdateKey={
+                                    footprintSummary
+                                        ? `${footprintSummary.tSec}-${footprintSummary.buyTotal}-${footprintSummary.sellTotal}-${footprintSummary.levelsCount}`
+                                        : null
+                                }
+                            />
                         </div>
                     </div>
                 </div>
 
-                <VolumeProfile levels={profileLevels} priceStep={priceStep} referencePrice={referencePrice} />
+                <VolumeProfile levels={profileLevels} priceStep={tradePriceStep} referencePrice={referencePrice} />
             </div>
         </div>
     );

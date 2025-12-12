@@ -10,6 +10,7 @@ import type {
     UTCTimestamp,
 } from "@/utils/lightweight-charts-loader";
 import { CrosshairMode, loadLightweightCharts } from "@/utils/lightweight-charts-loader";
+import { FootprintLadderPrimitive } from "./FootprintLadderPrimitive";
 
 const INTERVAL_SECONDS: Record<string, number> = {
     "1m": 60,
@@ -23,6 +24,16 @@ const FETCH_TIMEOUT_MS = 10_000;
 interface FootprintCandleChartProps {
     symbol: string;
     interval: keyof typeof INTERVAL_SECONDS;
+    getFootprintForCandle?: (tSec: number) => {
+        levels: { price: number; bid: number; ask: number; total: number }[];
+        buyTotal: number;
+        sellTotal: number;
+    } | null;
+    priceStep?: number | null;
+    mode?: "bidAsk" | "delta" | "volume";
+    showNumbers?: boolean;
+    highlightImbalances?: boolean;
+    footprintUpdateKey?: string | number | null;
 }
 
 const fetchWithTimeout = async (url: string, { timeoutMs }: { timeoutMs: number }) => {
@@ -42,7 +53,16 @@ const trimToWindow = (candles: CandlestickData[]) => {
     return candles.filter((bar) => bar.time >= cutoffSec);
 };
 
-export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartProps) {
+export function FootprintCandleChart({
+    symbol,
+    interval,
+    getFootprintForCandle,
+    priceStep,
+    mode = "bidAsk",
+    showNumbers = true,
+    highlightImbalances = false,
+    footprintUpdateKey,
+}: FootprintCandleChartProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const chartRef = useRef<IChartApi | null>(null);
     const seriesRef = useRef<ISeriesApi | null>(null);
@@ -50,6 +70,8 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
     const websocketRef = useRef<WebSocket | null>(null);
     const candlesRef = useRef<CandlestickData[]>([]);
     const followLiveRef = useRef(true);
+    const ladderPrimitiveRef = useRef<FootprintLadderPrimitive | null>(null);
+    const [chartReadyToken, setChartReadyToken] = useState(0);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -100,6 +122,7 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
                 wickDownColor: "#f87171",
             });
             seriesRef.current = series;
+            setChartReadyToken((token) => token + 1);
 
             const applyResize = () => {
                 const { width, height } = container.getBoundingClientRect();
@@ -249,12 +272,67 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
             resizeObserverRef.current?.disconnect();
             resizeObserverRef.current = null;
 
+            if (ladderPrimitiveRef.current && chartRef.current) {
+                (chartRef.current as any).removePrimitive?.(ladderPrimitiveRef.current);
+            }
+            ladderPrimitiveRef.current = null;
+
             chartRef.current?.remove();
             chartRef.current = null;
             seriesRef.current = null;
             candlesRef.current = [];
         };
     }, [symbol, interval]);
+
+    useEffect(() => {
+        const chart = chartRef.current as any;
+        const series = seriesRef.current as any;
+        if (!chart || !series || !getFootprintForCandle || !priceStep || priceStep <= 0) return;
+
+        const primitive = new FootprintLadderPrimitive({
+            chart,
+            series,
+            getFootprintForCandle,
+            getCandles: () => candlesRef.current,
+            priceStep,
+            mode,
+            showNumbers,
+            highlightImbalances,
+        });
+
+        chart.addPrimitive?.(primitive);
+        ladderPrimitiveRef.current = primitive;
+
+        return () => {
+            if (chart?.removePrimitive) {
+                chart.removePrimitive(primitive);
+            }
+            if (ladderPrimitiveRef.current === primitive) {
+                ladderPrimitiveRef.current = null;
+            }
+        };
+    }, [chartReadyToken, getFootprintForCandle, priceStep]);
+
+    useEffect(() => {
+        const primitive = ladderPrimitiveRef.current;
+        if (!primitive) return;
+
+        const updates: Record<string, unknown> = {
+            mode,
+            showNumbers,
+            highlightImbalances,
+        };
+        if (priceStep && priceStep > 0) {
+            updates.priceStep = priceStep;
+        }
+
+        primitive.updateOptions(updates as any);
+    }, [mode, showNumbers, highlightImbalances, priceStep]);
+
+    useEffect(() => {
+        if (!footprintUpdateKey) return;
+        ladderPrimitiveRef.current?.invalidate();
+    }, [footprintUpdateKey]);
 
     const goLive = () => {
         followLiveRef.current = true;
