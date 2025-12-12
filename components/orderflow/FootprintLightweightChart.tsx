@@ -168,7 +168,8 @@ export default function FootprintLightweightChart({
 
     useEffect(() => {
         const candleSeries = candleSeriesRef.current;
-        if (!candleSeries) return;
+        const chart = chartRef.current;
+        if (!candleSeries || !chart) return;
 
         candleSeries.setData(
             candles.map((candle) => ({
@@ -179,6 +180,7 @@ export default function FootprintLightweightChart({
                 close: candle.close,
             })),
         );
+        chart.timeScale().fitContent();
     }, [candles]);
 
     useEffect(() => {

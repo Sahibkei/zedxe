@@ -19,6 +19,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { ORDERFLOW_DEFAULT_SYMBOL, ORDERFLOW_SYMBOL_OPTIONS } from "@/lib/constants";
+import { fetchHistoricalTrades } from "@/lib/orderflow/fetchHistoricalTrades";
 import { combineOrderbookDepth, mapFootprintBarsToCandles, mapVolumeProfileToHistogram } from "@/lib/orderflow/lightweightFeed";
 import { useOrderbookStream } from "@/hooks/useOrderbookStream";
 import { NormalizedTrade, useOrderflowStream } from "@/hooks/useOrderflowStream";
@@ -126,32 +127,65 @@ const FootprintPageInner = () => {
     const bucketSizeSeconds = TIMEFRAME_SECONDS[timeframe];
     const targetWindowSeconds = TIMEFRAME_SECONDS[timeframe] * MAX_CANDLES[timeframe];
 
-    const { windowedTrades } = useOrderflowStream({ symbol: selectedSymbol, windowSeconds: targetWindowSeconds });
+    const { windowedTrades: liveWindowedTrades } = useOrderflowStream({ symbol: selectedSymbol, windowSeconds: targetWindowSeconds });
     const { bids, asks } = useOrderbookStream(selectedSymbol, 24);
+    const [historicalTrades, setHistoricalTrades] = useState<NormalizedTrade[]>([]);
+    const [loadingHistory, setLoadingHistory] = useState(false);
 
     const handleRenderError = useCallback((error: Error) => {
         console.error("Footprint chart fatal render error", error);
         setRenderError(error);
     }, []);
 
+    useEffect(() => {
+        let cancelled = false;
+        setLoadingHistory(true);
+        setHistoricalTrades([]);
+
+        fetchHistoricalTrades(selectedSymbol, targetWindowSeconds)
+            .then((trades) => {
+                if (cancelled) return;
+                setHistoricalTrades(trades);
+            })
+            .catch((error) => {
+                if (cancelled) return;
+                console.error("[Footprint] Failed to fetch historical trades", error);
+            })
+            .finally(() => {
+                if (cancelled) return;
+                setLoadingHistory(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedSymbol, targetWindowSeconds]);
+
+    const combinedTrades = useMemo(() => {
+        const cutoff = Date.now() - targetWindowSeconds * 1000;
+        const merged = [...historicalTrades, ...liveWindowedTrades];
+        const sorted = merged.sort((a, b) => a.timestamp - b.timestamp);
+        return sorted.filter((trade) => trade.timestamp >= cutoff);
+    }, [historicalTrades, liveWindowedTrades, targetWindowSeconds]);
+
     const priceStep = useMemo(() => {
-        if (windowedTrades.length === 0) return 0;
-        const inferred = inferPriceStepFromTrades(windowedTrades);
-        const referencePrice = windowedTrades[windowedTrades.length - 1]?.price ?? 0;
+        if (combinedTrades.length === 0) return 0;
+        const inferred = inferPriceStepFromTrades(combinedTrades);
+        const referencePrice = combinedTrades[combinedTrades.length - 1]?.price ?? 0;
         const fallback = referencePrice > 0 ? Math.max(referencePrice * 0.0005, 0.01) : 0;
         return inferred > 0 ? inferred : fallback;
-    }, [windowedTrades]);
+    }, [combinedTrades]);
 
     const footprintBars = useMemo<FootprintBar[]>(() => {
-        if (windowedTrades.length === 0) return [];
+        if (combinedTrades.length === 0) return [];
         const referenceTimestamp = Date.now();
-        return buildFootprintBars(windowedTrades, {
+        return buildFootprintBars(combinedTrades, {
             windowSeconds: targetWindowSeconds,
             bucketSizeSeconds,
             referenceTimestamp,
             priceStep: priceStep || undefined,
         });
-    }, [bucketSizeSeconds, priceStep, targetWindowSeconds, windowedTrades]);
+    }, [bucketSizeSeconds, combinedTrades, priceStep, targetWindowSeconds]);
 
     const footprintCandles = useMemo(() => {
         const candles = mapFootprintBarsToCandles(footprintBars);
@@ -169,8 +203,8 @@ const FootprintPageInner = () => {
     );
 
     const { levels: profileLevels, referencePrice } = useMemo(
-        () => buildVolumeProfileLevels(windowedTrades, priceStep),
-        [windowedTrades, priceStep],
+        () => buildVolumeProfileLevels(combinedTrades, priceStep),
+        [combinedTrades, priceStep],
     );
 
     const volumeProfileHistogram = useMemo(() => mapVolumeProfileToHistogram(profileLevels), [profileLevels]);
@@ -331,6 +365,9 @@ const FootprintPageInner = () => {
                                 Footprint chart failed to render fully; check console for details. The chart will attempt to continue showing
                                 available data.
                             </p>
+                        ) : null}
+                        {loadingHistory ? (
+                            <p className="mt-2 text-xs text-gray-500">Loading last {windowMinutes} minutes of trades…</p>
                         ) : null}
                         {referencePrice ? (
                             <p className="mt-2 text-xs text-gray-500">
