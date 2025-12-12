@@ -10,6 +10,7 @@ import Link from "next/link";
 import VolumeProfile, { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
 import { FootprintCandleChart } from "@/app/(root)/orderflow/_components/FootprintCandleChart";
 import { buildFootprintBars, FootprintBar, inferPriceStepFromTrades } from "@/app/(root)/orderflow/_utils/footprint";
+import { useFootprintAggTrades } from "@/app/(root)/orderflow/_components/useFootprintAggTrades";
 import { Button } from "@/components/ui/button";
 import {
     Select,
@@ -125,6 +126,7 @@ const buildVolumeProfileLevels = (
 const FootprintPageInner = () => {
     const defaultWindowSeconds = ORDERFLOW_WINDOW_PRESETS[1]?.value ?? ORDERFLOW_WINDOW_PRESETS[0].value;
     const defaultBucketSeconds = ORDERFLOW_BUCKET_PRESETS[1]?.value ?? ORDERFLOW_BUCKET_PRESETS[0].value;
+    const footprintWindowMs = 2 * 60 * 60 * 1000;
 
     const [selectedSymbol, setSelectedSymbol] = useState<string>(ORDERFLOW_DEFAULT_SYMBOL);
     const [windowSeconds, setWindowSeconds] = useState<number>(defaultWindowSeconds);
@@ -141,6 +143,12 @@ const FootprintPageInner = () => {
             ? selectedTimeframe
             : "1m";
     }, [selectedTimeframe]);
+
+    const { latestSummary: footprintSummary } = useFootprintAggTrades({
+        symbol: selectedSymbol,
+        interval: candlestickInterval,
+        windowMs: footprintWindowMs,
+    });
 
     useEffect(() => {
         setBucketSizeSeconds(parseTimeframeSeconds(selectedTimeframe));
@@ -292,6 +300,13 @@ const FootprintPageInner = () => {
                                 <h3 className="text-lg font-semibold text-white">
                                     {selectedSymbol.toUpperCase()} · {mode}
                                 </h3>
+                                <p className="text-xs text-gray-400">
+                                    Footprint (live): BUY {footprintSummary?.buyTotal.toFixed(2) ?? "0.00"} / SELL
+                                    {" "}
+                                    {footprintSummary?.sellTotal.toFixed(2) ?? "0.00"} · levels
+                                    {" "}
+                                    {footprintSummary?.levelsCount ?? 0}
+                                </p>
                             </div>
                             <span className="rounded-full bg-gray-800 px-3 py-1 text-xs text-gray-300">
                                 {footprintBars.length} buckets · {windowSeconds}s window
