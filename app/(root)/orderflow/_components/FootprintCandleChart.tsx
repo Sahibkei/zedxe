@@ -2,15 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import {
+import type {
     CandlestickData,
-    CrosshairMode,
     IChartApi,
     ISeriesApi,
     LogicalRange,
     UTCTimestamp,
-    loadLightweightCharts,
 } from "@/utils/lightweight-charts-loader";
+import { CrosshairMode, loadLightweightCharts } from "@/utils/lightweight-charts-loader";
 
 const INTERVAL_SECONDS: Record<string, number> = {
     "1m": 60,
@@ -19,18 +18,28 @@ const INTERVAL_SECONDS: Record<string, number> = {
 };
 
 const WINDOW_MS = 2 * 60 * 60 * 1000;
+const FETCH_TIMEOUT_MS = 10_000;
 
 interface FootprintCandleChartProps {
     symbol: string;
     interval: keyof typeof INTERVAL_SECONDS;
 }
 
-const trimToWindow = (candles: CandlestickData[], interval: keyof typeof INTERVAL_SECONDS) => {
+const fetchWithTimeout = async (url: string, { timeoutMs }: { timeoutMs: number }) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        return response;
+    } finally {
+        clearTimeout(timeoutId);
+    }
+};
+
+const trimToWindow = (candles: CandlestickData[]) => {
     if (!candles.length) return candles;
-    const cutoff = (Date.now() - WINDOW_MS) / 1000;
-    const maxBars = Math.ceil(WINDOW_MS / (INTERVAL_SECONDS[interval] * 1000));
-    const filtered = candles.filter((bar) => bar.time >= cutoff);
-    return filtered.slice(-maxBars);
+    const cutoffSec = (Date.now() - WINDOW_MS) / 1000;
+    return candles.filter((bar) => bar.time >= cutoffSec);
 };
 
 export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartProps) {
@@ -42,25 +51,26 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
     const candlesRef = useRef<CandlestickData[]>([]);
     const followLiveRef = useRef(true);
 
-    const [candles, setCandles] = useState<CandlestickData[]>([]);
-    const [loading, setLoading] = useState<boolean>(true);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [followLive, setFollowLive] = useState(true);
-    const [chartReady, setChartReady] = useState(false);
 
     useEffect(() => {
         followLiveRef.current = followLive;
-        if (followLive) {
-            chartRef.current?.timeScale().scrollToRealTime();
-        }
     }, [followLive]);
 
     useEffect(() => {
         let disposed = false;
+        let rangeSubscription: ((range: LogicalRange) => void) | null = null;
 
-        const setupChart = async () => {
+        const setup = async () => {
+            setLoading(true);
+            setError(null);
+            setFollowLive(true);
+            followLiveRef.current = true;
+
             const container = containerRef.current;
-            if (!container || disposed) return;
+            if (!container) return;
 
             const { createChart } = await loadLightweightCharts();
             if (disposed) return;
@@ -70,21 +80,16 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
                     background: { color: "transparent" },
                     textColor: "#e5e7eb",
                 },
-                rightPriceScale: {
-                    borderVisible: false,
-                },
-                timeScale: {
-                    borderVisible: false,
-                    secondsVisible: interval === "1m",
-                },
-                crosshair: {
-                    mode: CrosshairMode.Normal,
-                },
+                rightPriceScale: { borderVisible: false },
+                timeScale: { borderVisible: false, secondsVisible: interval === "1m" },
+                crosshair: { mode: CrosshairMode.Normal },
                 grid: {
                     vertLines: { color: "rgba(255,255,255,0.04)" },
                     horzLines: { color: "rgba(255,255,255,0.06)" },
                 },
             });
+
+            chartRef.current = chart;
 
             const series = chart.addCandlestickSeries({
                 upColor: "#34d399",
@@ -94,83 +99,52 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
                 wickUpColor: "#34d399",
                 wickDownColor: "#f87171",
             });
-
-            chartRef.current = chart;
             seriesRef.current = series;
 
-            resizeObserverRef.current = new ResizeObserver((entries) => {
-                for (const entry of entries) {
-                    const { width, height } = entry.contentRect;
-                    chart.applyOptions({ width, height });
-                }
-            });
+            const applyResize = () => {
+                const { width, height } = container.getBoundingClientRect();
+                chart.applyOptions({ width: Math.max(width, 0), height: Math.max(height, 0) });
+            };
 
+            applyResize();
+            resizeObserverRef.current = new ResizeObserver(() => applyResize());
             resizeObserverRef.current.observe(container);
-            setChartReady(true);
-        };
 
-        setupChart();
+            rangeSubscription = (range: LogicalRange) => {
+                if (!range || !candlesRef.current.length) return;
+                const lastIndex = candlesRef.current.length - 1;
+                if (range.to < lastIndex - 0.5 && followLiveRef.current) {
+                    followLiveRef.current = false;
+                    setFollowLive(false);
+                }
+            };
 
-        return () => {
-            disposed = true;
-            websocketRef.current?.close();
-            resizeObserverRef.current?.disconnect();
-            chartRef.current?.remove();
-            chartRef.current = null;
-            seriesRef.current = null;
-            setChartReady(false);
-        };
-    }, []);
+            chart.timeScale().subscribeVisibleLogicalRangeChange(rangeSubscription);
 
-    useEffect(() => {
-        const handleRangeChange = (range: LogicalRange) => {
-            if (!range || !candlesRef.current.length) return;
-            const lastIndex = candlesRef.current.length - 1;
-            if (followLiveRef.current && range.to < lastIndex - 0.5) {
-                setFollowLive(false);
-            }
-        };
-
-        const chart = chartRef.current;
-        const scale = chart?.timeScale();
-        if (!chart || !scale) return;
-
-        scale.subscribeVisibleLogicalRangeChange(handleRangeChange);
-
-        return () => scale.unsubscribeVisibleLogicalRangeChange(handleRangeChange);
-    }, [chartReady, interval]);
-
-    useEffect(() => {
-        if (!chartReady) return;
-
-        let cancelled = false;
-
-        const backfillHistory = async () => {
-            setLoading(true);
-            setError(null);
+            const endTime = Date.now();
+            const startTime = endTime - WINDOW_MS;
+            const params = new URLSearchParams({
+                symbol: symbol.toUpperCase(),
+                interval,
+                startTime: String(startTime),
+                endTime: String(endTime),
+            });
+            const urls = [
+                `https://api.binance.com/api/v3/klines?${params.toString()}`,
+                `https://data-api.binance.vision/api/v3/klines?${params.toString()}`,
+            ];
 
             try {
-                const endTime = Date.now();
-                const startTime = endTime - WINDOW_MS;
-                const params = new URLSearchParams({
-                    symbol: symbol.toUpperCase(),
-                    interval,
-                    startTime: String(startTime),
-                    endTime: String(endTime),
-                });
-                const urls = [
-                    `https://api.binance.com/api/v3/klines?${params.toString()}`,
-                    `https://data-api.binance.vision/api/v3/klines?${params.toString()}`,
-                ];
-
-                let klines: unknown[] = [];
+                let klines: unknown[] | null = null;
                 let lastError: Error | null = null;
+
                 for (const url of urls) {
                     try {
-                        const response = await fetch(url);
+                        const response = await fetchWithTimeout(url, { timeoutMs: FETCH_TIMEOUT_MS });
                         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                        klines = await response.json();
-                        if (!Array.isArray(klines)) throw new Error("Invalid kline response");
+                        const json = await response.json();
+                        if (!Array.isArray(json)) throw new Error("Invalid kline response");
+                        klines = json;
                         lastError = null;
                         break;
                     } catch (error) {
@@ -178,7 +152,11 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
                     }
                 }
 
-                if (lastError) throw lastError;
+                if (disposed) return;
+
+                if (!klines) {
+                    throw lastError ?? new Error("Failed to load klines");
+                }
 
                 const parsed: CandlestickData[] = klines.map((kline) => {
                     const [openTime, open, high, low, close] = kline as [number, string, string, string, string];
@@ -191,91 +169,101 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
                     } satisfies CandlestickData;
                 });
 
-                const trimmed = trimToWindow(parsed, interval);
-                if (cancelled) return;
-
+                const trimmed = trimToWindow(parsed);
                 candlesRef.current = trimmed;
-                setCandles(trimmed);
-                seriesRef.current?.setData(trimmed);
-                setLoading(false);
+                series.setData(trimmed);
+                setFollowLive(true);
                 if (followLiveRef.current) {
-                    chartRef.current?.timeScale().scrollToRealTime();
+                    chart.timeScale().scrollToRealTime();
                 }
             } catch (error) {
-                if (cancelled) return;
-                console.error("Failed to load klines", error);
-                setError("Failed to load recent candles. Please try again.");
-                setLoading(false);
+                if (!disposed) {
+                    console.error("Failed to load klines", error);
+                    setError("Failed to load recent candles. Please try again.");
+                }
+            } finally {
+                if (!disposed) {
+                    setLoading(false);
+                }
             }
-        };
 
-        backfillHistory();
+            if (disposed) return;
 
-        return () => {
-            cancelled = true;
-            setCandles([]);
-            candlesRef.current = [];
-            websocketRef.current?.close();
-        };
-    }, [chartReady, interval, symbol]);
+            const stream = `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`;
+            const socket = new WebSocket(stream);
+            websocketRef.current = socket;
 
-    useEffect(() => {
-        if (!candles.length || !seriesRef.current) return;
+            socket.onmessage = (event) => {
+                try {
+                    const parsed = JSON.parse(event.data);
+                    const kline = parsed?.k;
+                    if (!kline) return;
 
-        websocketRef.current?.close();
-        const stream = `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`;
-        const socket = new WebSocket(stream);
-        websocketRef.current = socket;
+                    const openTime: UTCTimestamp = Math.floor(kline.t / 1000);
+                    const nextBar: CandlestickData = {
+                        time: openTime,
+                        open: Number(kline.o),
+                        high: Number(kline.h),
+                        low: Number(kline.l),
+                        close: Number(kline.c),
+                    };
 
-        socket.onmessage = (event) => {
-            try {
-                const parsed = JSON.parse(event.data);
-                const kline = parsed?.k;
-                if (!kline) return;
-
-                const openTime: UTCTimestamp = Math.floor(kline.t / 1000);
-                const nextBar: CandlestickData = {
-                    time: openTime,
-                    open: Number(kline.o),
-                    high: Number(kline.h),
-                    low: Number(kline.l),
-                    close: Number(kline.c),
-                };
-
-                setCandles((prev) => {
-                    const updated = [...prev];
-                    if (updated.length && updated[updated.length - 1]?.time === nextBar.time) {
+                    const updated = [...candlesRef.current];
+                    const last = updated[updated.length - 1];
+                    if (last && last.time === nextBar.time) {
                         updated[updated.length - 1] = nextBar;
-                        seriesRef.current?.update(nextBar);
                     } else {
                         updated.push(nextBar);
-                        seriesRef.current?.update(nextBar);
                     }
-                    const trimmed = trimToWindow(updated, interval);
+
+                    const trimmed = trimToWindow(updated);
+                    const trimmedChanged = trimmed.length !== updated.length;
                     candlesRef.current = trimmed;
-                    if (trimmed.length !== updated.length) {
-                        seriesRef.current?.setData(trimmed);
+
+                    if (trimmedChanged) {
+                        series.setData(trimmed);
+                    } else if (updated.length === trimmed.length) {
+                        series.update(nextBar);
                     }
+
                     if (followLiveRef.current) {
-                        chartRef.current?.timeScale().scrollToRealTime();
+                        chart.timeScale().scrollToRealTime();
                     }
-                    return trimmed;
-                });
-            } catch (error) {
-                console.error("Failed to process kline", error);
-            }
+                } catch (err) {
+                    console.error("Failed to process kline", err);
+                }
+            };
         };
 
-        return () => socket.close();
-    }, [candles.length, chartReady, interval, symbol]);
+        setup();
+
+        return () => {
+            disposed = true;
+            websocketRef.current?.close();
+            websocketRef.current = null;
+
+            if (rangeSubscription && chartRef.current) {
+                chartRef.current.timeScale().unsubscribeVisibleLogicalRangeChange(rangeSubscription);
+            }
+
+            resizeObserverRef.current?.disconnect();
+            resizeObserverRef.current = null;
+
+            chartRef.current?.remove();
+            chartRef.current = null;
+            seriesRef.current = null;
+            candlesRef.current = [];
+        };
+    }, [symbol, interval]);
 
     const goLive = () => {
+        followLiveRef.current = true;
         setFollowLive(true);
         chartRef.current?.timeScale().scrollToRealTime();
     };
 
     return (
-        <div className="relative h-[520px] overflow-hidden rounded-lg border border-gray-900 bg-black/20">
+        <div className="relative h-full w-full">
             <div ref={containerRef} className="h-full w-full" />
             {loading && (
                 <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-300">

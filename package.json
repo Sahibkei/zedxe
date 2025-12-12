@@ -31,7 +31,7 @@
     "nodemailer": "^7.0.10",
     "openai": "^6.9.1",
     "recharts": "^2.15.4",
-    "lightweight-charts": "^4.2.0",
+    "lightweight-charts": "4.2.0",
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "react-hook-form": "^7.66.1",

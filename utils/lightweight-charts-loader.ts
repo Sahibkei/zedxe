@@ -35,9 +35,6 @@ export enum CrosshairMode {
     Hidden = 2,
 }
 
-const chartsModulePromise = import(
-    /* webpackIgnore: true */
-    "https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.esm.production.js"
-);
+const chartsModulePromise = import("lightweight-charts");
 
 export const loadLightweightCharts = async () => chartsModulePromise;
