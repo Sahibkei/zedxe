@@ -1,9 +1,9 @@
 "use client";
 
 // NOTE: Rewritten in Phase 4 stabilisation to avoid client-side crashes.
-// Simplified footprint view (no drag pan/zoom) plus local error boundary.
+// Simplified footprint view (no drag pan/zoom) with scoped render error handling.
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import Link from "next/link";
 
@@ -42,36 +42,6 @@ const parseTimeframeSeconds = (value: TimeframeOption): number => {
     if (!Number.isFinite(numeric)) return 15;
     return unit === "m" ? numeric * 60 : numeric;
 };
-
-class FootprintErrorBoundary extends React.Component<
-    { children: React.ReactNode },
-    { error: Error | null }
-> {
-    constructor(props: { children: React.ReactNode }) {
-        super(props);
-        this.state = { error: null };
-    }
-
-    static getDerivedStateFromError(error: Error) {
-        return { error };
-    }
-
-    componentDidCatch(error: Error, info: React.ErrorInfo) {
-        console.error("FootprintPage error", error, info);
-    }
-
-    render() {
-        if (this.state.error) {
-            return (
-                <div className="flex h-full items-center justify-center text-sm text-red-400">
-                    Footprint chart failed to render. Please reload the page or try again later.
-                </div>
-            );
-        }
-
-        return this.props.children;
-    }
-}
 
 const buildVolumeProfileLevels = (
     trades: NormalizedTrade[],
@@ -129,6 +99,9 @@ const FootprintPageInner = () => {
     const defaultWindowSeconds = ORDERFLOW_WINDOW_PRESETS[1]?.value ?? ORDERFLOW_WINDOW_PRESETS[0].value;
     const defaultBucketSeconds = ORDERFLOW_BUCKET_PRESETS[1]?.value ?? ORDERFLOW_BUCKET_PRESETS[0].value;
 
+    // renderError is only set when Lightweight Charts itself fails to initialise; overlays log errors to the console.
+    const [renderError, setRenderError] = useState<Error | null>(null);
+
     const [selectedSymbol, setSelectedSymbol] = useState<string>(ORDERFLOW_DEFAULT_SYMBOL);
     const [windowSeconds, setWindowSeconds] = useState<number>(defaultWindowSeconds);
     const [selectedTimeframe, setSelectedTimeframe] = useState<TimeframeOption>("15s");
@@ -143,6 +116,11 @@ const FootprintPageInner = () => {
     useEffect(() => {
         setBucketSizeSeconds(parseTimeframeSeconds(selectedTimeframe));
     }, [selectedTimeframe]);
+
+    const handleRenderError = useCallback((error: Error) => {
+        console.error("Footprint chart fatal render error", error);
+        setRenderError(error);
+    }, []);
 
     const priceStep = useMemo(() => {
         if (windowedTrades.length === 0) return 0;
@@ -310,8 +288,15 @@ const FootprintPageInner = () => {
                                 volumeProfile={volumeProfileHistogram}
                                 domDepth={domDepthLevels}
                                 options={chartOptions}
+                                onRenderError={handleRenderError}
                             />
                         </div>
+                        {renderError ? (
+                            <p className="mt-2 text-xs text-red-400">
+                                Footprint chart failed to render fully; check console for details. The chart will attempt to continue showing
+                                available data.
+                            </p>
+                        ) : null}
                         {referencePrice ? (
                             <p className="mt-2 text-xs text-gray-500">
                                 Volume profile anchored near {formatNumber(referencePrice)} (step {formatNumber(priceStep)})
@@ -325,10 +310,6 @@ const FootprintPageInner = () => {
 };
 
 export default function FootprintPage() {
-    return (
-        <FootprintErrorBoundary>
-            <FootprintPageInner />
-        </FootprintErrorBoundary>
-    );
+    return <FootprintPageInner />;
 }
 
