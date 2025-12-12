@@ -37,6 +37,7 @@ type FootprintMode = (typeof MODE_OPTIONS)[number];
 type ScaleMode = (typeof SCALE_OPTIONS)[number];
 type NumbersLayout = "overlay" | "side";
 type RowSizeMode = "atr" | "tick" | "custom";
+type CandleSize = "compact" | "normal" | "wide";
 type TimeframeOption = (typeof TIMEFRAME_OPTIONS)[number];
 
 const parseTimeframeSeconds = (value: TimeframeOption): number => {
@@ -108,6 +109,7 @@ const renderFootprint = (
     numbersLayout: NumbersLayout,
     highlightImbalances: boolean,
     colorScale: ScaleMode,
+    candleSize: CandleSize,
 ) => {
     const context = canvas.getContext("2d");
     if (!context) return;
@@ -147,8 +149,9 @@ const renderFootprint = (
     const pixelsPerTick = chartHeight / tickRange;
     const cellHeight = Math.max(pixelsPerTick * snapshot.rowSizeTicks, 8);
 
+    const sizeMultiplier = candleSize === "compact" ? 0.8 : candleSize === "wide" ? 1.2 : 1;
     const spacing = chartWidth / Math.max(snapshot.bars.length, 1);
-    const bodyWidth = Math.max(spacing * 0.65, 6);
+    const bodyWidth = Math.max(spacing * 0.65 * sizeMultiplier, 6);
 
     const yForPrice = (price: number) => {
         const ticks = priceToTicks(price, snapshot.tickConfig);
@@ -247,7 +250,7 @@ const renderFootprint = (
         context.fillStyle = candleColor;
         context.fillRect(x - bodyWidth / 2, bodyY, bodyWidth, bodyHeight);
 
-        const sidePanelWidth = numbersLayout === "side" && showNumbers ? Math.min(spacing * 0.35, 64) : 0;
+        const sidePanelWidth = numbersLayout === "side" && showNumbers ? Math.min(spacing * 0.35 * sizeMultiplier, 72) : 0;
         const sidePanelX = numbersLayout === "side" && showNumbers ? x + bodyWidth / 2 + 6 : x;
 
         if (numbersLayout === "side" && showNumbers && bar.cells.length) {
@@ -314,6 +317,7 @@ const FootprintPageInner = () => {
     const [numbersLayout, setNumbersLayout] = useState<NumbersLayout>("side");
     const [rowSizeMode, setRowSizeMode] = useState<RowSizeMode>("atr");
     const [customRowTicks, setCustomRowTicks] = useState<number>(4);
+    const [candleSize, setCandleSize] = useState<CandleSize>("normal");
     const [highlightImbalances, setHighlightImbalances] = useState(true);
     const [colorScale, setColorScale] = useState<ScaleMode>("Log");
 
@@ -348,8 +352,17 @@ const FootprintPageInner = () => {
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        renderFootprint(canvas, snapshot, mode, showNumbers, numbersLayout, highlightImbalances, colorScale);
-    }, [snapshot, mode, showNumbers, numbersLayout, highlightImbalances, colorScale]);
+        renderFootprint(
+            canvas,
+            snapshot,
+            mode,
+            showNumbers,
+            numbersLayout,
+            highlightImbalances,
+            colorScale,
+            candleSize,
+        );
+    }, [snapshot, mode, showNumbers, numbersLayout, highlightImbalances, colorScale, candleSize]);
 
     const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
 
@@ -483,35 +496,83 @@ const FootprintPageInner = () => {
                             Highlight imbalances
                         </label>
                         <div className="flex flex-wrap items-center gap-2 rounded-md border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-200">
-                            <span className="text-xs uppercase tracking-wide text-gray-500">Row size</span>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-xs uppercase tracking-wide text-gray-500">Row size</span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {([
+                                        { label: "ATR Auto", value: "atr" },
+                                        { label: "Tick (1)", value: "tick" },
+                                        { label: "Custom", value: "custom" },
+                                    ] as { label: string; value: RowSizeMode }[]).map((option) => (
+                                        <Button
+                                            key={option.value}
+                                            size="sm"
+                                            variant={option.value === rowSizeMode ? "default" : "ghost"}
+                                            className={cn(
+                                                "min-w-[3.5rem]",
+                                                option.value === rowSizeMode && "bg-emerald-600 text-white",
+                                            )}
+                                            onClick={() => setRowSizeMode(option.value)}
+                                        >
+                                            {option.label}
+                                        </Button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-xs uppercase tracking-wide text-gray-500">Ticks per row</span>
+                                <div className="flex items-center gap-2">
+                                    {[1, 2, 4, 6, 8].map((preset) => (
+                                        <Button
+                                            key={preset}
+                                            size="sm"
+                                            variant={customRowTicks === preset && rowSizeMode === "custom" ? "default" : "ghost"}
+                                            className={cn(
+                                                "min-w-[2.5rem]",
+                                                customRowTicks === preset && rowSizeMode === "custom" && "bg-emerald-600 text-white",
+                                            )}
+                                            onClick={() => {
+                                                setRowSizeMode("custom");
+                                                setCustomRowTicks(preset);
+                                            }}
+                                        >
+                                            {preset}
+                                        </Button>
+                                    ))}
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        step={1}
+                                        value={customRowTicks}
+                                        onChange={(event) => {
+                                            setRowSizeMode("custom");
+                                            setCustomRowTicks(Number(event.target.value) || 1);
+                                        }}
+                                        className="h-9 w-20 rounded border border-gray-700 bg-gray-800 px-2 text-sm text-white outline-none"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 rounded-md border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-200">
+                            <span className="text-xs uppercase tracking-wide text-gray-500">Candle size</span>
                             {([
-                                { label: "ATR Auto", value: "atr" },
-                                { label: "Tick", value: "tick" },
-                                { label: "Custom", value: "custom" },
-                            ] as { label: string; value: RowSizeMode }[]).map((option) => (
+                                { label: "Compact", value: "compact" },
+                                { label: "Normal", value: "normal" },
+                                { label: "Wide", value: "wide" },
+                            ] as { label: string; value: CandleSize }[]).map((option) => (
                                 <Button
                                     key={option.value}
                                     size="sm"
-                                    variant={option.value === rowSizeMode ? "default" : "ghost"}
+                                    variant={option.value === candleSize ? "default" : "ghost"}
                                     className={cn(
-                                        "min-w-[3.5rem]",
-                                        option.value === rowSizeMode && "bg-emerald-600 text-white",
+                                        "min-w-[3.25rem]",
+                                        option.value === candleSize && "bg-emerald-600 text-white",
                                     )}
-                                    onClick={() => setRowSizeMode(option.value)}
+                                    onClick={() => setCandleSize(option.value)}
                                 >
                                     {option.label}
                                 </Button>
                             ))}
-                            {rowSizeMode === "custom" && (
-                                <input
-                                    type="number"
-                                    min={1}
-                                    step={1}
-                                    value={customRowTicks}
-                                    onChange={(event) => setCustomRowTicks(Number(event.target.value) || 1)}
-                                    className="h-9 w-20 rounded border border-gray-700 bg-gray-800 px-2 text-sm text-white outline-none"
-                                />
-                            )}
                         </div>
                         <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
                             Row size: {snapshot.rowSizeTicks} ticks ({rowSizeMode.toUpperCase()}) · Precision {snapshot.tickConfig.priceDecimals} dp
