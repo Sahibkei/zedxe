@@ -123,6 +123,8 @@ const FootprintPageInner = () => {
     const [highlightImbalances, setHighlightImbalances] = useState(true);
     const [showMa9, setShowMa9] = useState(true);
     const [showMa21, setShowMa21] = useState(true);
+    const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+    const [goLatestSignal, setGoLatestSignal] = useState(0);
 
     const bucketSizeSeconds = TIMEFRAME_SECONDS[timeframe];
     const targetWindowSeconds = TIMEFRAME_SECONDS[timeframe] * MAX_CANDLES[timeframe];
@@ -331,6 +333,24 @@ const FootprintPageInner = () => {
                             />
                             MA 21
                         </label>
+                        <Button
+                            size="sm"
+                            variant={autoScrollEnabled ? "default" : "outline"}
+                            className="ml-auto"
+                            onClick={() => setAutoScrollEnabled((prev) => !prev)}
+                        >
+                            {autoScrollEnabled ? "Auto-scroll: On" : "Auto-scroll: Off"}
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                                setGoLatestSignal((value) => value + 1);
+                                setAutoScrollEnabled(true);
+                            }}
+                        >
+                            Go to latest
+                        </Button>
                     </div>
                 </div>
             </div>
@@ -356,8 +376,12 @@ const FootprintPageInner = () => {
                                 domDepth={domDepthLevels}
                                 ma9={ma9}
                                 ma21={ma21}
+                                timeframe={timeframe}
                                 options={chartOptions}
+                                autoScrollEnabled={autoScrollEnabled}
+                                goToLatestSignal={goLatestSignal}
                                 onRenderError={handleRenderError}
+                                onAutoScrollChange={setAutoScrollEnabled}
                             />
                         </div>
                         {renderError ? (

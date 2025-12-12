@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { createChart, IChartApi, ISeriesApi, PriceScaleMode, Time } from "lightweight-charts";
+import { createChart, IChartApi, ISeriesApi, LogicalRange, PriceScaleMode, Time } from "lightweight-charts";
 
 import { DomDepthLevel, FootprintCandle, VolumeProfileDatum } from "@/lib/orderflow/lightweightFeed";
 
@@ -12,6 +12,7 @@ export interface FootprintLightweightChartProps {
     domDepth: DomDepthLevel[];
     ma9?: Array<{ time: number; value: number }>;
     ma21?: Array<{ time: number; value: number }>;
+    timeframe?: "1m" | "5m" | "15m";
     options: {
         mode: "bid-ask" | "delta" | "volume";
         showNumbers: boolean;
@@ -20,7 +21,10 @@ export interface FootprintLightweightChartProps {
         candleSize: "compact" | "normal" | "wide";
         scale: "log" | "linear";
     };
+    autoScrollEnabled?: boolean;
+    goToLatestSignal?: number;
     onRenderError?: (error: Error) => void;
+    onAutoScrollChange?: (enabled: boolean) => void;
 }
 
 const getCandleWidth = (spacing: number, size: FootprintLightweightChartProps["options"]["candleSize"]): number => {
@@ -34,8 +38,12 @@ export default function FootprintLightweightChart({
     domDepth,
     ma9 = [],
     ma21 = [],
+    timeframe,
     options,
+    autoScrollEnabled,
+    goToLatestSignal,
     onRenderError,
+    onAutoScrollChange,
 }: FootprintLightweightChartProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const overlayRef = useRef<HTMLCanvasElement | null>(null);
@@ -43,6 +51,12 @@ export default function FootprintLightweightChart({
     const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
     const ma9SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
     const ma21SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+    const programmaticMoveRef = useRef(false);
+    const didInitialFitRef = useRef(false);
+    const userInteractingRef = useRef(false);
+    const autoScrollRef = useRef(true);
+
+    const [autoScroll, setAutoScroll] = useState(true);
 
     const devicePixelRatio = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
@@ -55,6 +69,16 @@ export default function FootprintLightweightChart({
             return formatter.format(new Date(timestamp));
         };
     }, []);
+
+    useEffect(() => {
+        if (typeof autoScrollEnabled === "boolean") {
+            setAutoScroll(autoScrollEnabled);
+        }
+    }, [autoScrollEnabled]);
+
+    useEffect(() => {
+        autoScrollRef.current = autoScroll;
+    }, [autoScroll]);
 
     useEffect(() => {
         const container = containerRef.current;
@@ -137,8 +161,33 @@ export default function FootprintLightweightChart({
             resizeObserver.observe(container);
             resize();
 
+            const handleUserInteraction = () => {
+                userInteractingRef.current = true;
+                if (autoScrollRef.current) {
+                    setAutoScroll(false);
+                    onAutoScrollChange?.(false);
+                }
+            };
+
+            const handleUserInteractionEnd = () => {
+                userInteractingRef.current = false;
+            };
+
+            container.addEventListener("wheel", handleUserInteraction, { passive: true });
+            container.addEventListener("mousedown", handleUserInteraction);
+            container.addEventListener("touchstart", handleUserInteraction, { passive: true });
+            container.addEventListener("mouseup", handleUserInteractionEnd);
+            container.addEventListener("mouseleave", handleUserInteractionEnd);
+            container.addEventListener("touchend", handleUserInteractionEnd);
+
             return () => {
                 resizeObserver.disconnect();
+                container.removeEventListener("wheel", handleUserInteraction);
+                container.removeEventListener("mousedown", handleUserInteraction);
+                container.removeEventListener("touchstart", handleUserInteraction);
+                container.removeEventListener("mouseup", handleUserInteractionEnd);
+                container.removeEventListener("mouseleave", handleUserInteractionEnd);
+                container.removeEventListener("touchend", handleUserInteractionEnd);
                 if (overlayCanvas?.parentElement === container) {
                     container.removeChild(overlayCanvas);
                 }
@@ -164,7 +213,7 @@ export default function FootprintLightweightChart({
             ma21SeriesRef.current = null;
             chartRef.current = null;
         }
-    }, [devicePixelRatio, formatTimeLabel, onRenderError, options.scale]);
+    }, [devicePixelRatio, formatTimeLabel, onAutoScrollChange, onRenderError, options.scale]);
 
     useEffect(() => {
         const candleSeries = candleSeriesRef.current;
@@ -180,8 +229,28 @@ export default function FootprintLightweightChart({
                 close: candle.close,
             })),
         );
-        chart.timeScale().fitContent();
-    }, [candles]);
+
+        const timeScale = chart.timeScale();
+
+        if (!didInitialFitRef.current && candles.length > 0) {
+            programmaticMoveRef.current = true;
+            timeScale.fitContent();
+            requestAnimationFrame(() => {
+                programmaticMoveRef.current = false;
+            });
+            didInitialFitRef.current = true;
+        } else if (autoScroll && !userInteractingRef.current) {
+            programmaticMoveRef.current = true;
+            timeScale.scrollToRealTime();
+            requestAnimationFrame(() => {
+                programmaticMoveRef.current = false;
+            });
+        }
+    }, [autoScroll, candles]);
+
+    useEffect(() => {
+        didInitialFitRef.current = false;
+    }, [timeframe]);
 
     useEffect(() => {
         if (!ma9SeriesRef.current) return;
@@ -204,6 +273,31 @@ export default function FootprintLightweightChart({
             },
         });
     }, [options.scale]);
+
+    useEffect(() => {
+        if (!chartRef.current) return;
+        if (typeof goToLatestSignal === "undefined") return;
+
+        const timeScale = chartRef.current.timeScale();
+        programmaticMoveRef.current = true;
+        timeScale.scrollToRealTime();
+        requestAnimationFrame(() => {
+            programmaticMoveRef.current = false;
+        });
+        if (!autoScroll) {
+            setAutoScroll(true);
+            onAutoScrollChange?.(true);
+        }
+    }, [autoScroll, goToLatestSignal, onAutoScrollChange]);
+
+    useEffect(() => {
+        setAutoScroll((prev) => {
+            if (!prev) {
+                onAutoScrollChange?.(true);
+            }
+            return true;
+        });
+    }, [onAutoScrollChange, timeframe]);
 
     const drawOverlay = useCallback(() => {
         try {
@@ -386,6 +480,32 @@ export default function FootprintLightweightChart({
             console.error("Footprint overlay draw error", error);
         }
     }, [candles, candleTimes, devicePixelRatio, domDepth, options.candleSize, options.highlightImbalances, options.mode, options.rowSizeTicks, options.showNumbers, volumeProfile]);
+
+    useEffect(() => {
+        const chart = chartRef.current;
+        if (!chart) return;
+
+        const handleLogicalRange = (range: LogicalRange | null) => {
+            drawOverlay();
+            if (!range) return;
+
+            if (programmaticMoveRef.current) return;
+
+            const lastIndex = candles.length - 1;
+            if (lastIndex < 0) return;
+            const tooFarFromEnd = range.to < lastIndex - 0.5;
+            if (tooFarFromEnd && autoScroll) {
+                setAutoScroll(false);
+                onAutoScrollChange?.(false);
+            }
+        };
+
+        chart.timeScale().subscribeVisibleLogicalRangeChange(handleLogicalRange);
+
+        return () => {
+            chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleLogicalRange);
+        };
+    }, [autoScroll, candles.length, drawOverlay, onAutoScrollChange]);
 
     useEffect(() => {
         if (!chartRef.current) return;
