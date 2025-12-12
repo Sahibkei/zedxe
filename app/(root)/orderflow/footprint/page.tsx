@@ -119,6 +119,8 @@ const FootprintPage = () => {
     const [bucketSizeSeconds, setBucketSizeSeconds] = useState<number>(defaultBucketSeconds);
     const [mode, setMode] = useState<FootprintMode>("bid-ask");
     const [rowSizeMode, setRowSizeMode] = useState<RowSizeMode>("atr-auto");
+    const [showNumbers, setShowNumbers] = useState<boolean>(true);
+    const [highlightImbalances, setHighlightImbalances] = useState<boolean>(true);
     const [viewRange, setViewRange] = useState<{ start: number; end: number } | null>(null);
     const [renderError, setRenderError] = useState<string | null>(null);
 
@@ -217,13 +219,33 @@ const FootprintPage = () => {
 
         const domainStart = footprintResult.domainStart;
         const domainEnd = footprintResult.domainEnd;
-        const range = clampViewRange(viewRange ?? (domainStart && domainEnd ? { start: domainStart, end: domainEnd } : null), domainStart, domainEnd);
+        const range = clampViewRange(
+            viewRange ?? (domainStart && domainEnd ? { start: domainStart, end: domainEnd } : null),
+            domainStart,
+            domainEnd,
+        );
         if (!range) return;
+
+        const formatVolume = (value: number) => {
+            if (Math.abs(value) >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+            if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(1)}K`;
+            return `${Math.round(value)}`;
+        };
+
+        const isImbalance = (cell: FootprintCell) => {
+            if (!highlightImbalances) return false;
+            const minVolume = 5;
+            if (cell.totalVolume < minVolume) return false;
+            const buyVsSell = cell.sellVolume > 0 ? cell.buyVolume / cell.sellVolume : cell.buyVolume;
+            const sellVsBuy = cell.buyVolume > 0 ? cell.sellVolume / cell.buyVolume : cell.sellVolume;
+            const threshold = 2.0;
+            return buyVsSell >= threshold || sellVsBuy >= threshold;
+        };
 
         try {
             setRenderError(null);
-            const paddingX = 48;
-            const paddingY = 28;
+            const paddingX = 36;
+            const paddingY = 20;
             const chartWidth = Math.max(width - paddingX * 2, 10);
             const chartHeight = Math.max(height - paddingY * 2, 10);
 
@@ -241,11 +263,14 @@ const FootprintPage = () => {
             const minPrice = Math.min(...barsToDraw.map((bar) => bar.low));
             const maxPrice = Math.max(...barsToDraw.map((bar) => bar.high));
             const priceRange = Math.max(maxPrice - minPrice, footprintResult.priceStepUsed);
-            const rowsApprox = Math.max(priceRange / footprintResult.priceStepUsed, 1);
-            const rowHeight = Math.max(chartHeight / rowsApprox, 4);
+            const rowsCount = Math.max(Math.round(priceRange / footprintResult.priceStepUsed) + 1, 1);
+            const rowHeight = Math.max(chartHeight / rowsCount, 3);
 
             const xForTime = (time: number) => paddingX + ((time - range.start) / (range.end - range.start)) * chartWidth;
-            const yForPrice = (price: number) => paddingY + (1 - (price - minPrice) / priceRange) * chartHeight;
+            const yForPrice = (price: number) => {
+                const distance = (maxPrice - price) / footprintResult.priceStepUsed;
+                return paddingY + distance * rowHeight + rowHeight / 2;
+            };
 
             context.strokeStyle = "#1f2937";
             context.lineWidth = 1;
@@ -271,27 +296,55 @@ const FootprintPage = () => {
                 if (mode === "bid-ask") {
                     const buyRatio = total > 0 ? cell.buyVolume / total : 0.5;
                     const sellRatio = 1 - buyRatio;
-                    const g = Math.min(255, Math.round(80 + buyRatio * 140));
-                    const r = Math.min(255, Math.round(80 + sellRatio * 140));
-                    fill = `rgb(${r}, ${g}, 120)`;
+                    const g = Math.min(255, Math.round(60 + buyRatio * 160));
+                    const r = Math.min(255, Math.round(60 + sellRatio * 160));
+                    fill = `rgba(${r}, ${g}, 120, 0.85)`;
                 } else if (mode === "delta") {
                     const intensity = maxCellDelta > 0 ? Math.min(Math.abs(delta) / maxCellDelta, 1) : 0;
-                    fill = delta >= 0 ? `rgba(52, 211, 153, ${0.25 + intensity * 0.65})` : `rgba(248, 113, 113, ${0.25 + intensity * 0.65})`;
+                    fill = delta >= 0 ? `rgba(52, 211, 153, ${0.25 + intensity * 0.7})` : `rgba(248, 113, 113, ${0.25 + intensity * 0.7})`;
                 } else {
                     const intensity = maxCellVolume > 0 ? Math.min(total / maxCellVolume, 1) : 0;
-                    fill = `rgba(129, 140, 248, ${0.2 + intensity * 0.7})`;
+                    fill = `rgba(129, 140, 248, ${0.25 + intensity * 0.65})`;
                 }
 
                 const y = yForPrice(cell.price);
                 context.fillStyle = fill;
                 context.fillRect(x - bodyWidth / 2, y - rowHeight / 2, bodyWidth, rowHeight);
+
+                if (highlightImbalances && isImbalance(cell)) {
+                    context.strokeStyle = cell.buyVolume >= cell.sellVolume ? "#60a5fa" : "#fca5a5";
+                    context.lineWidth = 1.5;
+                    context.strokeRect(x - bodyWidth / 2 + 0.5, y - rowHeight / 2 + 0.5, bodyWidth - 1, rowHeight - 1);
+                }
+
+                if (!showNumbers) return;
+
+                context.font = `${Math.max(10, Math.floor(rowHeight * 0.45))}px Inter, system-ui, -apple-system, sans-serif`;
+                context.textBaseline = "middle";
+
+                if (mode === "bid-ask") {
+                    context.fillStyle = "#fca5a5";
+                    context.textAlign = "left";
+                    context.fillText(formatVolume(cell.sellVolume), x - bodyWidth / 2 + 4, y);
+                    context.fillStyle = "#a7f3d0";
+                    context.textAlign = "right";
+                    context.fillText(formatVolume(cell.buyVolume), x + bodyWidth / 2 - 4, y);
+                } else if (mode === "delta") {
+                    context.fillStyle = delta >= 0 ? "#a7f3d0" : "#fca5a5";
+                    context.textAlign = "center";
+                    context.fillText(formatVolume(delta), x, y);
+                } else {
+                    context.fillStyle = "#e0e7ff";
+                    context.textAlign = "center";
+                    context.fillText(formatVolume(total), x, y);
+                }
             };
 
             barsToDraw.forEach((bar) => {
                 const barMid = (bar.startTime + bar.endTime) / 2;
                 const x = xForTime(barMid);
                 const candleSpan = chartWidth / Math.max(barsToDraw.length, 1);
-                const bodyWidth = Math.max(candleSpan * 0.6, 6);
+                const bodyWidth = Math.max(candleSpan * 0.82, 5);
 
                 const openY = yForPrice(bar.open);
                 const closeY = yForPrice(bar.close);
@@ -319,7 +372,15 @@ const FootprintPage = () => {
                 "Footprint chart failed to render. Please reload the page or try again later.",
             );
         }
-    }, [containerSize.height, containerSize.width, footprintResult, mode, viewRange]);
+    }, [
+        containerSize.height,
+        containerSize.width,
+        footprintResult,
+        highlightImbalances,
+        mode,
+        showNumbers,
+        viewRange,
+    ]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -377,14 +438,29 @@ const FootprintPage = () => {
                 null;
             if (!currentRange) return;
 
-            const direction = Math.sign(event.deltaY);
-            const zoomFactor = direction > 0 ? 1.1 : 0.9;
-            const mouseX = event.offsetX;
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
             const span = currentRange.end - currentRange.start;
-            const center = currentRange.start + (mouseX / width) * span;
+
+            // Trackpad horizontal scrolling or shift+wheel pans; vertical wheel zooms around the cursor.
+            const panDelta = event.shiftKey && event.deltaY !== 0 ? event.deltaY : event.deltaX;
+            if (panDelta !== 0) {
+                const msPerPixel = span / width;
+                const shift = panDelta * msPerPixel;
+                const updated = { start: currentRange.start + shift, end: currentRange.end + shift };
+                const clampedPan = clampViewRange(updated, domainStart, domainEnd);
+                if (clampedPan) setViewRange(clampedPan);
+                return;
+            }
+
+            if (event.deltaY === 0) return;
+            const direction = Math.sign(event.deltaY);
+            const zoomFactor = direction > 0 ? 1.08 : 0.92;
             const newSpan = Math.max(span * zoomFactor, Math.max((domainEnd - domainStart) * 0.001, 1));
-            const newStart = center - (mouseX / width) * newSpan;
-            const newEnd = center + (1 - mouseX / width) * newSpan;
+            const newStart = mouseX <= 0
+                ? currentRange.start
+                : currentRange.start + (mouseX / width) * (span - newSpan);
+            const newEnd = newStart + newSpan;
             const clamped = clampViewRange({ start: newStart, end: newEnd }, domainStart, domainEnd);
             if (clamped) setViewRange(clamped);
         };
@@ -490,8 +566,28 @@ const FootprintPage = () => {
                                 onClick={() => setMode(option.value)}
                             >
                                 {option.label}
-                            </Button>
-                        ))}
+                                    </Button>
+                                ))}
+                        <div className="flex w-full flex-wrap items-center gap-4 pt-2 text-sm text-gray-300">
+                            <label className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-gray-600 bg-gray-900 text-emerald-500"
+                                    checked={showNumbers}
+                                    onChange={(event) => setShowNumbers(event.target.checked)}
+                                />
+                                <span>Show numbers</span>
+                            </label>
+                            <label className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-gray-600 bg-gray-900 text-emerald-500"
+                                    checked={highlightImbalances}
+                                    onChange={(event) => setHighlightImbalances(event.target.checked)}
+                                />
+                                <span>Highlight imbalances</span>
+                            </label>
+                        </div>
                         <div className="flex items-center gap-2 text-sm text-gray-300">
                             <span className="rounded-full bg-gray-800 px-3 py-1 text-xs uppercase tracking-wide text-emerald-300">Row Size</span>
                             <div className="flex gap-2">
