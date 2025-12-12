@@ -183,6 +183,7 @@ export const buildFootprintSnapshot = (
         rowSizeTicks,
     }: BuildFootprintOptions,
 ): FootprintSnapshot => {
+    const normalizeRowSize = (value?: number) => Math.max(1, Math.round(value ?? 1));
     if (!trades.length) {
         const cfg = normalizeTickConfig(tickSize ?? 0.01, priceDecimals);
         return {
@@ -190,7 +191,7 @@ export const buildFootprintSnapshot = (
             priceMin: 0,
             priceMax: 0,
             tickConfig: cfg,
-            rowSizeTicks: rowSizeTicks ?? 1,
+            rowSizeTicks: normalizeRowSize(rowSizeTicks),
             bucketSizeSeconds,
             windowSeconds,
             lastPrice: null,
@@ -252,7 +253,7 @@ export const buildFootprintSnapshot = (
             priceMin: 0,
             priceMax: 0,
             tickConfig,
-            rowSizeTicks: rowSizeTicks ?? 1,
+            rowSizeTicks: normalizeRowSize(rowSizeTicks),
             bucketSizeSeconds,
             windowSeconds,
             lastPrice,
@@ -265,13 +266,14 @@ export const buildFootprintSnapshot = (
     const atr = computeAtr(bars, atrLookback);
     const atrTicks = atr > 0 ? Math.max(1, Math.round(atr / tickConfig.tickSize)) : 0;
     const autoRow = atrTicks > 0 ? Math.max(1, Math.round(atrTicks / 2)) : Math.max(1, Math.round(1));
+    const resolvedRowSize = normalizeRowSize(rowSizeTicks ?? autoRow);
 
     return {
         bars,
         priceMin,
         priceMax,
         tickConfig,
-        rowSizeTicks: rowSizeTicks ?? autoRow,
+        rowSizeTicks: resolvedRowSize,
         bucketSizeSeconds,
         windowSeconds,
         lastPrice,

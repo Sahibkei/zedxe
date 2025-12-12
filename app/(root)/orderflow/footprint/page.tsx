@@ -35,6 +35,8 @@ const MODE_OPTIONS = ["Bid x Ask", "Delta", "Volume"] as const;
 const SCALE_OPTIONS = ["Log", "Linear"] as const;
 type FootprintMode = (typeof MODE_OPTIONS)[number];
 type ScaleMode = (typeof SCALE_OPTIONS)[number];
+type NumbersLayout = "overlay" | "side";
+type RowSizeMode = "atr" | "tick" | "custom";
 type TimeframeOption = (typeof TIMEFRAME_OPTIONS)[number];
 
 const parseTimeframeSeconds = (value: TimeframeOption): number => {
@@ -103,6 +105,7 @@ const renderFootprint = (
     snapshot: FootprintSnapshot,
     mode: FootprintMode,
     showNumbers: boolean,
+    numbersLayout: NumbersLayout,
     highlightImbalances: boolean,
     colorScale: ScaleMode,
 ) => {
@@ -131,10 +134,12 @@ const renderFootprint = (
         return;
     }
 
-    const paddingX = 64;
-    const paddingY = 32;
-    const chartWidth = width - paddingX * 2;
-    const chartHeight = height - paddingY * 2;
+    const paddingLeft = 72;
+    const paddingTop = 16;
+    const paddingBottom = 36;
+    const paddingRight = numbersLayout === "side" && showNumbers ? 96 : 48;
+    const chartWidth = width - paddingLeft - paddingRight;
+    const chartHeight = height - paddingTop - paddingBottom;
 
     const minTick = priceToTicks(snapshot.priceMin, snapshot.tickConfig) - snapshot.rowSizeTicks;
     const maxTick = priceToTicks(snapshot.priceMax, snapshot.tickConfig) + snapshot.rowSizeTicks;
@@ -147,15 +152,15 @@ const renderFootprint = (
 
     const yForPrice = (price: number) => {
         const ticks = priceToTicks(price, snapshot.tickConfig);
-        return paddingY + (maxTick - ticks) * pixelsPerTick;
+        return paddingTop + (maxTick - ticks) * pixelsPerTick;
     };
 
     context.strokeStyle = "#1f2937";
-    context.lineWidth = 1;
+    context.lineWidth = 1.25;
     context.beginPath();
-    context.moveTo(paddingX, paddingY);
-    context.lineTo(paddingX, paddingY + chartHeight);
-    context.lineTo(paddingX + chartWidth, paddingY + chartHeight);
+    context.moveTo(paddingLeft, paddingTop);
+    context.lineTo(paddingLeft, paddingTop + chartHeight);
+    context.lineTo(paddingLeft + chartWidth, paddingTop + chartHeight);
     context.stroke();
 
     const maxCellVolume = Math.max(
@@ -168,6 +173,8 @@ const renderFootprint = (
         x: number,
         y: number,
         widthPx: number,
+        sidePanelX: number,
+        sidePanelWidth: number,
         cell: FootprintSnapshot["bars"][number]["cells"][number],
     ) => {
         const { totalVolume } = cell;
@@ -204,14 +211,23 @@ const renderFootprint = (
                     : `${formatNumber(cell.buyVolume)} · ${formatNumber(cell.sellVolume)}`;
             context.fillStyle = "#e5e7eb";
             context.font = "10px Inter, system-ui, -apple-system, sans-serif";
-            context.textAlign = "center";
             context.textBaseline = "middle";
-            context.fillText(label, x, y);
+
+            if (numbersLayout === "overlay") {
+                context.textAlign = "center";
+                context.fillText(label, x, y);
+            } else {
+                context.textAlign = "left";
+                context.fillText(label, sidePanelX + 6, y);
+                context.fillStyle = "#9ca3af";
+                context.textAlign = "right";
+                context.fillText(formatNumber(cell.price), sidePanelX + sidePanelWidth - 4, y);
+            }
         }
     };
 
     snapshot.bars.forEach((bar, index) => {
-        const x = paddingX + spacing * index + spacing / 2;
+        const x = paddingLeft + spacing * index + spacing / 2;
         const openY = yForPrice(bar.open);
         const closeY = yForPrice(bar.close);
         const highY = yForPrice(bar.high);
@@ -231,9 +247,21 @@ const renderFootprint = (
         context.fillStyle = candleColor;
         context.fillRect(x - bodyWidth / 2, bodyY, bodyWidth, bodyHeight);
 
+        const sidePanelWidth = numbersLayout === "side" && showNumbers ? Math.min(spacing * 0.35, 64) : 0;
+        const sidePanelX = numbersLayout === "side" && showNumbers ? x + bodyWidth / 2 + 6 : x;
+
+        if (numbersLayout === "side" && showNumbers && bar.cells.length) {
+            const barTop = Math.min(highY, lowY, ...bar.cells.map((cell) => yForPrice(cell.price))) - cellHeight / 2;
+            const barBottom =
+                Math.max(highY, lowY, ...bar.cells.map((cell) => yForPrice(cell.price))) + cellHeight / 2;
+            const rectHeight = Math.max(barBottom - barTop, cellHeight * 1.5);
+            context.fillStyle = "rgba(17, 24, 39, 0.55)";
+            context.fillRect(sidePanelX, barTop, sidePanelWidth, rectHeight);
+        }
+
         bar.cells.forEach((cell) => {
             const y = yForPrice(cell.price);
-            drawCell(x, y, bodyWidth, cell);
+            drawCell(x, y, bodyWidth, sidePanelX, sidePanelWidth, cell);
         });
     });
 
@@ -245,12 +273,30 @@ const renderFootprint = (
     const labelStepTicks = snapshot.rowSizeTicks * 2;
     for (let ticks = minTick; ticks <= maxTick; ticks += labelStepTicks) {
         const price = ticksToPrice(ticks, snapshot.tickConfig);
-        const y = paddingY + (maxTick - ticks) * pixelsPerTick;
-        context.fillText(price.toFixed(snapshot.tickConfig.priceDecimals), paddingX - 8, y);
+        const y = paddingTop + (maxTick - ticks) * pixelsPerTick;
+        context.fillText(price.toFixed(snapshot.tickConfig.priceDecimals), paddingLeft - 8, y);
         context.strokeStyle = "#111827";
         context.beginPath();
-        context.moveTo(paddingX, y);
-        context.lineTo(paddingX + chartWidth, y);
+        context.moveTo(paddingLeft, y);
+        context.lineTo(paddingLeft + chartWidth, y);
+        context.stroke();
+    }
+
+    const maxLabels = Math.max(2, Math.floor(chartWidth / 80));
+    const step = Math.max(1, Math.ceil(snapshot.bars.length / maxLabels));
+    const formatter = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+    context.textAlign = "center";
+    context.textBaseline = "top";
+    for (let index = 0; index < snapshot.bars.length; index += step) {
+        const bar = snapshot.bars[index];
+        const x = paddingLeft + spacing * index + spacing / 2;
+        const label = formatter.format(new Date(bar.bucketStart));
+        context.fillStyle = "#9ca3af";
+        context.fillText(label, x, paddingTop + chartHeight + 8);
+        context.strokeStyle = "#111827";
+        context.beginPath();
+        context.moveTo(x, paddingTop);
+        context.lineTo(x, paddingTop + chartHeight);
         context.stroke();
     }
 };
@@ -265,6 +311,9 @@ const FootprintPageInner = () => {
     const [bucketSizeSeconds, setBucketSizeSeconds] = useState<number>(defaultBucketSeconds);
     const [mode, setMode] = useState<FootprintMode>("Bid x Ask");
     const [showNumbers, setShowNumbers] = useState(true);
+    const [numbersLayout, setNumbersLayout] = useState<NumbersLayout>("side");
+    const [rowSizeMode, setRowSizeMode] = useState<RowSizeMode>("atr");
+    const [customRowTicks, setCustomRowTicks] = useState<number>(4);
     const [highlightImbalances, setHighlightImbalances] = useState(true);
     const [colorScale, setColorScale] = useState<ScaleMode>("Log");
 
@@ -279,14 +328,17 @@ const FootprintPageInner = () => {
 
     const snapshot = useMemo<FootprintSnapshot>(() => {
         const referenceTimestamp = Date.now();
+        const resolvedRowSize =
+            rowSizeMode === "custom" ? Math.max(1, Math.round(customRowTicks)) : rowSizeMode === "tick" ? 1 : undefined;
         return buildFootprintSnapshot(cleanTrades, {
             windowSeconds,
             bucketSizeSeconds,
             referenceTimestamp,
             tickSize: undefined,
             priceDecimals: parsePrecisionFromSymbol(selectedSymbol),
+            rowSizeTicks: resolvedRowSize,
         });
-    }, [bucketSizeSeconds, cleanTrades, selectedSymbol, windowSeconds]);
+    }, [bucketSizeSeconds, cleanTrades, customRowTicks, rowSizeMode, selectedSymbol, windowSeconds]);
 
     const { levels: profileLevels, referencePrice } = useMemo(
         () => buildVolumeProfile(snapshot, snapshot.lastPrice ?? undefined),
@@ -296,8 +348,8 @@ const FootprintPageInner = () => {
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        renderFootprint(canvas, snapshot, mode, showNumbers, highlightImbalances, colorScale);
-    }, [snapshot, mode, showNumbers, highlightImbalances, colorScale]);
+        renderFootprint(canvas, snapshot, mode, showNumbers, numbersLayout, highlightImbalances, colorScale);
+    }, [snapshot, mode, showNumbers, numbersLayout, highlightImbalances, colorScale]);
 
     const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
 
@@ -395,6 +447,23 @@ const FootprintPageInner = () => {
                                 </Button>
                             ))}
                         </div>
+                        <div className="flex items-center gap-2 rounded-md border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-200">
+                            <span className="text-xs uppercase tracking-wide text-gray-500">Numbers</span>
+                            {(["side", "overlay"] as NumbersLayout[]).map((option) => (
+                                <Button
+                                    key={option}
+                                    size="sm"
+                                    variant={option === numbersLayout ? "default" : "ghost"}
+                                    className={cn(
+                                        "min-w-[3rem] capitalize",
+                                        option === numbersLayout && "bg-emerald-600 text-white",
+                                    )}
+                                    onClick={() => setNumbersLayout(option)}
+                                >
+                                    {option}
+                                </Button>
+                            ))}
+                        </div>
                         <label className="flex items-center gap-2 text-sm text-gray-300">
                             <input
                                 type="checkbox"
@@ -413,8 +482,39 @@ const FootprintPageInner = () => {
                             />
                             Highlight imbalances
                         </label>
+                        <div className="flex flex-wrap items-center gap-2 rounded-md border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-gray-200">
+                            <span className="text-xs uppercase tracking-wide text-gray-500">Row size</span>
+                            {([
+                                { label: "ATR Auto", value: "atr" },
+                                { label: "Tick", value: "tick" },
+                                { label: "Custom", value: "custom" },
+                            ] as { label: string; value: RowSizeMode }[]).map((option) => (
+                                <Button
+                                    key={option.value}
+                                    size="sm"
+                                    variant={option.value === rowSizeMode ? "default" : "ghost"}
+                                    className={cn(
+                                        "min-w-[3.5rem]",
+                                        option.value === rowSizeMode && "bg-emerald-600 text-white",
+                                    )}
+                                    onClick={() => setRowSizeMode(option.value)}
+                                >
+                                    {option.label}
+                                </Button>
+                            ))}
+                            {rowSizeMode === "custom" && (
+                                <input
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    value={customRowTicks}
+                                    onChange={(event) => setCustomRowTicks(Number(event.target.value) || 1)}
+                                    className="h-9 w-20 rounded border border-gray-700 bg-gray-800 px-2 text-sm text-white outline-none"
+                                />
+                            )}
+                        </div>
                         <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
-                            Row size: {snapshot.rowSizeTicks} ticks · Precision {snapshot.tickConfig.priceDecimals} dp
+                            Row size: {snapshot.rowSizeTicks} ticks ({rowSizeMode.toUpperCase()}) · Precision {snapshot.tickConfig.priceDecimals} dp
                         </span>
                     </div>
                 </div>
@@ -434,7 +534,7 @@ const FootprintPageInner = () => {
                                 </p>
                             </div>
                             <span className="rounded-full bg-gray-800 px-3 py-1 text-xs text-gray-300">
-                                {colorScale} scale · ATR auto rows
+                                {colorScale} scale · {rowSizeMode === "atr" ? "ATR auto" : rowSizeMode === "tick" ? "1 tick" : "Custom"} rows
                             </span>
                         </div>
                         <div className="relative h-[520px] overflow-hidden rounded-lg border border-gray-900 bg-black/20">
