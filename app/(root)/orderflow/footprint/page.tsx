@@ -8,6 +8,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import VolumeProfile, { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
+import { FootprintCandleChart } from "@/app/(root)/orderflow/_components/FootprintCandleChart";
 import { buildFootprintBars, FootprintBar, inferPriceStepFromTrades } from "@/app/(root)/orderflow/_utils/footprint";
 import { Button } from "@/components/ui/button";
 import {
@@ -137,6 +138,12 @@ const FootprintPageInner = () => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
     const { windowedTrades } = useOrderflowStream({ symbol: selectedSymbol, windowSeconds });
+
+    const candlestickInterval = useMemo<"1m" | "5m" | "15m">(() => {
+        return selectedTimeframe === "5m" || selectedTimeframe === "15m"
+            ? selectedTimeframe
+            : "1m";
+    }, [selectedTimeframe]);
 
     useEffect(() => {
         setBucketSizeSeconds(parseTimeframeSeconds(selectedTimeframe));
@@ -431,7 +438,7 @@ const FootprintPageInner = () => {
                             </span>
                         </div>
                         <div className="relative h-[520px] overflow-hidden rounded-lg border border-gray-900 bg-black/20">
-                            <canvas ref={canvasRef} className="h-full w-full" />
+                            <FootprintCandleChart symbol={selectedSymbol} interval={candlestickInterval} />
                         </div>
                     </div>
                 </div>
