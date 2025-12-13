@@ -67,6 +67,7 @@ export function FootprintCandleChart({
     const isHoveringRef = useRef(false);
     const lastCrosshairTimeRef = useRef<number | null>(null);
     const selectedTimeRef = useRef<number | null>(null);
+    const onSelectionChangeRef = useRef<FootprintCandleChartProps["onSelectionChange"]>(onSelectionChange);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -80,6 +81,10 @@ export function FootprintCandleChart({
     useEffect(() => {
         selectedTimeRef.current = selectedTimeSec;
     }, [selectedTimeSec]);
+
+    useEffect(() => {
+        onSelectionChangeRef.current = onSelectionChange;
+    }, [onSelectionChange]);
 
     useEffect(() => {
         let disposed = false;
@@ -111,13 +116,26 @@ export function FootprintCandleChart({
                 });
             };
 
-            const { createChart } = await loadLightweightCharts();
+            let createChartFn: typeof import("lightweight-charts").createChart | null = null;
+            try {
+                const { createChart } = await loadLightweightCharts();
+                createChartFn = createChart;
+            } catch (err) {
+                console.error("Failed to load lightweight-charts", err);
+                if (!disposed) {
+                    setError("Failed to load chart library. Please try again.");
+                    setLoading(false);
+                }
+                return;
+            }
             if (disposed) return;
 
             const { width: initialWidth, height: initialHeight } = await waitForDimensions();
             if (disposed) return;
 
-            const chart = createChart(chartContainer, {
+            if (!createChartFn) return;
+
+            const chart = createChartFn(chartContainer, {
                 layout: {
                     background: { color: "transparent" },
                     textColor: "#e5e7eb",
@@ -237,7 +255,7 @@ export function FootprintCandleChart({
                 candlesRef.current = trimmed;
                 const latest = trimmed[trimmed.length - 1]?.time ?? null;
                 latestCandleTimeRef.current = latest ?? null;
-                if (!isHoveringRef.current) {
+                if (!isHoveringRef.current && selectedTimeRef.current !== latest) {
                     setSelectedTimeSec(latest ?? null);
                 }
                 series.setData(trimmed);
@@ -290,7 +308,7 @@ export function FootprintCandleChart({
                     candlesRef.current = trimmed;
                     const latest = trimmed[trimmed.length - 1]?.time ?? null;
                     latestCandleTimeRef.current = latest ?? null;
-                    if (!isHoveringRef.current) {
+                    if (!isHoveringRef.current && selectedTimeRef.current !== latest) {
                         setSelectedTimeSec(latest ?? null);
                     }
 
@@ -352,16 +370,15 @@ export function FootprintCandleChart({
 
     useEffect(() => {
         if (footprintUpdateKey == null) return;
-        if (!isHoveringRef.current) {
+        if (!isHoveringRef.current && selectedTimeRef.current !== latestCandleTimeRef.current) {
             setSelectedTimeSec(latestCandleTimeRef.current);
         }
     }, [footprintUpdateKey]);
 
-    const selectedFootprint = selectedTimeSec ? getFootprintForCandle(selectedTimeSec) : null;
-
     useEffect(() => {
-        onSelectionChange?.({ timeSec: selectedTimeSec, footprint: selectedFootprint });
-    }, [onSelectionChange, selectedFootprint, selectedTimeSec]);
+        const footprint = selectedTimeSec != null ? getFootprintForCandle(selectedTimeSec) : null;
+        onSelectionChangeRef.current?.({ timeSec: selectedTimeSec, footprint });
+    }, [selectedTimeSec, footprintUpdateKey, getFootprintForCandle]);
 
     return (
         <div className="relative h-full w-full">

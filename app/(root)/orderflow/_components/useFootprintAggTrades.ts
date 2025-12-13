@@ -74,14 +74,14 @@ export function useFootprintAggTrades({
         };
 
         const loadStep = async () => {
-            if (priceStepOverride && priceStepOverride > 0) {
+            if (priceStepOverride != null && priceStepOverride > 0) {
                 applyStep(priceStepOverride);
                 return;
             }
 
             const step = await getPriceStep(symbol).catch(() => null);
             if (cancelled) return;
-            if (step && Number.isFinite(step)) {
+            if (step != null && Number.isFinite(step)) {
                 applyStep(step);
             } else {
                 applyStep(0.1);

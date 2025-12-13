@@ -11,7 +11,7 @@ import { FootprintCandleChart } from "@/app/(root)/orderflow/_components/Footpri
 import { FootprintSideLadder } from "@/app/(root)/orderflow/_components/FootprintSideLadder";
 import { buildFootprintBars, FootprintBar } from "@/app/(root)/orderflow/_utils/footprint";
 import { useFootprintAggTrades } from "@/app/(root)/orderflow/_components/useFootprintAggTrades";
-import { CandleFootprint, FootprintMode } from "@/app/(root)/orderflow/_components/footprint-types";
+import { FootprintMode } from "@/app/(root)/orderflow/_components/footprint-types";
 import { Button } from "@/components/ui/button";
 import {
     Select,
@@ -83,9 +83,8 @@ const FootprintPageInner = () => {
     const [mode, setMode] = useState<FootprintMode>("Bid x Ask");
     const [showNumbers, setShowNumbers] = useState(true);
     const [highlightImbalances, setHighlightImbalances] = useState(true);
-    const [rowSizeOverride, setRowSizeOverride] = useState<number | null>(null);
+    const [tickSizeOverride, setTickSizeOverride] = useState<number | null>(null);
     const [selectedFootprintTime, setSelectedFootprintTime] = useState<number | null>(null);
-    const [selectedFootprint, setSelectedFootprint] = useState<CandleFootprint | null>(null);
 
     const { windowedTrades } = useOrderflowStream({ symbol: selectedSymbol, windowSeconds });
 
@@ -99,8 +98,11 @@ const FootprintPageInner = () => {
         symbol: selectedSymbol,
         interval: candlestickInterval,
         windowMs: footprintWindowMs,
-        priceStepOverride: rowSizeOverride,
+        priceStepOverride: tickSizeOverride,
     });
+
+    const effectiveSelectedTime = selectedFootprintTime ?? footprintSummary?.tSec ?? null;
+    const selectedFootprint = effectiveSelectedTime != null ? getFootprintForCandle(effectiveSelectedTime) : null;
 
     useEffect(() => {
         setBucketSizeSeconds(parseTimeframeSeconds(selectedTimeframe));
@@ -227,19 +229,19 @@ const FootprintPageInner = () => {
                             Highlight imbalances
                         </label>
                         <label className="flex items-center gap-2 text-sm text-gray-300">
-                            Row size (tick per row)
+                            Tick size (price step per row)
                             <input
                                 type="number"
                                 step="any"
                                 min={0.00000001}
-                                value={rowSizeOverride ?? ""}
+                                value={tickSizeOverride ?? ""}
                                 onChange={(event) => {
                                     const value = Number(event.target.value);
                                     if (!event.target.value || Number.isNaN(value) || value <= 0) {
-                                        setRowSizeOverride(null);
+                                        setTickSizeOverride(null);
                                         return;
                                     }
-                                    setRowSizeOverride(value);
+                                    setTickSizeOverride(value);
                                 }}
                                 className="h-9 w-28 rounded border border-gray-700 bg-gray-900 px-2 text-sm text-gray-100"
                                 placeholder="Auto"
@@ -277,8 +279,9 @@ const FootprintPageInner = () => {
                                 getFootprintForCandle={getFootprintForCandle}
                                 footprintUpdateKey={footprintSummary?.updateId}
                                 onSelectionChange={(payload) => {
-                                    setSelectedFootprintTime(payload.timeSec);
-                                    setSelectedFootprint(payload.footprint);
+                                    setSelectedFootprintTime((current) =>
+                                        current === payload.timeSec ? current : payload.timeSec,
+                                    );
                                 }}
                             />
                         </div>
@@ -288,7 +291,7 @@ const FootprintPageInner = () => {
                 <div className="flex h-full flex-col rounded-xl border border-gray-800 bg-[#0f1115] shadow-lg shadow-black/20">
                     <FootprintSideLadder
                         footprint={selectedFootprint}
-                        selectedTimeSec={selectedFootprintTime}
+                        selectedTimeSec={effectiveSelectedTime}
                         mode={mode}
                         showNumbers={showNumbers}
                         highlightImbalances={highlightImbalances}
