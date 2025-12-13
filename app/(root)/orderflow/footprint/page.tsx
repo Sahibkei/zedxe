@@ -144,7 +144,7 @@ const FootprintPageInner = () => {
             : "1m";
     }, [selectedTimeframe]);
 
-    const { latestSummary: footprintSummary } = useFootprintAggTrades({
+    const { latestSummary: footprintSummary, priceStep: ladderPriceStep, getFootprintForCandle } = useFootprintAggTrades({
         symbol: selectedSymbol,
         interval: candlestickInterval,
         windowMs: footprintWindowMs,
@@ -313,7 +313,17 @@ const FootprintPageInner = () => {
                             </span>
                         </div>
                         <div className="relative h-[520px] overflow-hidden rounded-lg border border-gray-900 bg-black/20">
-                            <FootprintCandleChart symbol={selectedSymbol} interval={candlestickInterval} />
+                            <FootprintCandleChart
+                                symbol={selectedSymbol}
+                                interval={candlestickInterval}
+                                mode={mode}
+                                showNumbers={showNumbers}
+                                highlightImbalances={highlightImbalances}
+                                imbalanceRatio={1.5}
+                                priceStep={ladderPriceStep ?? priceStep}
+                                getFootprintForCandle={getFootprintForCandle}
+                                footprintUpdateKey={footprintSummary?.tSec}
+                            />
                         </div>
                     </div>
                 </div>

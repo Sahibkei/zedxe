@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
     AggTradeMessage,
-    CandleFootprint,
+    CandleFootprint as AggregatorCandleFootprint,
     CANDLE_INTERVAL_MS,
     getCandleOpenSec,
     getPriceStep,
@@ -12,6 +12,8 @@ import {
     pruneOldCandles,
     upsertFootprintLevel,
 } from "@/utils/orderflow/footprint-aggregator";
+
+import { CandleFootprint, FootprintLevel } from "./footprint-types";
 
 const WINDOW_MS_DEFAULT = 2 * 60 * 60 * 1000;
 const SUMMARY_THROTTLE_MS = 250;
@@ -25,8 +27,6 @@ export type FootprintSummary = {
     levelsCount: number;
 };
 
-export type FootprintLevel = { price: number; bid: number; ask: number; total: number };
-
 interface FootprintHookParams {
     symbol: string;
     interval: keyof typeof CANDLE_INTERVAL_MS;
@@ -37,7 +37,7 @@ export function useFootprintAggTrades({ symbol, interval, windowMs = WINDOW_MS_D
     const [priceStep, setPriceStep] = useState<number | null>(null);
     const [latestSummary, setLatestSummary] = useState<FootprintSummary | null>(null);
 
-    const footprintsRef = useRef<Map<number, CandleFootprint>>(new Map());
+    const footprintsRef = useRef<Map<number, AggregatorCandleFootprint>>(new Map());
     const latestCandleKeyRef = useRef<number | null>(null);
     const websocketRef = useRef<WebSocket | null>(null);
     const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -167,13 +167,14 @@ export function useFootprintAggTrades({ symbol, interval, windowMs = WINDOW_MS_D
     }, [windowMs]);
 
     const getFootprintForCandle = useCallback(
-        (tSec: number) => {
+        (tSec: number): CandleFootprint | null => {
             const footprint = footprintsRef.current.get(tSec);
             if (!footprint) return null;
-            const levels = Array.from(footprint.levels.entries())
+            const levels: FootprintLevel[] = Array.from(footprint.levels.entries())
                 .map(([price, level]) => ({ price, bid: level.bid, ask: level.ask, total: level.bid + level.ask }))
                 .sort((a, b) => a.price - b.price);
             return {
+                tSec: footprint.tSec,
                 buyTotal: footprint.buyTotal,
                 sellTotal: footprint.sellTotal,
                 levels,

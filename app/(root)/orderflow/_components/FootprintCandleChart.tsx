@@ -1,15 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
     CandlestickData,
     IChartApi,
     ISeriesApi,
     LogicalRange,
+    MouseEventParams,
     UTCTimestamp,
 } from "@/utils/lightweight-charts-loader";
 import { CrosshairMode, loadLightweightCharts } from "@/utils/lightweight-charts-loader";
+
+import { FootprintSideLadder } from "./FootprintSideLadder";
+import { CandleFootprint } from "./footprint-types";
+
+type FootprintMode = "Bid x Ask" | "Delta" | "Volume";
 
 const INTERVAL_SECONDS: Record<string, number> = {
     "1m": 60,
@@ -23,6 +29,13 @@ const FETCH_TIMEOUT_MS = 10_000;
 interface FootprintCandleChartProps {
     symbol: string;
     interval: keyof typeof INTERVAL_SECONDS;
+    mode: FootprintMode;
+    showNumbers: boolean;
+    highlightImbalances: boolean;
+    imbalanceRatio?: number;
+    priceStep: number | null;
+    getFootprintForCandle: (tSec: number) => CandleFootprint | null;
+    footprintUpdateKey?: number | null;
 }
 
 const fetchWithTimeout = async (url: string, { timeoutMs }: { timeoutMs: number }) => {
@@ -42,18 +55,33 @@ const trimToWindow = (candles: CandlestickData[]) => {
     return candles.filter((bar) => bar.time >= cutoffSec);
 };
 
-export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartProps) {
+export function FootprintCandleChart({
+    symbol,
+    interval,
+    mode,
+    showNumbers,
+    highlightImbalances,
+    imbalanceRatio = 1.5,
+    priceStep,
+    getFootprintForCandle,
+    footprintUpdateKey,
+}: FootprintCandleChartProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const chartContainerRef = useRef<HTMLDivElement | null>(null);
     const chartRef = useRef<IChartApi | null>(null);
     const seriesRef = useRef<ISeriesApi | null>(null);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
     const websocketRef = useRef<WebSocket | null>(null);
     const candlesRef = useRef<CandlestickData[]>([]);
     const followLiveRef = useRef(true);
+    const latestCandleTimeRef = useRef<number | null>(null);
+    const isHoveringRef = useRef(false);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [followLive, setFollowLive] = useState(true);
+    const [selectedTimeSec, setSelectedTimeSec] = useState<number | null>(null);
+    const [chartHeight, setChartHeight] = useState<number | null>(null);
 
     useEffect(() => {
         followLiveRef.current = followLive;
@@ -62,6 +90,7 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
     useEffect(() => {
         let disposed = false;
         let rangeSubscription: ((range: LogicalRange) => void) | null = null;
+        let crosshairSubscription: ((param: MouseEventParams) => void) | null = null;
 
         const setup = async () => {
             setLoading(true);
@@ -70,12 +99,13 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
             followLiveRef.current = true;
 
             const container = containerRef.current;
-            if (!container) return;
+            const chartContainer = chartContainerRef.current;
+            if (!container || !chartContainer) return;
 
             const { createChart } = await loadLightweightCharts();
             if (disposed) return;
 
-            const chart = createChart(container, {
+            const chart = createChart(chartContainer, {
                 layout: {
                     background: { color: "transparent" },
                     textColor: "#e5e7eb",
@@ -102,8 +132,9 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
             seriesRef.current = series;
 
             const applyResize = () => {
-                const { width, height } = container.getBoundingClientRect();
+                const { width, height } = chartContainer.getBoundingClientRect();
                 chart.applyOptions({ width: Math.max(width, 0), height: Math.max(height, 0) });
+                setChartHeight(height);
             };
 
             applyResize();
@@ -120,6 +151,19 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
             };
 
             chart.timeScale().subscribeVisibleLogicalRangeChange(rangeSubscription);
+
+            crosshairSubscription = (param: MouseEventParams) => {
+                const time = param.time as number | undefined;
+                if (time == null) {
+                    isHoveringRef.current = false;
+                    setSelectedTimeSec(latestCandleTimeRef.current);
+                    return;
+                }
+                isHoveringRef.current = true;
+                setSelectedTimeSec(time);
+            };
+
+            chart.subscribeCrosshairMove(crosshairSubscription);
 
             const endTime = Date.now();
             const startTime = endTime - WINDOW_MS;
@@ -171,6 +215,11 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
 
                 const trimmed = trimToWindow(parsed);
                 candlesRef.current = trimmed;
+                const latest = trimmed[trimmed.length - 1]?.time ?? null;
+                latestCandleTimeRef.current = latest ?? null;
+                if (!isHoveringRef.current) {
+                    setSelectedTimeSec(latest ?? null);
+                }
                 series.setData(trimmed);
                 setFollowLive(true);
                 if (followLiveRef.current) {
@@ -219,6 +268,11 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
                     const trimmed = trimToWindow(updated);
                     const trimmedChanged = trimmed.length !== updated.length;
                     candlesRef.current = trimmed;
+                    const latest = trimmed[trimmed.length - 1]?.time ?? null;
+                    latestCandleTimeRef.current = latest ?? null;
+                    if (!isHoveringRef.current) {
+                        setSelectedTimeSec(latest ?? null);
+                    }
 
                     if (trimmedChanged) {
                         series.setData(trimmed);
@@ -249,10 +303,17 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
             resizeObserverRef.current?.disconnect();
             resizeObserverRef.current = null;
 
+            if (crosshairSubscription && chartRef.current) {
+                chartRef.current.unsubscribeCrosshairMove(crosshairSubscription);
+            }
+
             chartRef.current?.remove();
             chartRef.current = null;
             seriesRef.current = null;
             candlesRef.current = [];
+            latestCandleTimeRef.current = null;
+            isHoveringRef.current = false;
+            setSelectedTimeSec(null);
         };
     }, [symbol, interval]);
 
@@ -262,30 +323,55 @@ export function FootprintCandleChart({ symbol, interval }: FootprintCandleChartP
         chartRef.current?.timeScale().scrollToRealTime();
     };
 
+    useEffect(() => {
+        if (!isHoveringRef.current) {
+            setSelectedTimeSec(latestCandleTimeRef.current);
+        }
+    }, [footprintUpdateKey]);
+
+    const selectedFootprint = useMemo(
+        () => (selectedTimeSec ? getFootprintForCandle(selectedTimeSec) : null),
+        [getFootprintForCandle, selectedTimeSec, footprintUpdateKey],
+    );
+
     return (
         <div className="relative h-full w-full">
-            <div ref={containerRef} className="h-full w-full" />
-            {loading && (
-                <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-300">
-                    Loading chart…
+            <div ref={containerRef} className="flex h-full w-full overflow-hidden rounded-lg">
+                <div ref={chartContainerRef} className="relative h-full flex-1">
+                    <div className="h-full w-full" />
+                    {loading && (
+                        <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-300">
+                            Loading chart…
+                        </div>
+                    )}
+                    {error && !loading && (
+                        <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-red-400">
+                            {error}
+                        </div>
+                    )}
+                    {!followLive && !loading && !error && (
+                        <div className="absolute right-4 top-4">
+                            <button
+                                type="button"
+                                onClick={goLive}
+                                className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white shadow-lg shadow-emerald-600/40"
+                            >
+                                Go live
+                            </button>
+                        </div>
+                    )}
                 </div>
-            )}
-            {error && !loading && (
-                <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-red-400">
-                    {error}
-                </div>
-            )}
-            {!followLive && !loading && !error && (
-                <div className="absolute right-4 top-4">
-                    <button
-                        type="button"
-                        onClick={goLive}
-                        className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white shadow-lg shadow-emerald-600/40"
-                    >
-                        Go live
-                    </button>
-                </div>
-            )}
+                <FootprintSideLadder
+                    footprint={selectedFootprint}
+                    selectedTimeSec={selectedTimeSec}
+                    mode={mode}
+                    showNumbers={showNumbers}
+                    highlightImbalances={highlightImbalances}
+                    imbalanceRatio={imbalanceRatio}
+                    priceStep={priceStep}
+                    maxHeight={chartHeight}
+                />
+            </div>
         </div>
     );
 }
