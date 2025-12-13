@@ -15,6 +15,7 @@ import SessionStats from "@/app/(root)/orderflow/_components/session-stats";
 import VolumeProfile, { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
 import TradesTable from "@/app/(root)/orderflow/_components/trades-table";
 import { FootprintPanel } from "@/app/(root)/orderflow/_components/FootprintPanel";
+import TradingViewSuperChart from "@/components/orderflow/TradingViewSuperChart";
 import { bucketTrades } from "@/app/(root)/orderflow/_utils/bucketing";
 import {
     ORDERFLOW_BUCKET_PRESETS,
@@ -443,6 +444,8 @@ const OrderflowPage = () => {
     const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
     const sessionWindowLabel = `${Math.round(SESSION_WINDOW_SECONDS / 3600)}h`;
     const replaySliderValue = replayCutoffTimestamp ?? windowBounds.end;
+    const tvInterval =
+        windowSeconds === 60 ? "1" : windowSeconds === 300 ? "5" : windowSeconds === 900 ? "15" : "5";
 
     const handleToggleReplay = (enabled: boolean) => {
         setReplayEnabled(enabled);
@@ -597,6 +600,21 @@ const OrderflowPage = () => {
                     onChange={handleReplayChange}
                     disabled={!hasData}
                 />
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/5 to-black/20 p-5">
+                <div className="mb-3">
+                    <div className="text-xs tracking-widest text-white/60">CHART</div>
+                    <div className="text-sm text-white/80">Selected symbol: {selectedSymbol}</div>
+                </div>
+
+                <div className="h-[480px]">
+                    <TradingViewSuperChart
+                        symbol={selectedSymbol}
+                        interval={tvInterval}
+                        className="h-full w-full"
+                    />
+                </div>
             </div>
 
             <div className="grid items-stretch gap-4 lg:grid-cols-[2fr_1fr] xl:grid-cols-[3fr_1.1fr] min-w-0">
