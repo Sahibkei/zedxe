@@ -37,6 +37,25 @@ type PaneView = {
     renderer: () => PaneRenderer | null;
 };
 
+const normalizeToCandleSec = (time: UTCTimestamp | number | string | { timestamp?: number } | { time?: number }) => {
+    if (typeof time === "number") {
+        // treat timestamps over 1e12 as ms
+        return time > 1e12 ? Math.floor(time / 1000) : Math.floor(time);
+    }
+    if (typeof time === "string") {
+        const parsed = Number(time);
+        if (Number.isFinite(parsed)) return parsed > 1e12 ? Math.floor(parsed / 1000) : Math.floor(parsed);
+        return null;
+    }
+    if (typeof time === "object" && time) {
+        const candidate = (time as { timestamp?: number }).timestamp ?? (time as { time?: number }).time;
+        if (typeof candidate === "number") {
+            return candidate > 1e12 ? Math.floor(candidate / 1000) : Math.floor(candidate);
+        }
+    }
+    return null;
+};
+
 export class FootprintLadderPrimitive {
     private chart: any;
     private series: any;
@@ -146,7 +165,7 @@ export class FootprintLadderPrimitive {
             const visibleCount = Math.max(toIndex - fromIndex + 1, 1);
             const approxBarSpacing = width / Math.max(visibleCount + 2, 1);
 
-            if (!Number.isFinite(approxBarSpacing) || approxBarSpacing < 6) return;
+            if (!Number.isFinite(approxBarSpacing) || approxBarSpacing < 4) return;
 
             const ladderWidth = approxBarSpacing * (this.options.mode === "bidAsk" ? 0.9 : 0.6);
             const halfWidth = this.options.mode === "bidAsk" ? ladderWidth / 2 : ladderWidth;
@@ -162,8 +181,18 @@ export class FootprintLadderPrimitive {
                 const x = timeScale?.timeToCoordinate?.(candle.time as UTCTimestamp);
                 if (x == null) continue;
 
-                const footprint = this.getFootprintForCandle(candle.time as number);
-                if (!footprint || footprint.levels.length === 0) continue;
+                const footprintKey = normalizeToCandleSec(candle.time as number);
+                const footprint = footprintKey != null ? this.getFootprintForCandle(footprintKey) : null;
+                if (!footprint) continue;
+
+                // Minimal marker to confirm rendering when levels are sparse
+                const markerY = this.series.priceToCoordinate?.(candle.close ?? candle.high ?? candle.low ?? candle.open);
+                if (markerY != null) {
+                    ctx.fillStyle = "rgba(255,255,255,0.05)";
+                    ctx.fillRect(x - 2, markerY - 2, 4, 4);
+                }
+
+                if (!footprint.levels.length) continue;
 
                 const maxVolume = Math.max(...footprint.levels.map((level) => level.total), 0);
                 if (maxVolume <= 0) continue;

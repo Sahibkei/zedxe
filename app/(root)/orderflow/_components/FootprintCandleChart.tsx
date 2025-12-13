@@ -306,6 +306,7 @@ export function FootprintCandleChart({
 
         series.attachPrimitive?.(primitive);
         ladderPrimitiveRef.current = primitive;
+        primitive.invalidate();
 
         return () => {
             if (series?.detachPrimitive && ladderPrimitiveRef.current === primitive) {
