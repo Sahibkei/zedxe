@@ -273,10 +273,15 @@ export function FootprintCandleChart({
             resizeObserverRef.current = null;
 
             if (ladderPrimitiveRef.current && seriesRef.current) {
-                try {
-                    (seriesRef.current as any).detachPrimitive?.(ladderPrimitiveRef.current);
-                } catch (err) {
-                    console.warn("Failed to detach ladder primitive on cleanup", err);
+                const detachTarget = seriesRef.current as any;
+                if (typeof detachTarget.detachPrimitive !== "function") {
+                    console.error("Footprint ladder primitive cannot detach: detachPrimitive not available on series");
+                } else {
+                    try {
+                        detachTarget.detachPrimitive(ladderPrimitiveRef.current);
+                    } catch (err) {
+                        console.warn("Failed to detach ladder primitive on cleanup", err);
+                    }
                 }
             }
             ladderPrimitiveRef.current = null;
@@ -293,6 +298,11 @@ export function FootprintCandleChart({
         const series = seriesRef.current as any;
         if (!chart || !series || !getFootprintForCandle || !priceStep || priceStep <= 0) return;
 
+        if (typeof series.attachPrimitive !== "function") {
+            console.error("Footprint ladder primitive cannot attach: attachPrimitive not available on series");
+            return;
+        }
+
         const primitive = new FootprintLadderPrimitive({
             chart,
             series,
@@ -304,19 +314,27 @@ export function FootprintCandleChart({
             highlightImbalances,
         });
 
-        series.attachPrimitive?.(primitive);
+        try {
+            series.attachPrimitive(primitive);
+        } catch (err) {
+            console.error("Failed to attach ladder primitive", err);
+            return;
+        }
+
         ladderPrimitiveRef.current = primitive;
         primitive.invalidate();
 
         return () => {
-            if (series?.detachPrimitive && ladderPrimitiveRef.current === primitive) {
-                try {
-                    series.detachPrimitive(primitive);
-                } catch (err) {
-                    console.warn("Failed to detach ladder primitive", err);
-                }
-            }
             if (ladderPrimitiveRef.current === primitive) {
+                if (typeof series.detachPrimitive !== "function") {
+                    console.error("Footprint ladder primitive cannot detach: detachPrimitive not available on series");
+                } else {
+                    try {
+                        series.detachPrimitive(primitive);
+                    } catch (err) {
+                        console.warn("Failed to detach ladder primitive", err);
+                    }
+                }
                 ladderPrimitiveRef.current = null;
             }
         };

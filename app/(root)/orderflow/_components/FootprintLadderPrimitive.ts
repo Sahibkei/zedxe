@@ -134,15 +134,14 @@ export class FootprintLadderPrimitive {
                 this.pendingUpdate = false;
                 this.requestUpdate?.();
             });
-        } else {
-            // Fallback: try to invalidate via time scale change without affecting view.
-            const timeScale = this.chart?.timeScale?.();
-            if (timeScale?.getVisibleLogicalRange) {
-                const range = timeScale.getVisibleLogicalRange();
-                if (range && timeScale.setVisibleLogicalRange) {
-                    timeScale.setVisibleLogicalRange({ ...range });
-                }
-            }
+            return;
+        }
+
+        // Fallback: lightweight hint without moving the viewport.
+        try {
+            this.chart?.applyOptions?.({});
+        } catch (err) {
+            console.warn("Footprint ladder invalidate fallback failed", err);
         }
     }
 
@@ -160,20 +159,26 @@ export class FootprintLadderPrimitive {
         const toIndex = Math.min(candles.length - 1, Math.ceil(range.to));
         if (toIndex < fromIndex) return;
 
+        // biome-ignore lint/correctness/useHookAtTopLevel: not a React hook; lightweight-charts drawing API
         target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio, verticalPixelRatio, bitmapSize }) => {
-            const width = bitmapSize.width / horizontalPixelRatio;
+            const canvasWidth = bitmapSize.width / horizontalPixelRatio;
             const visibleCount = Math.max(toIndex - fromIndex + 1, 1);
-            const approxBarSpacing = width / Math.max(visibleCount + 2, 1);
+            const approxBarSpacing = canvasWidth / Math.max(visibleCount + 2, 1);
 
-            if (!Number.isFinite(approxBarSpacing) || approxBarSpacing < 4) return;
+            if (!Number.isFinite(approxBarSpacing) || approxBarSpacing < 5) return;
 
-            const ladderWidth = approxBarSpacing * (this.options.mode === "bidAsk" ? 0.9 : 0.6);
-            const halfWidth = this.options.mode === "bidAsk" ? ladderWidth / 2 : ladderWidth;
+            const ladderWidth = approxBarSpacing * (this.options.mode === "bidAsk" ? 0.85 : 0.6);
+            const halfWidth = this.options.mode === "bidAsk" ? ladderWidth / 2 : ladderWidth / 2;
+            const candleHalfWidth = Math.min(Math.max(approxBarSpacing * 0.25, 2), 8);
+            const gap = Math.max(approxBarSpacing * 0.08, 2);
+            const padding = 4;
 
             ctx.save();
             ctx.scale(horizontalPixelRatio, verticalPixelRatio);
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
+
+            let lastMarker: { x: number; y: number } | null = null;
 
             for (let index = fromIndex; index <= toIndex; index += 1) {
                 const candle = candles[index];
@@ -183,19 +188,30 @@ export class FootprintLadderPrimitive {
 
                 const footprintKey = normalizeToCandleSec(candle.time as number);
                 const footprint = footprintKey != null ? this.getFootprintForCandle(footprintKey) : null;
-                if (!footprint) continue;
 
-                // Minimal marker to confirm rendering when levels are sparse
-                const markerY = this.series.priceToCoordinate?.(candle.close ?? candle.high ?? candle.low ?? candle.open);
+                const markerY = this.series.priceToCoordinate?.(
+                    (candle.high + candle.low) / 2 || candle.close || candle.open,
+                );
                 if (markerY != null) {
-                    ctx.fillStyle = "rgba(255,255,255,0.05)";
-                    ctx.fillRect(x - 2, markerY - 2, 4, 4);
+                    lastMarker = { x, y: markerY };
                 }
 
-                if (!footprint.levels.length) continue;
+                if (!footprint || !footprint.levels.length) continue;
 
-                const maxVolume = Math.max(...footprint.levels.map((level) => level.total), 0);
+                let maxVolume = 0;
+                for (const level of footprint.levels) {
+                    if (level.total > maxVolume) maxVolume = level.total;
+                }
                 if (maxVolume <= 0) continue;
+
+                let left = x + candleHalfWidth + gap;
+                if (left + ladderWidth > canvasWidth - padding) {
+                    left = x - candleHalfWidth - gap - ladderWidth;
+                }
+                const right = left + ladderWidth;
+                if (left < padding || right > canvasWidth - padding) {
+                    continue;
+                }
 
                 for (const level of footprint.levels) {
                     const y = this.series.priceToCoordinate?.(level.price);
@@ -206,14 +222,20 @@ export class FootprintLadderPrimitive {
                     if (rowHeight < 2) continue;
 
                     this.drawLevel(ctx, {
-                        x,
+                        left,
                         top,
                         rowHeight,
                         halfWidth,
+                        ladderWidth,
                         level,
                         maxVolume,
                     });
                 }
+            }
+
+            if (lastMarker) {
+                ctx.fillStyle = "rgba(255,255,255,0.05)";
+                ctx.fillRect(lastMarker.x - 2, lastMarker.y - 2, 4, 4);
             }
 
             ctx.restore();
@@ -223,19 +245,20 @@ export class FootprintLadderPrimitive {
     private drawLevel(
         ctx: CanvasRenderingContext2D,
         params: {
-            x: number;
+            left: number;
             top: number;
             rowHeight: number;
             halfWidth: number;
+            ladderWidth: number;
             level: FootprintLevel;
             maxVolume: number;
         },
     ) {
-        const { x, top, rowHeight, halfWidth, level, maxVolume } = params;
-        const { mode, showNumbers, highlightImbalances, imbalanceRatio } = this.options;
+        const { left, top, rowHeight, halfWidth, ladderWidth, level, maxVolume } = params;
+        const { mode, showNumbers, highlightImbalances } = this.options;
+        const imbalanceRatio = Math.max(1.01, this.options.imbalanceRatio || 0);
 
-        const leftX = x - halfWidth;
-        const centerX = x;
+        const centerX = left + ladderWidth / 2;
 
         const bidVolume = level.bid;
         const askVolume = level.ask;
@@ -248,27 +271,30 @@ export class FootprintLadderPrimitive {
         ctx.lineWidth = 1;
 
         if (mode === "bidAsk") {
+            const bidLeft = left;
+            const askLeft = left + halfWidth;
+
             // Bid (left)
             ctx.fillStyle = `rgba(239, 68, 68, ${baseAlpha})`;
-            ctx.fillRect(leftX, top, halfWidth, rowHeight);
+            ctx.fillRect(bidLeft, top, halfWidth, rowHeight);
             // Ask (right)
             ctx.fillStyle = `rgba(52, 211, 153, ${baseAlpha})`;
-            ctx.fillRect(x, top, halfWidth, rowHeight);
+            ctx.fillRect(askLeft, top, halfWidth, rowHeight);
 
             if (highlightImbalances && bidVolume > 0 && askVolume >= bidVolume * imbalanceRatio) {
                 ctx.strokeStyle = "rgba(52, 211, 153, 0.9)";
-                ctx.strokeRect(x, top + 0.5, halfWidth, rowHeight - 1);
+                ctx.strokeRect(askLeft, top + 0.5, halfWidth, rowHeight - 1);
             } else if (highlightImbalances && askVolume > 0 && bidVolume >= askVolume * imbalanceRatio) {
                 ctx.strokeStyle = "rgba(239, 68, 68, 0.9)";
-                ctx.strokeRect(leftX, top + 0.5, halfWidth, rowHeight - 1);
+                ctx.strokeRect(bidLeft, top + 0.5, halfWidth, rowHeight - 1);
             }
 
             if (showNumbers && rowHeight >= 10 && halfWidth >= 7) {
                 const fontSize = Math.min(Math.max(9, rowHeight - 2), 14);
                 ctx.font = `${fontSize}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace`;
                 ctx.fillStyle = "#e5e7eb";
-                ctx.fillText(Math.round(bidVolume).toString(), leftX + halfWidth / 2, top + rowHeight / 2);
-                ctx.fillText(Math.round(askVolume).toString(), x + halfWidth / 2, top + rowHeight / 2);
+                ctx.fillText(Math.round(bidVolume).toString(), bidLeft + halfWidth / 2, top + rowHeight / 2);
+                ctx.fillText(Math.round(askVolume).toString(), askLeft + halfWidth / 2, top + rowHeight / 2);
             }
         } else if (mode === "delta") {
             const alpha = baseAlpha + 0.1;
