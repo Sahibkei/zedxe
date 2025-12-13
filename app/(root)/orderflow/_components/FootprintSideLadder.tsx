@@ -49,6 +49,18 @@ export function FootprintSideLadder({
         return { levels: sorted, maxVolume: maxVol || 1, maxDelta: maxDel || 1 };
     }, [footprint?.levels]);
 
+    const gridColumns = useMemo(() => {
+        if (mode === "Bid x Ask") {
+            return showNumbers ? "grid-cols-[90px,1fr,1fr,70px]" : "grid-cols-[90px,1fr,1fr]";
+        }
+
+        if (mode === "Delta" || mode === "Volume") {
+            return showNumbers ? "grid-cols-[90px,1fr,70px]" : "grid-cols-[90px,1fr]";
+        }
+
+        return "grid-cols-[90px,1fr,1fr,70px]";
+    }, [mode, showNumbers]);
+
     const renderBidAsk = (bid: number, ask: number, total: number) => {
         const canImbalance = highlightImbalances && bid > 0 && ask > 0;
         const bullish = canImbalance && ask >= bid * imbalanceRatio;
@@ -129,37 +141,37 @@ export function FootprintSideLadder({
                     <p className="pt-6 text-center text-xs text-gray-500">Hover a candle to view ladder</p>
                 ) : (
                     <div className="space-y-1">
-                        <div className="grid grid-cols-[80px,1fr,1fr,auto] items-center gap-2 px-1 text-[11px] text-gray-500">
+                        <div className={`grid items-center gap-2 px-1 text-[11px] text-gray-500 ${gridColumns}`}>
                             <span className="text-right">Price</span>
                             {mode === "Bid x Ask" && <span className="text-center">Bid</span>}
                             {mode === "Bid x Ask" && <span className="text-center">Ask</span>}
                             {mode === "Bid x Ask" && showNumbers && <span className="text-right">Total</span>}
-                            {mode === "Delta" && <span className="col-span-2 text-center">Delta</span>}
+                            {mode === "Delta" && <span className="text-center">Delta</span>}
                             {mode === "Delta" && showNumbers && <span className="text-right">Value</span>}
-                            {mode === "Volume" && <span className="col-span-2 text-center">Volume</span>}
+                            {mode === "Volume" && <span className="text-center">Volume</span>}
                             {mode === "Volume" && showNumbers && <span className="text-right">Total</span>}
                         </div>
                         {levels.map((level, index) => (
                             <div
                                 key={`${footprint?.tSec ?? selectedTimeSec ?? "latest"}:${level.price}:${index}`}
-                                className="grid grid-cols-[80px,1fr,1fr,auto] items-center gap-2 rounded bg-gray-900/30 px-1 py-1"
+                                className={`grid items-center gap-2 rounded bg-gray-900/30 px-1 py-1 ${gridColumns}`}
                             >
                                 <div className="text-right text-[11px] text-gray-300">
                                     {level.price.toFixed(priceDecimals)}
                                 </div>
                                 {mode === "Bid x Ask" && renderBidAsk(level.bid, level.ask, level.total)}
-                            {mode === "Delta" && (
-                                <>
-                                    <div className="col-span-2">{renderDelta(level.bid, level.ask)}</div>
-                                    <div />
-                                </>
-                            )}
-                            {mode === "Volume" && (
-                                <>
-                                    <div className="col-span-2">{renderVolume(level.total)}</div>
-                                    <div />
-                                </>
-                            )}
+                                {mode === "Delta" && (
+                                    <>
+                                        <div className={showNumbers ? "" : "col-span-1 col-start-2"}>{renderDelta(level.bid, level.ask)}</div>
+                                        {showNumbers && <div />}
+                                    </>
+                                )}
+                                {mode === "Volume" && (
+                                    <>
+                                        <div className={showNumbers ? "" : "col-span-1 col-start-2"}>{renderVolume(level.total)}</div>
+                                        {showNumbers && <div />}
+                                    </>
+                                )}
                             </div>
                         ))}
                     </div>

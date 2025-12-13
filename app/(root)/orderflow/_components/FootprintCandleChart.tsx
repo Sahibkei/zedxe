@@ -68,6 +68,7 @@ export function FootprintCandleChart({
     const lastCrosshairTimeRef = useRef<number | null>(null);
     const selectedTimeRef = useRef<number | null>(null);
     const onSelectionChangeRef = useRef<FootprintCandleChartProps["onSelectionChange"]>(onSelectionChange);
+    const getFootprintForCandleRef = useRef(getFootprintForCandle);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -90,103 +91,126 @@ export function FootprintCandleChart({
         let disposed = false;
         let rangeSubscription: ((range: LogicalRange) => void) | null = null;
         let crosshairSubscription: ((param: MouseEventParams) => void) | null = null;
+        let resizeObserver: ResizeObserver | null = null;
 
-        const setup = async () => {
-            setLoading(true);
-            setError(null);
-            setFollowLive(true);
-            followLiveRef.current = true;
+        setLoading(true);
+        setError(null);
+        setFollowLive(true);
+        followLiveRef.current = true;
 
-            const chartContainer = chartContainerRef.current;
-            if (!chartContainer) return;
+        const chartContainer = chartContainerRef.current;
+        if (!chartContainer) {
+            setError("Chart container missing.");
+            setLoading(false);
+            return () => {};
+        }
 
-            let createChartFn: typeof import("lightweight-charts").createChart | null = null;
-            try {
-                const { createChart } = await loadLightweightCharts();
+        let createChartFn: typeof import("lightweight-charts").createChart | null = null;
+
+        const handleResize = () => {
+            if (disposed) return;
+            const element = chartContainerRef.current;
+            if (!element) return;
+            const rect = element.getBoundingClientRect();
+            const width = rect.width || element.clientWidth;
+            const height = rect.height || element.clientHeight;
+            if (!width || !height) return;
+
+            if (!chartRef.current) {
+                if (!createChartFn) return;
+
+                try {
+                    const chart = createChartFn(element, {
+                        layout: {
+                            background: { color: "transparent" },
+                            textColor: "#e5e7eb",
+                        },
+                        width,
+                        height,
+                        rightPriceScale: { borderVisible: false },
+                        timeScale: { borderVisible: false, secondsVisible: interval === "1m" },
+                        crosshair: { mode: CrosshairMode.Normal },
+                        grid: {
+                            vertLines: { color: "rgba(255,255,255,0.04)" },
+                            horzLines: { color: "rgba(255,255,255,0.06)" },
+                        },
+                    });
+
+                    chartRef.current = chart;
+
+                    const series = chart.addCandlestickSeries({
+                        upColor: "#34d399",
+                        downColor: "#f87171",
+                        borderUpColor: "#34d399",
+                        borderDownColor: "#f87171",
+                        wickUpColor: "#34d399",
+                        wickDownColor: "#f87171",
+                    });
+                    seriesRef.current = series;
+
+                    rangeSubscription = (range: LogicalRange) => {
+                        if (!range || !candlesRef.current.length) return;
+                        const lastIndex = candlesRef.current.length - 1;
+                        if (range.to < lastIndex - 0.5 && followLiveRef.current) {
+                            followLiveRef.current = false;
+                            setFollowLive(false);
+                        }
+                    };
+
+                    chart.timeScale().subscribeVisibleLogicalRangeChange(rangeSubscription);
+
+                    crosshairSubscription = (param: MouseEventParams) => {
+                        const time = param.time as number | undefined;
+                        if (time == null) {
+                            isHoveringRef.current = false;
+                            lastCrosshairTimeRef.current = null;
+                            if (selectedTimeRef.current !== latestCandleTimeRef.current) {
+                                setSelectedTimeSec(latestCandleTimeRef.current);
+                            }
+                            return;
+                        }
+                        isHoveringRef.current = true;
+                        if (lastCrosshairTimeRef.current !== time) {
+                            lastCrosshairTimeRef.current = time;
+                            setSelectedTimeSec(time);
+                        }
+                    };
+
+                    chart.subscribeCrosshairMove(crosshairSubscription);
+
+                    void loadInitialData(chart, series);
+                    subscribeLive(chart, series);
+                } catch (err) {
+                    console.error("FootprintCandleChart init error", err);
+                    if (!disposed) {
+                        setError("Footprint chart failed to render. Please try again.");
+                        setLoading(false);
+                    }
+                }
+            } else {
+                chartRef.current.applyOptions({ width, height });
+            }
+        };
+
+        loadLightweightCharts()
+            .then(({ createChart }) => {
+                if (disposed) return;
                 createChartFn = createChart;
-            } catch (err) {
+                handleResize();
+                resizeObserver = new ResizeObserver(() => handleResize());
+                resizeObserver.observe(chartContainer);
+                resizeObserverRef.current = resizeObserver;
+            })
+            .catch((err) => {
                 console.error("FootprintCandleChart init error", err);
                 if (!disposed) {
                     setError("Failed to load chart library. Please try again.");
                     setLoading(false);
                 }
-                return;
-            }
-            if (disposed || !createChartFn) return;
+            });
 
+        const loadInitialData = async (chart: IChartApi, series: ISeriesApi) => {
             try {
-                const rect = chartContainer.getBoundingClientRect();
-                const initialWidth = rect.width || chartContainer.clientWidth || 640;
-                const initialHeight = rect.height || chartContainer.clientHeight || 400;
-
-                const chart = createChartFn(chartContainer, {
-                    layout: {
-                        background: { color: "transparent" },
-                        textColor: "#e5e7eb",
-                    },
-                    width: initialWidth,
-                    height: initialHeight,
-                    rightPriceScale: { borderVisible: false },
-                    timeScale: { borderVisible: false, secondsVisible: interval === "1m" },
-                    crosshair: { mode: CrosshairMode.Normal },
-                    grid: {
-                        vertLines: { color: "rgba(255,255,255,0.04)" },
-                        horzLines: { color: "rgba(255,255,255,0.06)" },
-                    },
-                });
-
-                chartRef.current = chart;
-
-                const series = chart.addCandlestickSeries({
-                    upColor: "#34d399",
-                    downColor: "#f87171",
-                    borderUpColor: "#34d399",
-                    borderDownColor: "#f87171",
-                    wickUpColor: "#34d399",
-                    wickDownColor: "#f87171",
-                });
-                seriesRef.current = series;
-
-                const applyResize = () => {
-                    const { width, height } = chartContainer.getBoundingClientRect();
-                    if (!chartRef.current || width === 0 || height === 0) return;
-                    chartRef.current.applyOptions({ width, height });
-                };
-
-                applyResize();
-                resizeObserverRef.current = new ResizeObserver(() => applyResize());
-                resizeObserverRef.current.observe(chartContainer);
-
-                rangeSubscription = (range: LogicalRange) => {
-                    if (!range || !candlesRef.current.length) return;
-                    const lastIndex = candlesRef.current.length - 1;
-                    if (range.to < lastIndex - 0.5 && followLiveRef.current) {
-                        followLiveRef.current = false;
-                        setFollowLive(false);
-                    }
-                };
-
-                chart.timeScale().subscribeVisibleLogicalRangeChange(rangeSubscription);
-
-                crosshairSubscription = (param: MouseEventParams) => {
-                    const time = param.time as number | undefined;
-                    if (time == null) {
-                        isHoveringRef.current = false;
-                        lastCrosshairTimeRef.current = null;
-                        if (selectedTimeRef.current !== latestCandleTimeRef.current) {
-                            setSelectedTimeSec(latestCandleTimeRef.current);
-                        }
-                        return;
-                    }
-                    isHoveringRef.current = true;
-                    if (lastCrosshairTimeRef.current !== time) {
-                        lastCrosshairTimeRef.current = time;
-                        setSelectedTimeSec(time);
-                    }
-                };
-
-                chart.subscribeCrosshairMove(crosshairSubscription);
-
                 const endTime = Date.now();
                 const startTime = endTime - WINDOW_MS;
                 const params = new URLSearchParams({
@@ -200,133 +224,124 @@ export function FootprintCandleChart({
                     `https://data-api.binance.vision/api/v3/klines?${params.toString()}`,
                 ];
 
+                let klines: unknown[] | null = null;
+                let lastError: Error | null = null;
+
+                for (const url of urls) {
+                    try {
+                        const response = await fetchWithTimeout(url, { timeoutMs: FETCH_TIMEOUT_MS });
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        const json = await response.json();
+                        if (!Array.isArray(json)) throw new Error("Invalid kline response");
+                        klines = json;
+                        lastError = null;
+                        break;
+                    } catch (error) {
+                        lastError = error as Error;
+                    }
+                }
+
+                if (disposed) return;
+
+                if (!klines) {
+                    throw lastError ?? new Error("Failed to load klines");
+                }
+
+                const parsed: CandlestickData[] = klines.map((kline) => {
+                    const [openTime, open, high, low, close] = kline as [number, string, string, string, string];
+                    return {
+                        time: (openTime / 1000) as UTCTimestamp,
+                        open: Number(open),
+                        high: Number(high),
+                        low: Number(low),
+                        close: Number(close),
+                    } satisfies CandlestickData;
+                });
+
+                const trimmed = trimToWindow(parsed);
+                candlesRef.current = trimmed;
+                const latest = trimmed[trimmed.length - 1]?.time ?? null;
+                latestCandleTimeRef.current = latest ?? null;
+                if (!isHoveringRef.current && selectedTimeRef.current !== latest) {
+                    setSelectedTimeSec(latest ?? null);
+                }
+                series.setData(trimmed);
+                setFollowLive(true);
+                if (followLiveRef.current) {
+                    chart.timeScale().scrollToRealTime();
+                }
+            } catch (error) {
+                if (!disposed) {
+                    console.error("Failed to load klines", error);
+                    setError("Failed to load recent candles. Please try again.");
+                }
+            } finally {
+                if (!disposed) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        const subscribeLive = (chart: IChartApi, series: ISeriesApi) => {
+            if (disposed) return;
+            const stream = `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`;
+            const socket = new WebSocket(stream);
+            websocketRef.current = socket;
+
+            const isCurrent = () => websocketRef.current === socket;
+
+            socket.onmessage = (event) => {
+                if (!isCurrent()) return;
                 try {
-                    let klines: unknown[] | null = null;
-                    let lastError: Error | null = null;
+                    const parsed = JSON.parse(event.data);
+                    const kline = parsed?.k;
+                    if (!kline) return;
 
-                    for (const url of urls) {
-                        try {
-                            const response = await fetchWithTimeout(url, { timeoutMs: FETCH_TIMEOUT_MS });
-                            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                            const json = await response.json();
-                            if (!Array.isArray(json)) throw new Error("Invalid kline response");
-                            klines = json;
-                            lastError = null;
-                            break;
-                        } catch (error) {
-                            lastError = error as Error;
-                        }
+                    const openTime: UTCTimestamp = Math.floor(kline.t / 1000);
+                    const nextBar: CandlestickData = {
+                        time: openTime,
+                        open: Number(kline.o),
+                        high: Number(kline.h),
+                        low: Number(kline.l),
+                        close: Number(kline.c),
+                    };
+
+                    const updated = [...candlesRef.current];
+                    const last = updated[updated.length - 1];
+                    if (last && last.time === nextBar.time) {
+                        updated[updated.length - 1] = nextBar;
+                    } else {
+                        updated.push(nextBar);
                     }
 
-                    if (disposed) return;
-
-                    if (!klines) {
-                        throw lastError ?? new Error("Failed to load klines");
-                    }
-
-                    const parsed: CandlestickData[] = klines.map((kline) => {
-                        const [openTime, open, high, low, close] = kline as [number, string, string, string, string];
-                        return {
-                            time: (openTime / 1000) as UTCTimestamp,
-                            open: Number(open),
-                            high: Number(high),
-                            low: Number(low),
-                            close: Number(close),
-                        } satisfies CandlestickData;
-                    });
-
-                    const trimmed = trimToWindow(parsed);
+                    const trimmed = trimToWindow(updated);
+                    const trimmedChanged = trimmed.length !== updated.length;
                     candlesRef.current = trimmed;
                     const latest = trimmed[trimmed.length - 1]?.time ?? null;
                     latestCandleTimeRef.current = latest ?? null;
                     if (!isHoveringRef.current && selectedTimeRef.current !== latest) {
                         setSelectedTimeSec(latest ?? null);
                     }
-                    series.setData(trimmed);
-                    setFollowLive(true);
+
+                    if (trimmedChanged) {
+                        series.setData(trimmed);
+                    } else if (updated.length === trimmed.length) {
+                        series.update(nextBar);
+                    }
+
                     if (followLiveRef.current) {
                         chart.timeScale().scrollToRealTime();
                     }
-                } catch (error) {
-                    if (!disposed) {
-                        console.error("Failed to load klines", error);
-                        setError("Failed to load recent candles. Please try again.");
-                    }
-                } finally {
-                    if (!disposed) {
-                        setLoading(false);
-                    }
+                } catch (err) {
+                    console.error("Failed to process kline", err);
                 }
+            };
 
-                if (disposed) return;
-
-                const stream = `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`;
-                const socket = new WebSocket(stream);
-                websocketRef.current = socket;
-
-                const isCurrent = () => websocketRef.current === socket;
-
-                socket.onmessage = (event) => {
-                    if (!isCurrent()) return;
-                    try {
-                        const parsed = JSON.parse(event.data);
-                        const kline = parsed?.k;
-                        if (!kline) return;
-
-                        const openTime: UTCTimestamp = Math.floor(kline.t / 1000);
-                        const nextBar: CandlestickData = {
-                            time: openTime,
-                            open: Number(kline.o),
-                            high: Number(kline.h),
-                            low: Number(kline.l),
-                            close: Number(kline.c),
-                        };
-
-                        const updated = [...candlesRef.current];
-                        const last = updated[updated.length - 1];
-                        if (last && last.time === nextBar.time) {
-                            updated[updated.length - 1] = nextBar;
-                        } else {
-                            updated.push(nextBar);
-                        }
-
-                        const trimmed = trimToWindow(updated);
-                        const trimmedChanged = trimmed.length !== updated.length;
-                        candlesRef.current = trimmed;
-                        const latest = trimmed[trimmed.length - 1]?.time ?? null;
-                        latestCandleTimeRef.current = latest ?? null;
-                        if (!isHoveringRef.current && selectedTimeRef.current !== latest) {
-                            setSelectedTimeSec(latest ?? null);
-                        }
-
-                        if (trimmedChanged) {
-                            series.setData(trimmed);
-                        } else if (updated.length === trimmed.length) {
-                            series.update(nextBar);
-                        }
-
-                        if (followLiveRef.current) {
-                            chart.timeScale().scrollToRealTime();
-                        }
-                    } catch (err) {
-                        console.error("Failed to process kline", err);
-                    }
-                };
-
-                socket.onerror = (err) => {
-                    if (!isCurrent()) return;
-                    console.error("Footprint chart socket error", err);
-                };
-            } catch (err) {
-                console.error("FootprintCandleChart init error", err);
-                if (!disposed) {
-                    setError("Footprint chart failed to render. Please try again.");
-                    setLoading(false);
-                }
-            }
+            socket.onerror = (err) => {
+                if (!isCurrent()) return;
+                console.error("Footprint chart socket error", err);
+            };
         };
-
-        setup();
 
         return () => {
             disposed = true;
@@ -344,12 +359,13 @@ export function FootprintCandleChart({
                 chartRef.current.timeScale().unsubscribeVisibleLogicalRangeChange(rangeSubscription);
             }
 
-            resizeObserverRef.current?.disconnect();
-            resizeObserverRef.current = null;
-
             if (crosshairSubscription && chartRef.current) {
                 chartRef.current.unsubscribeCrosshairMove(crosshairSubscription);
             }
+
+            resizeObserver?.disconnect();
+            resizeObserverRef.current?.disconnect();
+            resizeObserverRef.current = null;
 
             chartRef.current?.remove();
             chartRef.current = null;
@@ -374,9 +390,13 @@ export function FootprintCandleChart({
     }, [footprintUpdateKey]);
 
     useEffect(() => {
-        const footprint = selectedTimeSec != null ? getFootprintForCandle(selectedTimeSec) : null;
+        getFootprintForCandleRef.current = getFootprintForCandle;
+    }, [getFootprintForCandle]);
+
+    useEffect(() => {
+        const footprint = selectedTimeSec != null ? getFootprintForCandleRef.current(selectedTimeSec) : null;
         onSelectionChangeRef.current?.({ timeSec: selectedTimeSec, footprint });
-    }, [selectedTimeSec, footprintUpdateKey, getFootprintForCandle]);
+    }, [selectedTimeSec, footprintUpdateKey]);
 
     return (
         <div className="relative h-full w-full">
