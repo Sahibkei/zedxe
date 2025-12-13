@@ -39,7 +39,7 @@ export function FootprintSideLadder({
           })
         : "Latest";
 
-    const priceDecimals = priceStep ? decimalsFromStep(priceStep) : 2;
+    const priceDecimals = priceStep != null ? decimalsFromStep(priceStep) : 2;
 
     const { levels, maxVolume, maxDelta } = useMemo(() => {
         const ladderLevels = footprint?.levels ?? [];
@@ -120,7 +120,7 @@ export function FootprintSideLadder({
 
     return (
         <div
-            className="flex h-full w-[180px] flex-col border-l border-gray-800 bg-[#0f1115]"
+            className="flex h-full w-full flex-col border-l border-gray-800 bg-[#0f1115]"
             style={maxHeight ? { maxHeight } : undefined}
         >
             <div className="border-b border-gray-800 p-3">
@@ -133,8 +133,8 @@ export function FootprintSideLadder({
                     <p className="pt-6 text-center text-xs text-gray-500">Hover a candle to view ladder</p>
                 ) : (
                     <div className="space-y-1">
-                        {levels.map((level) => (
-                            <div key={level.price} className="flex items-center gap-3">
+                        {levels.map((level, index) => (
+                            <div key={`${footprint?.tSec ?? selectedTimeSec ?? "latest"}-${level.price}-${index}`} className="flex items-center gap-3">
                                 <div className="w-16 text-right text-[11px] text-gray-400">
                                     {level.price.toFixed(priceDecimals)}
                                 </div>

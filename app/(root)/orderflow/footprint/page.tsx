@@ -229,7 +229,7 @@ const FootprintPageInner = () => {
                             Highlight imbalances
                         </label>
                         <label className="flex items-center gap-2 text-sm text-gray-300">
-                            Tick size (price step per row)
+                            Tick/Row
                             <input
                                 type="number"
                                 step="any"
