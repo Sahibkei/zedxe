@@ -60,27 +60,23 @@ export function FootprintSideLadder({
         const askColor = bullish ? "bg-blue-500/80" : "bg-blue-500/50";
 
         return (
-            <div className="flex w-full items-center gap-2">
-                <div className="flex-1">
-                    <div className="flex items-center gap-1 text-[11px] text-gray-200">
-                        <div className="relative h-4 w-full overflow-hidden rounded bg-gray-800/60">
-                            <div className={`absolute inset-y-0 left-0 ${bidColor}`} style={{ width: `${bidWidth}%` }} />
-                        </div>
-                        {showNumbers && <span className="tabular-nums text-[11px] text-gray-100">{formatVolume(bid)}</span>}
+            <>
+                <div className="flex items-center gap-1 text-[11px] text-gray-200">
+                    <div className="relative h-4 w-full overflow-hidden rounded bg-gray-800/60">
+                        <div className={`absolute inset-y-0 left-0 ${bidColor}`} style={{ width: `${bidWidth}%` }} />
                     </div>
+                    {showNumbers && <span className="tabular-nums text-[11px] text-gray-100">{formatVolume(bid)}</span>}
                 </div>
-                <div className="flex-1">
-                    <div className="flex items-center gap-1 text-[11px] text-gray-200">
-                        <div className="relative h-4 w-full overflow-hidden rounded bg-gray-800/60">
-                            <div className={`absolute inset-y-0 left-0 ${askColor}`} style={{ width: `${askWidth}%` }} />
-                        </div>
-                        {showNumbers && <span className="tabular-nums text-[11px] text-gray-100">{formatVolume(ask)}</span>}
+                <div className="flex items-center gap-1 text-[11px] text-gray-200">
+                    <div className="relative h-4 w-full overflow-hidden rounded bg-gray-800/60">
+                        <div className={`absolute inset-y-0 left-0 ${askColor}`} style={{ width: `${askWidth}%` }} />
                     </div>
+                    {showNumbers && <span className="tabular-nums text-[11px] text-gray-100">{formatVolume(ask)}</span>}
                 </div>
                 {showNumbers && (
-                    <div className="w-12 text-right text-[11px] text-gray-300">{formatVolume(total)}</div>
+                    <div className="text-right text-[11px] text-gray-300">{formatVolume(total)}</div>
                 )}
-            </div>
+            </>
         );
     };
 
@@ -90,31 +86,31 @@ export function FootprintSideLadder({
         const width = Math.min(100, (Math.abs(delta) / maxDelta) * 100);
         const barColor = isPositive ? "bg-blue-500/80" : "bg-red-500/70";
         return (
-            <div className="flex w-full items-center gap-2">
-                <div className="relative h-4 flex-1 overflow-hidden rounded bg-gray-800/60">
+            <>
+                <div className="relative h-4 w-full overflow-hidden rounded bg-gray-800/60">
                     <div
                         className={`absolute inset-y-0 ${isPositive ? "left-0" : "right-0"} ${barColor}`}
                         style={{ width: `${width}%` }}
                     />
                 </div>
                 {showNumbers && (
-                    <div className={`w-16 text-right tabular-nums text-[11px] ${isPositive ? "text-blue-200" : "text-red-200"}`}>
+                    <div className={`text-right tabular-nums text-[11px] ${isPositive ? "text-blue-200" : "text-red-200"}`}>
                         {formatVolume(delta)}
                     </div>
                 )}
-            </div>
+            </>
         );
     };
 
     const renderVolume = (total: number) => {
         const width = Math.min(100, (total / maxVolume) * 100);
         return (
-            <div className="flex w-full items-center gap-2">
-                <div className="relative h-4 flex-1 overflow-hidden rounded bg-gray-800/60">
+            <>
+                <div className="relative h-4 w-full overflow-hidden rounded bg-gray-800/60">
                     <div className="absolute inset-y-0 left-0 bg-emerald-500/70" style={{ width: `${width}%` }} />
                 </div>
-                {showNumbers && <div className="w-16 text-right tabular-nums text-[11px] text-emerald-100">{formatVolume(total)}</div>}
-            </div>
+                {showNumbers && <div className="text-right tabular-nums text-[11px] text-emerald-100">{formatVolume(total)}</div>}
+            </>
         );
     };
 
@@ -133,16 +129,37 @@ export function FootprintSideLadder({
                     <p className="pt-6 text-center text-xs text-gray-500">Hover a candle to view ladder</p>
                 ) : (
                     <div className="space-y-1">
+                        <div className="grid grid-cols-[80px,1fr,1fr,auto] items-center gap-2 px-1 text-[11px] text-gray-500">
+                            <span className="text-right">Price</span>
+                            {mode === "Bid x Ask" && <span className="text-center">Bid</span>}
+                            {mode === "Bid x Ask" && <span className="text-center">Ask</span>}
+                            {mode === "Bid x Ask" && showNumbers && <span className="text-right">Total</span>}
+                            {mode === "Delta" && <span className="col-span-2 text-center">Delta</span>}
+                            {mode === "Delta" && showNumbers && <span className="text-right">Value</span>}
+                            {mode === "Volume" && <span className="col-span-2 text-center">Volume</span>}
+                            {mode === "Volume" && showNumbers && <span className="text-right">Total</span>}
+                        </div>
                         {levels.map((level, index) => (
-                            <div key={`${footprint?.tSec ?? selectedTimeSec ?? "latest"}-${level.price}-${index}`} className="flex items-center gap-3">
-                                <div className="w-16 text-right text-[11px] text-gray-400">
+                            <div
+                                key={`${footprint?.tSec ?? selectedTimeSec ?? "latest"}:${level.price}:${index}`}
+                                className="grid grid-cols-[80px,1fr,1fr,auto] items-center gap-2 rounded bg-gray-900/30 px-1 py-1"
+                            >
+                                <div className="text-right text-[11px] text-gray-300">
                                     {level.price.toFixed(priceDecimals)}
                                 </div>
-                                <div className="flex-1">
-                                    {mode === "Bid x Ask" && renderBidAsk(level.bid, level.ask, level.total)}
-                                    {mode === "Delta" && renderDelta(level.bid, level.ask)}
-                                    {mode === "Volume" && renderVolume(level.total)}
-                                </div>
+                                {mode === "Bid x Ask" && renderBidAsk(level.bid, level.ask, level.total)}
+                            {mode === "Delta" && (
+                                <>
+                                    <div className="col-span-2">{renderDelta(level.bid, level.ask)}</div>
+                                    <div />
+                                </>
+                            )}
+                            {mode === "Volume" && (
+                                <>
+                                    <div className="col-span-2">{renderVolume(level.total)}</div>
+                                    <div />
+                                </>
+                            )}
                             </div>
                         ))}
                     </div>

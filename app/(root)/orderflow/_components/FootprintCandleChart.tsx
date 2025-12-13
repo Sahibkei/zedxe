@@ -97,31 +97,8 @@ export function FootprintCandleChart({
             setFollowLive(true);
             followLiveRef.current = true;
 
-            const container = containerRef.current;
             const chartContainer = chartContainerRef.current;
-            if (!container || !chartContainer) return;
-
-            const waitForDimensions = async () => {
-                return new Promise<{ width: number; height: number } | null>((resolve) => {
-                    let frameId: number | null = null;
-
-                    const check = () => {
-                        if (disposed) {
-                            if (frameId != null) cancelAnimationFrame(frameId);
-                            resolve(null);
-                            return;
-                        }
-                        const rect = chartContainer.getBoundingClientRect();
-                        if (rect.width > 0 && rect.height > 0) {
-                            resolve({ width: rect.width, height: rect.height });
-                            return;
-                        }
-                        frameId = requestAnimationFrame(check);
-                    };
-
-                    check();
-                });
-            };
+            if (!chartContainer) return;
 
             let createChartFn: typeof import("lightweight-charts").createChart | null = null;
             try {
@@ -135,15 +112,13 @@ export function FootprintCandleChart({
                 }
                 return;
             }
-            if (disposed) return;
-
-            const dims = await waitForDimensions();
-            if (disposed || !dims) return;
-            const { width: initialWidth, height: initialHeight } = dims;
-
-            if (!createChartFn) return;
+            if (disposed || !createChartFn) return;
 
             try {
+                const rect = chartContainer.getBoundingClientRect();
+                const initialWidth = rect.width || chartContainer.clientWidth || 640;
+                const initialHeight = rect.height || chartContainer.clientHeight || 400;
+
                 const chart = createChartFn(chartContainer, {
                     layout: {
                         background: { color: "transparent" },
@@ -382,7 +357,6 @@ export function FootprintCandleChart({
             candlesRef.current = [];
             latestCandleTimeRef.current = null;
             isHoveringRef.current = false;
-            setSelectedTimeSec(null);
         };
     }, [symbol, interval]);
 
