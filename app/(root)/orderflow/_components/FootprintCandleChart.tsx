@@ -10,7 +10,7 @@ import type {
     UTCTimestamp,
 } from "@/utils/lightweight-charts-loader";
 import { CrosshairMode, loadLightweightCharts } from "@/utils/lightweight-charts-loader";
-import { FootprintLadderPrimitive } from "./FootprintLadderPrimitive";
+import { drawFootprintLadderOverlay } from "./FootprintLadderOverlayCanvas";
 
 const INTERVAL_SECONDS: Record<string, number> = {
     "1m": 60,
@@ -64,13 +64,15 @@ export function FootprintCandleChart({
     footprintUpdateKey,
 }: FootprintCandleChartProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const chartMountRef = useRef<HTMLDivElement | null>(null);
+    const ladderCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const chartRef = useRef<IChartApi | null>(null);
     const seriesRef = useRef<ISeriesApi | null>(null);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
     const websocketRef = useRef<WebSocket | null>(null);
     const candlesRef = useRef<CandlestickData[]>([]);
     const followLiveRef = useRef(true);
-    const ladderPrimitiveRef = useRef<FootprintLadderPrimitive | null>(null);
+    const ladderDrawRef = useRef<(() => void) | null>(null);
     const [chartReadyToken, setChartReadyToken] = useState(0);
 
     const [loading, setLoading] = useState(true);
@@ -92,12 +94,13 @@ export function FootprintCandleChart({
             followLiveRef.current = true;
 
             const container = containerRef.current;
-            if (!container) return;
+            const chartMount = chartMountRef.current;
+            if (!container || !chartMount) return;
 
             const { createChart } = await loadLightweightCharts();
             if (disposed) return;
 
-            const chart = createChart(container, {
+            const chart = createChart(chartMount, {
                 layout: {
                     background: { color: "transparent" },
                     textColor: "#e5e7eb",
@@ -127,6 +130,14 @@ export function FootprintCandleChart({
             const applyResize = () => {
                 const { width, height } = container.getBoundingClientRect();
                 chart.applyOptions({ width: Math.max(width, 0), height: Math.max(height, 0) });
+                const canvas = ladderCanvasRef.current;
+                if (canvas) {
+                    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+                    canvas.width = Math.max(Math.floor(width * dpr), 1);
+                    canvas.height = Math.max(Math.floor(height * dpr), 1);
+                    canvas.style.width = `${Math.max(width, 0)}px`;
+                    canvas.style.height = `${Math.max(height, 0)}px`;
+                }
             };
 
             applyResize();
@@ -195,6 +206,7 @@ export function FootprintCandleChart({
                 const trimmed = trimToWindow(parsed);
                 candlesRef.current = trimmed;
                 series.setData(trimmed);
+                ladderDrawRef.current?.();
                 setFollowLive(true);
                 if (followLiveRef.current) {
                     chart.timeScale().scrollToRealTime();
@@ -249,6 +261,8 @@ export function FootprintCandleChart({
                         series.update(nextBar);
                     }
 
+                    ladderDrawRef.current?.();
+
                     if (followLiveRef.current) {
                         chart.timeScale().scrollToRealTime();
                     }
@@ -272,20 +286,6 @@ export function FootprintCandleChart({
             resizeObserverRef.current?.disconnect();
             resizeObserverRef.current = null;
 
-            if (ladderPrimitiveRef.current && seriesRef.current) {
-                const detachTarget = seriesRef.current as any;
-                if (typeof detachTarget.detachPrimitive !== "function") {
-                    console.error("Footprint ladder primitive cannot detach: detachPrimitive not available on series");
-                } else {
-                    try {
-                        detachTarget.detachPrimitive(ladderPrimitiveRef.current);
-                    } catch (err) {
-                        console.warn("Failed to detach ladder primitive on cleanup", err);
-                    }
-                }
-            }
-            ladderPrimitiveRef.current = null;
-
             chartRef.current?.remove();
             chartRef.current = null;
             seriesRef.current = null;
@@ -294,71 +294,67 @@ export function FootprintCandleChart({
     }, [symbol, interval]);
 
     useEffect(() => {
-        const chart = chartRef.current as any;
-        const series = seriesRef.current as any;
-        if (!chart || !series || !getFootprintForCandle || !priceStep || priceStep <= 0) return;
-
-        if (typeof series.attachPrimitive !== "function") {
-            console.error("Footprint ladder primitive cannot attach: attachPrimitive not available on series");
+        const chart = chartRef.current;
+        const series = seriesRef.current;
+        const canvas = ladderCanvasRef.current;
+        const container = containerRef.current;
+        if (!chart || !series || !canvas || !container || !getFootprintForCandle || !priceStep || priceStep <= 0) {
+            ladderDrawRef.current = null;
             return;
         }
 
-        const primitive = new FootprintLadderPrimitive({
-            chart,
-            series,
-            getFootprintForCandle,
-            getCandles: () => candlesRef.current,
-            priceStep,
-            mode,
-            showNumbers,
-            highlightImbalances,
+        let frame: number | null = null;
+
+        const scheduleDraw = () => {
+            if (frame != null) return;
+            frame = requestAnimationFrame(() => {
+                frame = null;
+                drawFootprintLadderOverlay({
+                    chart,
+                    series,
+                    canvas,
+                    getCandles: () => candlesRef.current,
+                    getFootprintForCandle,
+                    priceStep,
+                    mode,
+                    showNumbers,
+                    highlightImbalances,
+                });
+            });
+        };
+
+        ladderDrawRef.current = scheduleDraw;
+        scheduleDraw();
+
+        const timeScale = chart.timeScale();
+        const rangeSubscription = () => scheduleDraw();
+        timeScale.subscribeVisibleLogicalRangeChange(rangeSubscription);
+
+        const resizeObserver = new ResizeObserver(() => {
+            const { width, height } = container.getBoundingClientRect();
+            const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+            canvas.width = Math.max(Math.floor(width * dpr), 1);
+            canvas.height = Math.max(Math.floor(height * dpr), 1);
+            canvas.style.width = `${Math.max(width, 0)}px`;
+            canvas.style.height = `${Math.max(height, 0)}px`;
+            scheduleDraw();
         });
-
-        try {
-            series.attachPrimitive(primitive);
-        } catch (err) {
-            console.error("Failed to attach ladder primitive", err);
-            return;
-        }
-
-        ladderPrimitiveRef.current = primitive;
-        primitive.invalidate();
+        resizeObserver.observe(container);
 
         return () => {
-            if (ladderPrimitiveRef.current === primitive) {
-                if (typeof series.detachPrimitive !== "function") {
-                    console.error("Footprint ladder primitive cannot detach: detachPrimitive not available on series");
-                } else {
-                    try {
-                        series.detachPrimitive(primitive);
-                    } catch (err) {
-                        console.warn("Failed to detach ladder primitive", err);
-                    }
-                }
-                ladderPrimitiveRef.current = null;
+            ladderDrawRef.current = null;
+            if (frame != null) {
+                cancelAnimationFrame(frame);
+                frame = null;
             }
+            timeScale.unsubscribeVisibleLogicalRangeChange(rangeSubscription);
+            resizeObserver.disconnect();
         };
-    }, [chartReadyToken, getFootprintForCandle, priceStep]);
+    }, [chartReadyToken, getFootprintForCandle, priceStep, mode, showNumbers, highlightImbalances]);
 
     useEffect(() => {
-        const primitive = ladderPrimitiveRef.current;
-        if (!primitive) return;
-
-        const updates: Record<string, unknown> = {
-            mode,
-            showNumbers,
-            highlightImbalances,
-        };
-        if (priceStep && priceStep > 0) {
-            updates.priceStep = priceStep;
-        }
-
-        primitive.updateOptions(updates as any);
-    }, [mode, showNumbers, highlightImbalances, priceStep]);
-
-    useEffect(() => {
-        if (!footprintUpdateKey) return;
-        ladderPrimitiveRef.current?.invalidate();
+        if (footprintUpdateKey == null) return;
+        ladderDrawRef.current?.();
     }, [footprintUpdateKey]);
 
     const goLive = () => {
@@ -368,8 +364,9 @@ export function FootprintCandleChart({
     };
 
     return (
-        <div className="relative h-full w-full">
-            <div ref={containerRef} className="h-full w-full" />
+        <div ref={containerRef} className="relative h-full w-full">
+            <div ref={chartMountRef} className="h-full w-full" />
+            <canvas ref={ladderCanvasRef} className="pointer-events-none absolute inset-0 z-20" />
             {loading && (
                 <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-300">
                     Loading chart…
