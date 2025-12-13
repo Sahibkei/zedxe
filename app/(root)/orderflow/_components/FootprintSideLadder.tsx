@@ -2,9 +2,7 @@ import { useMemo } from "react";
 
 import { decimalsFromStep } from "@/utils/orderflow/footprint-aggregator";
 
-import { CandleFootprint } from "./footprint-types";
-
-type FootprintMode = "Bid x Ask" | "Delta" | "Volume";
+import { CandleFootprint, FootprintMode } from "./footprint-types";
 
 interface FootprintSideLadderProps {
     footprint: CandleFootprint | null;
@@ -52,8 +50,9 @@ export function FootprintSideLadder({
     }, [footprint?.levels]);
 
     const renderBidAsk = (bid: number, ask: number, total: number) => {
-        const bullish = highlightImbalances && ask >= bid * imbalanceRatio;
-        const bearish = highlightImbalances && bid >= ask * imbalanceRatio;
+        const canImbalance = highlightImbalances && bid > 0 && ask > 0;
+        const bullish = canImbalance && ask >= bid * imbalanceRatio;
+        const bearish = canImbalance && bid >= ask * imbalanceRatio;
         const bidWidth = Math.min(100, (bid / maxVolume) * 100);
         const askWidth = Math.min(100, (ask / maxVolume) * 100);
 
@@ -131,7 +130,7 @@ export function FootprintSideLadder({
 
             <div className="flex-1 overflow-y-auto px-3 py-2">
                 {!footprint || levels.length === 0 ? (
-                    <p className="pt-6 text-center text-xs text-gray-500">No footprint data</p>
+                    <p className="pt-6 text-center text-xs text-gray-500">Hover a candle to view ladder</p>
                 ) : (
                     <div className="space-y-1">
                         {levels.map((level) => (

@@ -7,10 +7,11 @@ import React, { useEffect, useMemo, useState } from "react";
 
 import Link from "next/link";
 
-import VolumeProfile, { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
 import { FootprintCandleChart } from "@/app/(root)/orderflow/_components/FootprintCandleChart";
-import { buildFootprintBars, FootprintBar, inferPriceStepFromTrades } from "@/app/(root)/orderflow/_utils/footprint";
+import { FootprintSideLadder } from "@/app/(root)/orderflow/_components/FootprintSideLadder";
+import { buildFootprintBars, FootprintBar } from "@/app/(root)/orderflow/_utils/footprint";
 import { useFootprintAggTrades } from "@/app/(root)/orderflow/_components/useFootprintAggTrades";
+import { CandleFootprint, FootprintMode } from "@/app/(root)/orderflow/_components/footprint-types";
 import { Button } from "@/components/ui/button";
 import {
     Select,
@@ -25,12 +26,11 @@ import {
     ORDERFLOW_SYMBOL_OPTIONS,
     ORDERFLOW_WINDOW_PRESETS,
 } from "@/lib/constants";
-import { NormalizedTrade, useOrderflowStream } from "@/hooks/useOrderflowStream";
+import { useOrderflowStream } from "@/hooks/useOrderflowStream";
 import { cn } from "@/lib/utils";
 
 const TIMEFRAME_OPTIONS = ["5s", "15s", "30s", "1m", "5m", "15m"] as const;
-const MODE_OPTIONS = ["Bid x Ask", "Delta", "Volume"] as const;
-type FootprintMode = (typeof MODE_OPTIONS)[number];
+const MODE_OPTIONS: FootprintMode[] = ["Bid x Ask", "Delta", "Volume"];
 
 type TimeframeOption = (typeof TIMEFRAME_OPTIONS)[number];
 
@@ -71,58 +71,6 @@ class FootprintErrorBoundary extends React.Component<
     }
 }
 
-const buildVolumeProfileLevels = (
-    trades: NormalizedTrade[],
-    priceStep: number,
-): { levels: VolumeProfileLevel[]; referencePrice: number | null } => {
-    if (!trades.length) return { levels: [], referencePrice: null };
-
-    const sortedTrades = [...trades].sort((a, b) => a.timestamp - b.timestamp);
-    const referencePrice = sortedTrades[sortedTrades.length - 1]?.price ?? null;
-    if (!referencePrice) return { levels: [], referencePrice: null };
-
-    const step = priceStep > 0 ? priceStep : Math.max(referencePrice * 0.0005, 0.01);
-    const levelsPerSide = 6;
-    const centerIndex = Math.max(Math.round(referencePrice / step), 1);
-    const startIndex = Math.max(centerIndex - levelsPerSide, 1);
-    const endIndex = centerIndex + levelsPerSide;
-
-    const aggregation = new Map<number, { buyVolume: number; sellVolume: number }>();
-
-    sortedTrades.forEach((trade) => {
-        const levelIndex = Math.round(trade.price / step);
-        if (levelIndex < startIndex - 1 || levelIndex > endIndex + 1) return;
-        const levelPrice = levelIndex * step;
-        const existing = aggregation.get(levelPrice) ?? { buyVolume: 0, sellVolume: 0 };
-        if (trade.side === "buy") {
-            existing.buyVolume += trade.quantity;
-        } else {
-            existing.sellVolume += trade.quantity;
-        }
-        aggregation.set(levelPrice, existing);
-    });
-
-    const levels: VolumeProfileLevel[] = [];
-    for (let index = startIndex; index <= endIndex; index += 1) {
-        const price = index * step;
-        const volume = aggregation.get(price) ?? { buyVolume: 0, sellVolume: 0 };
-        const totalVolume = volume.buyVolume + volume.sellVolume;
-        const imbalancePercent = totalVolume > 0 ? (Math.abs(volume.buyVolume - volume.sellVolume) / totalVolume) * 100 : 0;
-        const dominantSide = totalVolume === 0 ? null : volume.buyVolume >= volume.sellVolume ? "buy" : "sell";
-
-        levels.push({
-            price,
-            buyVolume: volume.buyVolume,
-            sellVolume: volume.sellVolume,
-            totalVolume,
-            imbalancePercent,
-            dominantSide,
-        });
-    }
-
-    return { levels, referencePrice };
-};
-
 const FootprintPageInner = () => {
     const defaultWindowSeconds = ORDERFLOW_WINDOW_PRESETS[1]?.value ?? ORDERFLOW_WINDOW_PRESETS[0].value;
     const defaultBucketSeconds = ORDERFLOW_BUCKET_PRESETS[1]?.value ?? ORDERFLOW_BUCKET_PRESETS[0].value;
@@ -135,6 +83,9 @@ const FootprintPageInner = () => {
     const [mode, setMode] = useState<FootprintMode>("Bid x Ask");
     const [showNumbers, setShowNumbers] = useState(true);
     const [highlightImbalances, setHighlightImbalances] = useState(true);
+    const [rowSizeOverride, setRowSizeOverride] = useState<number | null>(null);
+    const [selectedFootprintTime, setSelectedFootprintTime] = useState<number | null>(null);
+    const [selectedFootprint, setSelectedFootprint] = useState<CandleFootprint | null>(null);
 
     const { windowedTrades } = useOrderflowStream({ symbol: selectedSymbol, windowSeconds });
 
@@ -148,19 +99,12 @@ const FootprintPageInner = () => {
         symbol: selectedSymbol,
         interval: candlestickInterval,
         windowMs: footprintWindowMs,
+        priceStepOverride: rowSizeOverride,
     });
 
     useEffect(() => {
         setBucketSizeSeconds(parseTimeframeSeconds(selectedTimeframe));
     }, [selectedTimeframe]);
-
-    const priceStep = useMemo(() => {
-        if (windowedTrades.length === 0) return 0;
-        const inferred = inferPriceStepFromTrades(windowedTrades);
-        const referencePrice = windowedTrades[windowedTrades.length - 1]?.price ?? 0;
-        const fallback = referencePrice > 0 ? Math.max(referencePrice * 0.0005, 0.01) : 0;
-        return inferred > 0 ? inferred : fallback;
-    }, [windowedTrades]);
 
     const footprintBars = useMemo<FootprintBar[]>(() => {
         if (windowedTrades.length === 0) return [];
@@ -169,14 +113,9 @@ const FootprintPageInner = () => {
             windowSeconds,
             bucketSizeSeconds,
             referenceTimestamp,
-            priceStep: priceStep || undefined,
+            priceStep: ladderPriceStep || undefined,
         });
-    }, [windowedTrades, windowSeconds, bucketSizeSeconds, priceStep]);
-
-    const { levels: profileLevels, referencePrice } = useMemo(
-        () => buildVolumeProfileLevels(windowedTrades, priceStep),
-        [windowedTrades, priceStep],
-    );
+    }, [windowedTrades, windowSeconds, bucketSizeSeconds, ladderPriceStep]);
 
     const maxVolume = useMemo(
         () => Math.max(...footprintBars.map((bar) => bar.totalVolume), 0),
@@ -287,6 +226,25 @@ const FootprintPageInner = () => {
                             />
                             Highlight imbalances
                         </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-300">
+                            Row size (tick per row)
+                            <input
+                                type="number"
+                                step="any"
+                                min={0.00000001}
+                                value={rowSizeOverride ?? ""}
+                                onChange={(event) => {
+                                    const value = Number(event.target.value);
+                                    if (!event.target.value || Number.isNaN(value) || value <= 0) {
+                                        setRowSizeOverride(null);
+                                        return;
+                                    }
+                                    setRowSizeOverride(value);
+                                }}
+                                className="h-9 w-28 rounded border border-gray-700 bg-gray-900 px-2 text-sm text-gray-100"
+                                placeholder="Auto"
+                            />
+                        </label>
                     </div>
                 </div>
             </div>
@@ -316,19 +274,29 @@ const FootprintPageInner = () => {
                             <FootprintCandleChart
                                 symbol={selectedSymbol}
                                 interval={candlestickInterval}
-                                mode={mode}
-                                showNumbers={showNumbers}
-                                highlightImbalances={highlightImbalances}
-                                imbalanceRatio={1.5}
-                                priceStep={ladderPriceStep ?? priceStep}
                                 getFootprintForCandle={getFootprintForCandle}
-                                footprintUpdateKey={footprintSummary?.tSec}
+                                footprintUpdateKey={footprintSummary?.updateId}
+                                onSelectionChange={(payload) => {
+                                    setSelectedFootprintTime(payload.timeSec);
+                                    setSelectedFootprint(payload.footprint);
+                                }}
                             />
                         </div>
                     </div>
                 </div>
 
-                <VolumeProfile levels={profileLevels} priceStep={priceStep} referencePrice={referencePrice} />
+                <div className="flex h-full flex-col rounded-xl border border-gray-800 bg-[#0f1115] shadow-lg shadow-black/20">
+                    <FootprintSideLadder
+                        footprint={selectedFootprint}
+                        selectedTimeSec={selectedFootprintTime}
+                        mode={mode}
+                        showNumbers={showNumbers}
+                        highlightImbalances={highlightImbalances}
+                        imbalanceRatio={1.5}
+                        priceStep={ladderPriceStep ?? null}
+                        maxHeight={520}
+                    />
+                </div>
             </div>
         </div>
     );

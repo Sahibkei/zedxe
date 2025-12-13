@@ -25,15 +25,22 @@ export type FootprintSummary = {
     buyTotal: number;
     sellTotal: number;
     levelsCount: number;
+    updateId: number;
 };
 
 interface FootprintHookParams {
     symbol: string;
     interval: keyof typeof CANDLE_INTERVAL_MS;
     windowMs?: number;
+    priceStepOverride?: number | null;
 }
 
-export function useFootprintAggTrades({ symbol, interval, windowMs = WINDOW_MS_DEFAULT }: FootprintHookParams) {
+export function useFootprintAggTrades({
+    symbol,
+    interval,
+    windowMs = WINDOW_MS_DEFAULT,
+    priceStepOverride = null,
+}: FootprintHookParams) {
     const [priceStep, setPriceStep] = useState<number | null>(null);
     const [latestSummary, setLatestSummary] = useState<FootprintSummary | null>(null);
 
@@ -43,10 +50,12 @@ export function useFootprintAggTrades({ symbol, interval, windowMs = WINDOW_MS_D
     const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const intervalMsRef = useRef<number>(CANDLE_INTERVAL_MS[interval]);
     const priceStepRef = useRef<number>(0.1);
+    const updateCounterRef = useRef(0);
 
     const resetAggregation = useCallback(() => {
         footprintsRef.current = new Map();
         latestCandleKeyRef.current = null;
+        updateCounterRef.current = 0;
         setLatestSummary(null);
     }, []);
 
@@ -58,27 +67,45 @@ export function useFootprintAggTrades({ symbol, interval, windowMs = WINDOW_MS_D
     useEffect(() => {
         let cancelled = false;
         setPriceStep(null);
+
+        const applyStep = (step: number) => {
+            priceStepRef.current = step;
+            setPriceStep(step);
+        };
+
         const loadStep = async () => {
+            if (priceStepOverride && priceStepOverride > 0) {
+                applyStep(priceStepOverride);
+                return;
+            }
+
             const step = await getPriceStep(symbol).catch(() => null);
             if (cancelled) return;
             if (step && Number.isFinite(step)) {
-                priceStepRef.current = step;
-                setPriceStep(step);
+                applyStep(step);
             } else {
-                priceStepRef.current = 0.1;
-                setPriceStep(0.1);
+                applyStep(0.1);
             }
         };
+
         loadStep();
         resetAggregation();
+
         return () => {
             cancelled = true;
         };
-    }, [symbol, resetAggregation]);
+    }, [symbol, priceStepOverride, resetAggregation]);
 
     useEffect(() => {
         const cleanupSocket = () => {
-            websocketRef.current?.close();
+            const socket = websocketRef.current;
+            if (socket) {
+                socket.onopen = null;
+                socket.onmessage = null;
+                socket.onerror = null;
+                socket.onclose = null;
+                socket.close();
+            }
             websocketRef.current = null;
         };
 
@@ -92,11 +119,15 @@ export function useFootprintAggTrades({ symbol, interval, windowMs = WINDOW_MS_D
             const socket = new WebSocket(stream);
             websocketRef.current = socket;
 
+            const isCurrent = () => websocketRef.current === socket;
+
             socket.onopen = () => {
+                if (!isCurrent()) return;
                 retryDelay = SOCKET_RETRY_BASE_MS;
             };
 
             socket.onmessage = (event) => {
+                if (!isCurrent()) return;
                 try {
                     const parsed = parseAggTrade(JSON.parse(event.data) as AggTradeMessage);
                     if (!parsed) return;
@@ -122,19 +153,21 @@ export function useFootprintAggTrades({ symbol, interval, windowMs = WINDOW_MS_D
 
                     upsertFootprintLevel(footprint, price, side, quantity, priceStepValue);
                     footprintsRef.current.set(candleKey, footprint);
+                    updateCounterRef.current += 1;
                 } catch (error) {
                     console.error("Failed to process aggTrade", error);
                 }
             };
 
             socket.onclose = () => {
-                if (disposed) return;
+                if (!isCurrent() || disposed) return;
                 retryDelay = Math.min(SOCKET_RETRY_MAX_MS, retryDelay * 1.5);
                 if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
                 retryTimeoutRef.current = setTimeout(() => connect(), retryDelay);
             };
 
             socket.onerror = () => {
+                if (!isCurrent()) return;
                 socket.close();
             };
         };
@@ -160,6 +193,7 @@ export function useFootprintAggTrades({ symbol, interval, windowMs = WINDOW_MS_D
                 buyTotal: footprint.buyTotal,
                 sellTotal: footprint.sellTotal,
                 levelsCount: footprint.levels.size,
+                updateId: updateCounterRef.current,
             });
         }, SUMMARY_THROTTLE_MS);
 

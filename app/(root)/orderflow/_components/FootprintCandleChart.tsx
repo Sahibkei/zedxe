@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type {
     CandlestickData,
@@ -12,10 +12,7 @@ import type {
 } from "@/utils/lightweight-charts-loader";
 import { CrosshairMode, loadLightweightCharts } from "@/utils/lightweight-charts-loader";
 
-import { FootprintSideLadder } from "./FootprintSideLadder";
 import { CandleFootprint } from "./footprint-types";
-
-type FootprintMode = "Bid x Ask" | "Delta" | "Volume";
 
 const INTERVAL_SECONDS: Record<string, number> = {
     "1m": 60,
@@ -29,13 +26,9 @@ const FETCH_TIMEOUT_MS = 10_000;
 interface FootprintCandleChartProps {
     symbol: string;
     interval: keyof typeof INTERVAL_SECONDS;
-    mode: FootprintMode;
-    showNumbers: boolean;
-    highlightImbalances: boolean;
-    imbalanceRatio?: number;
-    priceStep: number | null;
     getFootprintForCandle: (tSec: number) => CandleFootprint | null;
     footprintUpdateKey?: number | null;
+    onSelectionChange?: (payload: { timeSec: number | null; footprint: CandleFootprint | null }) => void;
 }
 
 const fetchWithTimeout = async (url: string, { timeoutMs }: { timeoutMs: number }) => {
@@ -58,13 +51,9 @@ const trimToWindow = (candles: CandlestickData[]) => {
 export function FootprintCandleChart({
     symbol,
     interval,
-    mode,
-    showNumbers,
-    highlightImbalances,
-    imbalanceRatio = 1.5,
-    priceStep,
     getFootprintForCandle,
     footprintUpdateKey,
+    onSelectionChange,
 }: FootprintCandleChartProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const chartContainerRef = useRef<HTMLDivElement | null>(null);
@@ -76,16 +65,21 @@ export function FootprintCandleChart({
     const followLiveRef = useRef(true);
     const latestCandleTimeRef = useRef<number | null>(null);
     const isHoveringRef = useRef(false);
+    const lastCrosshairTimeRef = useRef<number | null>(null);
+    const selectedTimeRef = useRef<number | null>(null);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [followLive, setFollowLive] = useState(true);
     const [selectedTimeSec, setSelectedTimeSec] = useState<number | null>(null);
-    const [chartHeight, setChartHeight] = useState<number | null>(null);
 
     useEffect(() => {
         followLiveRef.current = followLive;
     }, [followLive]);
+
+    useEffect(() => {
+        selectedTimeRef.current = selectedTimeSec;
+    }, [selectedTimeSec]);
 
     useEffect(() => {
         let disposed = false;
@@ -102,7 +96,25 @@ export function FootprintCandleChart({
             const chartContainer = chartContainerRef.current;
             if (!container || !chartContainer) return;
 
+            const waitForDimensions = async () => {
+                return new Promise<{ width: number; height: number }>((resolve) => {
+                    const check = () => {
+                        if (disposed) return;
+                        const rect = chartContainer.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {
+                            resolve({ width: rect.width, height: rect.height });
+                        } else {
+                            requestAnimationFrame(check);
+                        }
+                    };
+                    check();
+                });
+            };
+
             const { createChart } = await loadLightweightCharts();
+            if (disposed) return;
+
+            const { width: initialWidth, height: initialHeight } = await waitForDimensions();
             if (disposed) return;
 
             const chart = createChart(chartContainer, {
@@ -110,6 +122,8 @@ export function FootprintCandleChart({
                     background: { color: "transparent" },
                     textColor: "#e5e7eb",
                 },
+                width: initialWidth,
+                height: initialHeight,
                 rightPriceScale: { borderVisible: false },
                 timeScale: { borderVisible: false, secondsVisible: interval === "1m" },
                 crosshair: { mode: CrosshairMode.Normal },
@@ -133,13 +147,13 @@ export function FootprintCandleChart({
 
             const applyResize = () => {
                 const { width, height } = chartContainer.getBoundingClientRect();
-                chart.applyOptions({ width: Math.max(width, 0), height: Math.max(height, 0) });
-                setChartHeight(height);
+                if (!chartRef.current || width === 0 || height === 0) return;
+                chartRef.current.applyOptions({ width, height });
             };
 
             applyResize();
             resizeObserverRef.current = new ResizeObserver(() => applyResize());
-            resizeObserverRef.current.observe(container);
+            resizeObserverRef.current.observe(chartContainer);
 
             rangeSubscription = (range: LogicalRange) => {
                 if (!range || !candlesRef.current.length) return;
@@ -156,11 +170,17 @@ export function FootprintCandleChart({
                 const time = param.time as number | undefined;
                 if (time == null) {
                     isHoveringRef.current = false;
-                    setSelectedTimeSec(latestCandleTimeRef.current);
+                    lastCrosshairTimeRef.current = null;
+                    if (selectedTimeRef.current !== latestCandleTimeRef.current) {
+                        setSelectedTimeSec(latestCandleTimeRef.current);
+                    }
                     return;
                 }
                 isHoveringRef.current = true;
-                setSelectedTimeSec(time);
+                if (lastCrosshairTimeRef.current !== time) {
+                    lastCrosshairTimeRef.current = time;
+                    setSelectedTimeSec(time);
+                }
             };
 
             chart.subscribeCrosshairMove(crosshairSubscription);
@@ -293,7 +313,14 @@ export function FootprintCandleChart({
 
         return () => {
             disposed = true;
-            websocketRef.current?.close();
+            const socket = websocketRef.current;
+            if (socket) {
+                socket.onopen = null;
+                socket.onmessage = null;
+                socket.onerror = null;
+                socket.onclose = null;
+                socket.close();
+            }
             websocketRef.current = null;
 
             if (rangeSubscription && chartRef.current) {
@@ -324,20 +351,22 @@ export function FootprintCandleChart({
     };
 
     useEffect(() => {
+        if (footprintUpdateKey == null) return;
         if (!isHoveringRef.current) {
             setSelectedTimeSec(latestCandleTimeRef.current);
         }
     }, [footprintUpdateKey]);
 
-    const selectedFootprint = useMemo(
-        () => (selectedTimeSec ? getFootprintForCandle(selectedTimeSec) : null),
-        [getFootprintForCandle, selectedTimeSec, footprintUpdateKey],
-    );
+    const selectedFootprint = selectedTimeSec ? getFootprintForCandle(selectedTimeSec) : null;
+
+    useEffect(() => {
+        onSelectionChange?.({ timeSec: selectedTimeSec, footprint: selectedFootprint });
+    }, [onSelectionChange, selectedFootprint, selectedTimeSec]);
 
     return (
         <div className="relative h-full w-full">
-            <div ref={containerRef} className="flex h-full w-full overflow-hidden rounded-lg">
-                <div ref={chartContainerRef} className="relative h-full flex-1">
+            <div ref={containerRef} className="relative h-full w-full overflow-hidden rounded-lg">
+                <div ref={chartContainerRef} className="relative h-full w-full">
                     <div className="h-full w-full" />
                     {loading && (
                         <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-300">
@@ -361,16 +390,6 @@ export function FootprintCandleChart({
                         </div>
                     )}
                 </div>
-                <FootprintSideLadder
-                    footprint={selectedFootprint}
-                    selectedTimeSec={selectedTimeSec}
-                    mode={mode}
-                    showNumbers={showNumbers}
-                    highlightImbalances={highlightImbalances}
-                    imbalanceRatio={imbalanceRatio}
-                    priceStep={priceStep}
-                    maxHeight={chartHeight}
-                />
             </div>
         </div>
     );

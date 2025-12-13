@@ -11,3 +11,5 @@ export type CandleFootprint = {
     sellTotal: number;
     levels: FootprintLevel[];
 };
+
+export type FootprintMode = "Bid x Ask" | "Delta" | "Volume";
