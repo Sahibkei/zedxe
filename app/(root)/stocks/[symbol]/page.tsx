@@ -1,17 +1,37 @@
 import TradingViewWidget from "@/components/TradingViewWidget";
-import {SYMBOL_INFO_WIDGET_CONFIG, CANDLE_CHART_WIDGET_CONFIG, BASELINE_WIDGET_CONFIG, TECHNICAL_ANALYSIS_WIDGET_CONFIG, COMPANY_PROFILE_WIDGET_CONFIG, COMPANY_FINANCIALS_WIDGET_CONFIG,} from "@/lib/constants";
+import { SYMBOL_INFO_WIDGET_CONFIG, CANDLE_CHART_WIDGET_CONFIG } from "@/lib/constants";
 import { headers } from "next/headers";
 import { auth } from "@/lib/better-auth/auth";
 import { getSymbolSnapshot } from "@/lib/actions/finnhub.actions";
 import { isSymbolInWatchlist } from "@/lib/actions/watchlist.actions";
 import { getAlertsByUser } from "@/lib/actions/alert.actions";
 import StockActionBar from "./StockActionBar";
+import { getStockProfileV2 } from "@/lib/stocks/getStockProfileV2";
+import { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
+import StockProfileTabs from "./StockProfileTabs";
+
+const scriptUrl = "https://s3.tradingview.com/external-embedding/embed-widget-";
+
+function formatDetail(value?: string) {
+    return value && value.trim() !== "" ? value : "—";
+}
+
+function EmptyState({ message }: { message: string }) {
+    return (
+        <div className="rounded-lg border border-neutral-800 bg-neutral-900/60 p-6 text-center text-sm text-neutral-300">
+            {message}
+        </div>
+    );
+}
 
 export default async function StockDetails({ params }: StockDetailsPageProps) {
     const { symbol } = await params;
-    const session = await auth.api.getSession({ headers: await headers() });
     const symbolUpper = symbol.toUpperCase();
-    const [snapshot, inWatchlist, alerts] = await Promise.all([
+
+    const session = await auth.api.getSession({ headers: await headers() });
+
+    const [profile, snapshot, inWatchlist, alerts] = await Promise.all([
+        getStockProfileV2(symbolUpper).catch<StockProfileV2Model | null>(() => null),
         getSymbolSnapshot(symbolUpper).catch(() => ({ symbol: symbolUpper })),
         session?.user ? isSymbolInWatchlist(session.user.id, symbolUpper) : Promise.resolve(false),
         session?.user ? getAlertsByUser(session.user.id) : Promise.resolve([]),
@@ -21,68 +41,94 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
     const symbolAlertDisplay = symbolAlert
         ? {
               ...symbolAlert,
-              id: String((symbolAlert as { _id?: string })._id || symbolAlert._id || ''),
+              id: String((symbolAlert as { _id?: string })._id || symbolAlert._id || ""),
               createdAt: symbolAlert.createdAt,
           }
         : undefined;
-    const scriptUrl = `https://s3.tradingview.com/external-embedding/embed-widget-`;
 
-    return (
-        <div className="flex min-h-screen p-4 md:p-6 lg:p-8">
-            <section className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full">
-                {/* Left column */}
-                <div className="flex flex-col gap-6">
-                    <TradingViewWidget
-                        scripUrl={`${scriptUrl}symbol-info.js`}
-                        config={SYMBOL_INFO_WIDGET_CONFIG(symbol)}
-                        height={170}
-                    />
+    const companyName = profile?.companyProfile.name || snapshot.company || symbolUpper;
 
-                    <TradingViewWidget
-                        scripUrl={`${scriptUrl}advanced-chart.js`}
-                        config={CANDLE_CHART_WIDGET_CONFIG(symbol)}
-                        className="custom-chart"
-                        height={600}
-                    />
-
-                    <TradingViewWidget
-                        scripUrl={`${scriptUrl}advanced-chart.js`}
-                        config={BASELINE_WIDGET_CONFIG(symbol)}
-                        className="custom-chart"
-                        height={600}
-                    />
-                </div>
-
-                {/* Right column */}
-                <div className="flex flex-col gap-6">
-                    <div className="flex items-center justify-between">
+    if (!profile) {
+        return (
+            <div className="flex min-h-screen p-4 md:p-6 lg:p-8">
+                <div className="w-full space-y-6">
+                    <div className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-900/60 p-4">
+                        <div className="space-y-1">
+                            <div className="h-6 w-40 animate-pulse rounded bg-neutral-800" />
+                            <div className="h-4 w-24 animate-pulse rounded bg-neutral-800" />
+                        </div>
                         <StockActionBar
                             symbol={symbolUpper}
-                            company={snapshot.company || symbolUpper}
+                            company={companyName}
                             isInWatchlist={inWatchlist}
                             initialAlert={symbolAlertDisplay as AlertDisplay | undefined}
                         />
                     </div>
-
-                    <TradingViewWidget
-                        scripUrl={`${scriptUrl}technical-analysis.js`}
-                        config={TECHNICAL_ANALYSIS_WIDGET_CONFIG(symbol)}
-                        height={400}
-                    />
-
-                    <TradingViewWidget
-                        scripUrl={`${scriptUrl}company-profile.js`}
-                        config={COMPANY_PROFILE_WIDGET_CONFIG(symbol)}
-                        height={440}
-                    />
-
-                    <TradingViewWidget
-                        scripUrl={`${scriptUrl}financials.js`}
-                        config={COMPANY_FINANCIALS_WIDGET_CONFIG(symbol)}
-                        height={464}
-                    />
+                    <EmptyState message="No stock data available. Please verify the symbol or try again later." />
                 </div>
-            </section>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex min-h-screen p-4 md:p-6 lg:p-8">
+            <div className="w-full space-y-6">
+                <section className="rounded-lg border border-neutral-800 bg-neutral-900/60 p-4 shadow-sm">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div className="space-y-1">
+                            <h1 className="text-2xl font-semibold text-white">{companyName}</h1>
+                            <div className="flex flex-wrap gap-3 text-sm text-neutral-300">
+                                <span className="rounded-full bg-neutral-800 px-3 py-1 font-semibold">{profile.companyProfile.ticker}</span>
+                                <span className="rounded-full bg-neutral-800 px-3 py-1">{formatDetail(profile.companyProfile.exchange)}</span>
+                                <span className="rounded-full bg-neutral-800 px-3 py-1">{formatDetail(profile.companyProfile.sector)}</span>
+                                <span className="rounded-full bg-neutral-800 px-3 py-1">{formatDetail(profile.companyProfile.industry)}</span>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <StockActionBar
+                                symbol={symbolUpper}
+                                company={companyName}
+                                isInWatchlist={inWatchlist}
+                                initialAlert={symbolAlertDisplay as AlertDisplay | undefined}
+                            />
+                        </div>
+                    </div>
+                </section>
+
+                <section className="rounded-lg border border-neutral-800 bg-neutral-900/60 p-4 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between">
+                        <h2 className="text-lg font-semibold text-white">Price & Chart</h2>
+                        <div className="text-xs text-neutral-400">TradingView data · {profile.chartSymbol}</div>
+                    </div>
+                    <div className="overflow-hidden rounded-lg border border-neutral-800 bg-black/40">
+                        {profile.chartSymbol ? (
+                            <TradingViewWidget
+                                scripUrl={`${scriptUrl}advanced-chart.js`}
+                                config={CANDLE_CHART_WIDGET_CONFIG(profile.chartSymbol)}
+                                className="custom-chart"
+                                height={520}
+                            />
+                        ) : (
+                            <div className="flex h-80 items-center justify-center text-sm text-neutral-400">Chart unavailable</div>
+                        )}
+                    </div>
+                </section>
+
+                <section className="rounded-lg border border-neutral-800 bg-neutral-900/60 p-4 shadow-sm">
+                    <div className="mb-4 flex items-center justify-between">
+                        <div>
+                            <h2 className="text-lg font-semibold text-white">Company Overview</h2>
+                            <p className="text-sm text-neutral-400">Fundamentals, earnings, ratios, and filings</p>
+                        </div>
+                        <TradingViewWidget
+                            scripUrl={`${scriptUrl}symbol-info.js`}
+                            config={SYMBOL_INFO_WIDGET_CONFIG(profile.companyProfile.ticker)}
+                            height={120}
+                        />
+                    </div>
+                    <StockProfileTabs profile={profile} />
+                </section>
+            </div>
         </div>
     );
 }
