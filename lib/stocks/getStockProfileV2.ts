@@ -39,18 +39,23 @@ function deriveQuarter(dateString?: string) {
     const found = QUARTER_FROM_MONTH.find((q) => q.months.includes(month));
     return found?.quarter;
 }
+const normalizeConcept = (concept?: string) => concept?.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-const pickValue = (items: { concept?: string; label?: string; value?: number }[] | undefined, concepts: string[]) => {
+const pickValue = (
+    items: { concept?: string; label?: string; value?: number }[] | undefined,
+    concepts: string[]
+): number | undefined => {
     if (!items) return undefined;
-    for (const concept of concepts) {
-        const found = items.find((i) => i.concept?.toLowerCase() === concept.toLowerCase());
-        if (found?.value !== undefined) return found.value;
-    }
+    const normalizedTargets = concepts.map(normalizeConcept).filter(Boolean) as string[];
 
-    // fallback: match by label contains
-    for (const concept of concepts) {
-        const found = items.find((i) => i.label?.toLowerCase().includes(concept.toLowerCase()));
-        if (found?.value !== undefined) return found.value;
+    for (const item of items) {
+        const normalizedConcept = normalizeConcept(item.concept) || normalizeConcept(item.label);
+        const numericValue = typeof item.value === 'number' ? item.value : undefined;
+        if (!normalizedConcept || numericValue === undefined) continue;
+
+        const isExact = normalizedTargets.includes(normalizedConcept);
+        const isPartial = normalizedTargets.some((target) => normalizedConcept.includes(target));
+        if (isExact || isPartial) return numericValue;
     }
 
     return undefined;
@@ -63,41 +68,50 @@ const sortRows = (rows: StockFinancialRow[]) =>
         return bTime - aTime;
     });
 
+const sortReports = (reports: { endDate?: string; filedDate?: string }[]) =>
+    reports.slice().sort((a, b) => {
+        const aTime = a?.endDate ? new Date(a.endDate).getTime() : a?.filedDate ? new Date(a.filedDate).getTime() : 0;
+        const bTime = b?.endDate ? new Date(b.endDate).getTime() : b?.filedDate ? new Date(b.filedDate).getTime() : 0;
+        return bTime - aTime;
+    });
+
 const mapFinancials: FinancialsMapperFn = ({ financials, limit = 8, frequency }) => {
     const rows: StockFinancialRow[] = [];
     const entries = financials?.data || [];
     const seen = new Set<string>();
 
-    sortRows(entries as any as StockFinancialRow[]).forEach((entry) => {
+    sortReports(entries as any).forEach((entry) => {
         const endDate = (entry as any).endDate;
-        const year = endDate ? new Date(endDate).getUTCFullYear() : (entry as any).year;
-        if (!year) return;
+        const year = (entry as any).year ?? (endDate ? new Date(endDate).getUTCFullYear() : undefined);
         const quarter = (entry as any).quarter ?? deriveQuarter(endDate);
+        if (!year) return;
+
         const dedupeKey = frequency === 'annual' ? String(year) : quarter ? `${year}-Q${quarter}` : undefined;
         if (!dedupeKey || seen.has(dedupeKey)) return;
+        if (frequency === 'quarterly' && !quarter) return;
         seen.add(dedupeKey);
 
         const ic = (entry as any).report?.ic;
         const cf = (entry as any).report?.cf;
 
         const revenue = pickValue(ic, [
-            'us-gaap:Revenues',
-            'us-gaap:SalesRevenueNet',
-            'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax',
+            'us-gaap_Revenues',
+            'us-gaap_SalesRevenueNet',
+            'us-gaap_RevenueFromContractWithCustomerExcludingAssessedTax',
             'total revenue',
             'revenue',
         ]);
-        const grossProfit = pickValue(ic, ['us-gaap:GrossProfit', 'gross profit']);
-        const operatingIncome = pickValue(ic, ['us-gaap:OperatingIncomeLoss', 'operating income']);
+        const grossProfit = pickValue(ic, ['us-gaap_GrossProfit', 'gross profit']);
+        const operatingIncome = pickValue(ic, ['us-gaap_OperatingIncomeLoss', 'operating income']);
         const netIncome = pickValue(ic, [
-            'us-gaap:NetIncomeLoss',
-            'us-gaap:ProfitLoss',
+            'us-gaap_NetIncomeLoss',
+            'us-gaap_ProfitLoss',
             'net income',
         ]);
-        const eps = pickValue(ic, ['us-gaap:EarningsPerShareDiluted', 'eps diluted', 'eps']);
+        const eps = pickValue(ic, ['us-gaap_EarningsPerShareDiluted', 'eps diluted', 'eps']);
         const operatingCashFlow = pickValue(cf, [
-            'us-gaap:NetCashProvidedByUsedInOperatingActivities',
-            'us-gaap:NetCashProvidedByUsedInOperatingActivitiesContinuingOperations',
+            'us-gaap_NetCashProvidedByUsedInOperatingActivities',
+            'us-gaap_NetCashProvidedByUsedInOperatingActivitiesContinuingOperations',
             'operating cash flow',
         ]);
 

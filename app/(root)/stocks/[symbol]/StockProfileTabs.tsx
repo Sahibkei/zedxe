@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
 import { formatMarketCapValue } from "@/lib/utils";
+import { formatCompactFinancialValue } from "@/utils/formatters";
 
 const tabList = [
     { key: "overview", label: "Overview" },
@@ -98,7 +99,19 @@ function RatiosTab({ profile }: { profile: StockProfileV2Model }) {
     );
 }
 
-function FinancialTable({ rows, title }: { rows: StockProfileV2Model["financials"]["annual"]; title: string }) {
+function formatFinancialValue(value?: number, currency?: string) {
+    return formatCompactFinancialValue(value, currency);
+}
+
+function FinancialTable({
+    rows,
+    title,
+    fallbackCurrency,
+}: {
+    rows: StockProfileV2Model["financials"]["annual"];
+    title: string;
+    fallbackCurrency?: string;
+}) {
     if (!rows || rows.length === 0) {
         return <p className="text-sm text-muted-foreground">No data available.</p>;
     }
@@ -121,12 +134,16 @@ function FinancialTable({ rows, title }: { rows: StockProfileV2Model["financials
                     {rows.map((row) => (
                         <tr key={`${title}-${row.label}`} className="border-t">
                             <td className="px-2 py-2 font-medium">{row.label}</td>
-                            <td className="px-2 py-2">{formatNumber(row.revenue)}</td>
-                            <td className="px-2 py-2">{formatNumber(row.grossProfit)}</td>
-                            <td className="px-2 py-2">{formatNumber(row.operatingIncome)}</td>
-                            <td className="px-2 py-2">{formatNumber(row.netIncome)}</td>
-                            <td className="px-2 py-2">{formatNumber(row.eps)}</td>
-                            <td className="px-2 py-2">{formatNumber(row.operatingCashFlow)}</td>
+                            <td className="px-2 py-2">{formatFinancialValue(row.revenue, row.currency ?? fallbackCurrency)}</td>
+                            <td className="px-2 py-2">{formatFinancialValue(row.grossProfit, row.currency ?? fallbackCurrency)}</td>
+                            <td className="px-2 py-2">
+                                {formatFinancialValue(row.operatingIncome, row.currency ?? fallbackCurrency)}
+                            </td>
+                            <td className="px-2 py-2">{formatFinancialValue(row.netIncome, row.currency ?? fallbackCurrency)}</td>
+                            <td className="px-2 py-2">{formatFinancialValue(row.eps, row.currency ?? fallbackCurrency)}</td>
+                            <td className="px-2 py-2">
+                                {formatFinancialValue(row.operatingCashFlow, row.currency ?? fallbackCurrency)}
+                            </td>
                         </tr>
                     ))}
                 </tbody>
@@ -140,11 +157,19 @@ function FinancialsTab({ profile }: { profile: StockProfileV2Model }) {
         <div className="space-y-6">
             <div className="space-y-3">
                 <h3 className="text-lg font-semibold">Annual (last 5)</h3>
-                <FinancialTable rows={profile.financials.annual} title="annual" />
+                <FinancialTable
+                    rows={profile.financials.annual}
+                    title="annual"
+                    fallbackCurrency={profile.company.currency}
+                />
             </div>
             <div className="space-y-3">
                 <h3 className="text-lg font-semibold">Quarterly (recent)</h3>
-                <FinancialTable rows={profile.financials.quarterly} title="quarterly" />
+                <FinancialTable
+                    rows={profile.financials.quarterly}
+                    title="quarterly"
+                    fallbackCurrency={profile.company.currency}
+                />
             </div>
         </div>
     );
@@ -168,7 +193,12 @@ function FilingsTab({ profile }: { profile: StockProfileV2Model }) {
                     </div>
                     <p className="text-muted-foreground">{filing.description || ""}</p>
                     {filing.link && (
-                        <a href={filing.link} target="_blank" rel="noreferrer" className="text-blue-600 underline text-sm">
+                        <a
+                            href={filing.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 underline text-sm"
+                        >
                             View filing
                         </a>
                     )}
