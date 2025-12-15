@@ -3,6 +3,31 @@ import { SecFiling, SecRecentFilings } from './providers/sec';
 
 type StatusLevel = 'info' | 'warning' | 'error';
 
+export type StatementValueType = 'currency' | 'perShare' | 'count';
+
+export type StatementColumn = {
+    key: string;
+    label: string;
+    date?: string;
+    type: 'ttm' | 'annual';
+    currency?: string;
+};
+
+export type StatementRow = {
+    id: string;
+    label: string;
+    concept?: string;
+    valueType?: StatementValueType;
+    valuesByColumnKey: Record<string, number | undefined>;
+    children?: StatementRow[];
+};
+
+export type StatementGrid = {
+    columns: StatementColumn[];
+    rows: StatementRow[];
+    currency?: string;
+};
+
 export type ProviderStatus = {
     source: 'finnhub' | 'sec';
     level: StatusLevel;
@@ -57,6 +82,11 @@ export type StockProfileV2Model = {
     financials: {
         annual: StockFinancialRow[];
         quarterly: StockFinancialRow[];
+        statements?: {
+            income?: StatementGrid;
+            balanceSheet?: StatementGrid;
+            cashFlow?: StatementGrid;
+        };
     };
     filings: FilingInfo[];
     providerStatus: ProviderStatus[];

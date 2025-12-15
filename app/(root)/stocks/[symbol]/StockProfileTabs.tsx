@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
 import { formatMarketCapValue } from "@/lib/utils";
 import { formatCompactFinancialValue } from "@/utils/formatters";
+import { FinancialStatementTable } from "./components/FinancialStatementTable";
 
 const tabList = [
     { key: "overview", label: "Overview" },
@@ -135,11 +136,15 @@ function FinancialTable({
                         <tr key={`${title}-${row.label}`} className="border-t">
                             <td className="px-2 py-2 font-medium">{row.label}</td>
                             <td className="px-2 py-2">{formatFinancialValue(row.revenue, row.currency ?? fallbackCurrency)}</td>
-                            <td className="px-2 py-2">{formatFinancialValue(row.grossProfit, row.currency ?? fallbackCurrency)}</td>
+                            <td className="px-2 py-2">
+                                {formatFinancialValue(row.grossProfit, row.currency ?? fallbackCurrency)}
+                            </td>
                             <td className="px-2 py-2">
                                 {formatFinancialValue(row.operatingIncome, row.currency ?? fallbackCurrency)}
                             </td>
-                            <td className="px-2 py-2">{formatFinancialValue(row.netIncome, row.currency ?? fallbackCurrency)}</td>
+                            <td className="px-2 py-2">
+                                {formatFinancialValue(row.netIncome, row.currency ?? fallbackCurrency)}
+                            </td>
                             <td className="px-2 py-2">{formatFinancialValue(row.eps, row.currency ?? fallbackCurrency)}</td>
                             <td className="px-2 py-2">
                                 {formatFinancialValue(row.operatingCashFlow, row.currency ?? fallbackCurrency)}
@@ -153,24 +158,79 @@ function FinancialTable({
 }
 
 function FinancialsTab({ profile }: { profile: StockProfileV2Model }) {
+    const [financialView, setFinancialView] = useState<'summary' | 'income' | 'balance' | 'cashflow'>("summary");
+    const statements = profile.financials.statements;
+
+    const activeGrid =
+        financialView === "income"
+            ? statements?.income
+            : financialView === "balance"
+              ? statements?.balanceSheet
+              : financialView === "cashflow"
+                ? statements?.cashFlow
+                : undefined;
+
+    const caption = (currency?: string) => {
+        if (currency && currency.toUpperCase() === "USD") {
+            return "All figures in USD unless stated otherwise";
+        }
+        if (currency) {
+            return `All figures in report currency (${currency.toUpperCase()}) unless stated otherwise`;
+        }
+        return "All figures in report currency";
+    };
+
     return (
-        <div className="space-y-6">
-            <div className="space-y-3">
-                <h3 className="text-lg font-semibold">Annual (last 5)</h3>
-                <FinancialTable
-                    rows={profile.financials.annual}
-                    title="annual"
-                    fallbackCurrency={profile.company.currency}
-                />
+        <div className="space-y-4">
+            <div className="inline-flex flex-wrap gap-2 rounded-md bg-muted/40 p-1 text-sm">
+                {[
+                    { key: "summary", label: "Summary" },
+                    { key: "income", label: "Income" },
+                    { key: "balance", label: "Balance Sheet" },
+                    { key: "cashflow", label: "Cash Flow" },
+                ].map((option) => {
+                    const isActive = financialView === option.key;
+                    return (
+                        <button
+                            key={option.key}
+                            onClick={() => setFinancialView(option.key as typeof financialView)}
+                            className={`rounded-md px-3 py-1 transition-colors ${
+                                isActive
+                                    ? "bg-card shadow text-foreground"
+                                    : "text-muted-foreground hover:text-foreground"
+                            }`}
+                        >
+                            {option.label}
+                        </button>
+                    );
+                })}
             </div>
-            <div className="space-y-3">
-                <h3 className="text-lg font-semibold">Quarterly (recent)</h3>
-                <FinancialTable
-                    rows={profile.financials.quarterly}
-                    title="quarterly"
-                    fallbackCurrency={profile.company.currency}
-                />
-            </div>
+
+            {financialView === "summary" ? (
+                <div className="space-y-6">
+                    <div className="space-y-3">
+                        <h3 className="text-lg font-semibold">Annual (last 5)</h3>
+                        <FinancialTable
+                            rows={profile.financials.annual}
+                            title="annual"
+                            fallbackCurrency={profile.company.currency}
+                        />
+                    </div>
+                    <div className="space-y-3">
+                        <h3 className="text-lg font-semibold">Quarterly (recent)</h3>
+                        <FinancialTable
+                            rows={profile.financials.quarterly}
+                            title="quarterly"
+                            fallbackCurrency={profile.company.currency}
+                        />
+                    </div>
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">{caption(activeGrid?.currency || profile.company.currency)}</p>
+                    <FinancialStatementTable grid={activeGrid} fallbackCurrency={profile.company.currency} />
+                </div>
+            )}
         </div>
     );
 }
@@ -191,7 +251,7 @@ function FilingsTab({ profile }: { profile: StockProfileV2Model }) {
                             {filing.periodEnd ? ` · Period end ${filing.periodEnd}` : ""}
                         </span>
                     </div>
-                    <p className="text-muted-foreground">{filing.description || ""}</p>
+                    <p className="text-muted-foreground">{filing.companyName || filing.description || ""}</p>
                     {filing.link && (
                         <a
                             href={filing.link}
@@ -210,15 +270,17 @@ function FilingsTab({ profile }: { profile: StockProfileV2Model }) {
 
 export default function StockProfileTabs({ profile }: { profile: StockProfileV2Model }) {
     const [activeTab, setActiveTab] = useState<TabKey>("overview");
-    const fundamentalsMissing =
-        (!profile.company?.name && !profile.company?.website) ||
-        (profile.financials.annual.length === 0 && profile.financials.quarterly.length === 0);
+    const companyInfoIncomplete = !profile.company?.name || !profile.company?.website;
+    const financialsMissing = profile.financials.annual.length === 0 && profile.financials.quarterly.length === 0;
+    const fundamentalsMissing = companyInfoIncomplete || financialsMissing;
 
     return (
         <div className="space-y-3">
-            <div className="flex flex-wrap gap-2 border-b pb-2 text-sm font-medium">
+            <div className="flex flex-wrap gap-2 border-b pb-2 text-sm font-medium" role="tablist">
                 {tabList.map((tab) => {
                     const isActive = activeTab === tab.key;
+                    const tabId = `${tab.key}-tab`;
+                    const panelId = `${tab.key}-panel`;
                     return (
                         <button
                             key={tab.key}
@@ -228,6 +290,10 @@ export default function StockProfileTabs({ profile }: { profile: StockProfileV2M
                                     ? "bg-primary/10 text-foreground ring-1 ring-primary"
                                     : "text-muted-foreground hover:text-foreground"
                             }`}
+                            role="tab"
+                            id={tabId}
+                            aria-selected={isActive}
+                            aria-controls={panelId}
                         >
                             {tab.label}
                         </button>
@@ -242,10 +308,25 @@ export default function StockProfileTabs({ profile }: { profile: StockProfileV2M
             )}
 
             <div className="rounded-lg border bg-card p-4">
-                {activeTab === "overview" && <OverviewTab profile={profile} />}
-                {activeTab === "financials" && <FinancialsTab profile={profile} />}
-                {activeTab === "ratios" && <RatiosTab profile={profile} />}
-                {activeTab === "filings" && <FilingsTab profile={profile} />}
+                {tabList.map((tab) => {
+                    const isActive = activeTab === tab.key;
+                    const panelId = `${tab.key}-panel`;
+                    const tabId = `${tab.key}-tab`;
+                    return (
+                        <div
+                            key={tab.key}
+                            role="tabpanel"
+                            id={panelId}
+                            aria-labelledby={tabId}
+                            hidden={!isActive}
+                        >
+                            {tab.key === "overview" && isActive && <OverviewTab profile={profile} />}
+                            {tab.key === "financials" && isActive && <FinancialsTab profile={profile} />}
+                            {tab.key === "ratios" && isActive && <RatiosTab profile={profile} />}
+                            {tab.key === "filings" && isActive && <FilingsTab profile={profile} />}
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );

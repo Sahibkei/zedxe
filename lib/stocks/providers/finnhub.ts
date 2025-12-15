@@ -61,6 +61,9 @@ type FinnhubFetchOptions = {
     ttlSeconds?: number;
 };
 
+/**
+ * Fetch helper for Finnhub endpoints with basic TTL-based caching support.
+ */
 export async function finnhubFetch<T>(
     path: string,
     params: Record<string, string | number | boolean | undefined>,
@@ -93,18 +96,22 @@ export async function finnhubFetch<T>(
     return (await res.json()) as T;
 }
 
+/** Retrieve Finnhub profile data for a symbol. */
 export async function getFinnhubProfile(symbol: string) {
     return finnhubFetch<FinnhubProfile2Response>('stock/profile2', { symbol }, { ttlSeconds: 1800 });
 }
 
+/** Retrieve Finnhub key metrics for a symbol. */
 export async function getFinnhubMetrics(symbol: string) {
     return finnhubFetch<FinnhubMetricResponse>('stock/metric', { symbol, metric: 'all' }, { ttlSeconds: 900 });
 }
 
+/** Retrieve Finnhub financial reports for a symbol. */
 export async function getFinnhubFinancials(symbol: string, freq: 'annual' | 'quarterly') {
     return finnhubFetch<FinnhubFinancialsReportedResponse>('stock/financials-reported', { symbol, freq }, { ttlSeconds: 900 });
 }
 
+/** Retrieve Finnhub quote data for a symbol. */
 export async function getFinnhubQuote(symbol: string) {
     return finnhubFetch<FinnhubQuoteResponse>('quote', { symbol }, { ttlSeconds: 60 });
 }

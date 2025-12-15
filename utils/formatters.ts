@@ -16,6 +16,9 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
     INR: '₹',
 };
 
+/**
+ * Formats large financial values using compact units (K, M, B, T) while preserving currency symbols.
+ */
 export const formatCompactFinancialValue = (value?: number, currency?: string) => {
     if (value === undefined || value === null || Number.isNaN(value)) return '—';
 

@@ -18,6 +18,7 @@ export type SecFiling = {
     primaryDocument?: string;
     link?: string;
     description?: string;
+    companyName?: string;
 };
 
 type SecTickerEntry = {
@@ -68,6 +69,11 @@ export type SecCompanyFacts = {
 };
 
 const cikCache = new Map<string, string>();
+let tickerMapCache: Map<string, string> | null = null;
+let tickerMapFetchedAt: number | null = null;
+let tickerMapPromise: Promise<Map<string, string>> | null = null;
+
+const TICKER_MAP_TTL_MS = 24 * 60 * 60 * 1000;
 
 async function secFetch<T>(path: string, ttlSeconds = 1800): Promise<T> {
     if (!SEC_USER_AGENT) {
@@ -92,33 +98,60 @@ async function secFetch<T>(path: string, ttlSeconds = 1800): Promise<T> {
     return (await res.json()) as T;
 }
 
+/**
+ * Retrieve and cache a ticker-to-CIK map with TTL and in-flight deduplication.
+ */
 async function getTickerToCikMap(): Promise<Map<string, string>> {
-    if (cikCache.size > 0) return cikCache;
+    const now = Date.now();
+    if (tickerMapCache && tickerMapFetchedAt && now - tickerMapFetchedAt < TICKER_MAP_TTL_MS) {
+        return tickerMapCache;
+    }
 
-    let data: Record<string, SecTickerEntry> | undefined;
+    if (tickerMapPromise) {
+        return tickerMapPromise;
+    }
+
+    tickerMapPromise = (async () => {
+        let data: Record<string, SecTickerEntry> | undefined;
+
+        try {
+            data = await secFetch<Record<string, SecTickerEntry>>('/files/company_tickers.json', 86400);
+        } catch (err) {
+            // Fallback to canonical SEC files host if the data subdomain path fails.
+            data = await secFetch<Record<string, SecTickerEntry>>(
+                `${SEC_FILES_FALLBACK}/files/company_tickers.json`,
+                86400
+            );
+        }
+
+        if (!data) {
+            throw new Error('Unable to load SEC ticker map');
+        }
+
+        const map = tickerMapCache ?? new Map<string, string>();
+        map.clear();
+        Object.values(data).forEach((entry) => {
+            if (!entry?.ticker) return;
+            const cik = String(entry.cik_str ?? '').padStart(10, '0');
+            map.set(entry.ticker.toUpperCase(), cik);
+            cikCache.set(entry.ticker.toUpperCase(), cik);
+        });
+
+        tickerMapCache = map;
+        tickerMapFetchedAt = Date.now();
+        return map;
+    })();
 
     try {
-        data = await secFetch<Record<string, SecTickerEntry>>('/files/company_tickers.json', 86400);
-    } catch (err) {
-        // Fallback to canonical SEC files host if the data subdomain path fails.
-        data = await secFetch<Record<string, SecTickerEntry>>(
-            `${SEC_FILES_FALLBACK}/files/company_tickers.json`,
-            86400
-        );
+        return await tickerMapPromise;
+    } finally {
+        tickerMapPromise = null;
     }
-
-    if (!data) {
-        throw new Error('Unable to load SEC ticker map');
-    }
-    Object.values(data || {}).forEach((entry) => {
-        if (!entry?.ticker) return;
-        const cik = String(entry.cik_str ?? '').padStart(10, '0');
-        cikCache.set(entry.ticker.toUpperCase(), cik);
-    });
-
-    return cikCache;
 }
 
+/**
+ * Fetch recent SEC filings for a given ticker.
+ */
 export async function getRecentSecFilings(ticker: string): Promise<SecRecentFilings> {
     const map = await getTickerToCikMap();
     const cik = map.get(ticker.toUpperCase());
@@ -149,6 +182,7 @@ export async function getRecentSecFilings(ticker: string): Promise<SecRecentFili
             primaryDocument: doc,
             link,
             description: submissions?.name,
+            companyName: submissions?.name,
         };
     });
 
@@ -161,6 +195,9 @@ export async function getRecentSecFilings(ticker: string): Promise<SecRecentFili
     };
 }
 
+/**
+ * Retrieve SEC company facts (XBRL) for a ticker when available.
+ */
 export async function getSecCompanyFacts(ticker: string): Promise<SecCompanyFacts | undefined> {
     const map = await getTickerToCikMap();
     const cik = map.get(ticker.toUpperCase());

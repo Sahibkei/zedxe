@@ -15,8 +15,8 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
     const { symbol } = await params;
     const session = await auth.api.getSession({ headers: await headers() });
     const symbolUpper = symbol.toUpperCase();
-    const stockProfile = await getStockProfileV2(symbolUpper);
-    const [snapshot, inWatchlist, alerts] = await Promise.all([
+    const [stockProfile, snapshot, inWatchlist, alerts] = await Promise.all([
+        getStockProfileV2(symbolUpper),
         getSymbolSnapshot(symbolUpper).catch(() => ({ symbol: symbolUpper })),
         session?.user ? isSymbolInWatchlist(session.user.id, symbolUpper) : Promise.resolve(false),
         session?.user ? getAlertsByUser(session.user.id) : Promise.resolve([]),
@@ -40,9 +40,6 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
     const changeDisplay =
         change === undefined || change === null ? "" : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
     const changeClass = change === undefined || change === null ? "text-muted-foreground" : change >= 0 ? "text-green-600" : "text-red-600";
-
-    const showProviderDebug =
-        process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_DEBUG_PROVIDER_STATUS === "1";
 
     return (
         <div className="mx-auto w-full max-w-7xl px-4 md:px-6 py-6 space-y-6">
@@ -86,7 +83,7 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                             </div>
                             <TradingViewWidget
                                 scripUrl={`${scriptUrl}advanced-chart.js`}
-                                config={CANDLE_CHART_WIDGET_CONFIG(symbol)}
+                                config={CANDLE_CHART_WIDGET_CONFIG(symbolUpper)}
                                 className="custom-chart"
                                 height={520}
                             />
@@ -98,7 +95,7 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                             </div>
                             <TradingViewWidget
                                 scripUrl={`${scriptUrl}technical-analysis.js`}
-                                config={TECHNICAL_ANALYSIS_WIDGET_CONFIG(symbol)}
+                                config={TECHNICAL_ANALYSIS_WIDGET_CONFIG(symbolUpper)}
                                 height={380}
                             />
                         </div>
@@ -147,7 +144,7 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
 
             <div className="rounded-lg border bg-card p-4 shadow-sm space-y-4">
                 <StockProfileTabs profile={stockProfile} />
-                {showProviderDebug ? <ProviderStatusDebug errors={stockProfile.providerErrors} /> : null}
+                <ProviderStatusDebug errors={stockProfile.providerErrors} />
             </div>
         </div>
     );
