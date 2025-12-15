@@ -12,8 +12,16 @@ import StockProfileTabs from "./StockProfileTabs";
 
 const scriptUrl = "https://s3.tradingview.com/external-embedding/embed-widget-";
 
-function formatDetail(value?: string) {
-    return value && value.trim() !== "" ? value : "—";
+function formatDetail(value?: string | number) {
+    if (value === null || value === undefined) return "—";
+
+    if (typeof value === "number") {
+        if (Number.isNaN(value)) return "—";
+        return value.toLocaleString();
+    }
+
+    const trimmed = value.trim();
+    return trimmed !== "" ? trimmed : "—";
 }
 
 function EmptyState({ message }: { message: string }) {
@@ -125,6 +133,49 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                             config={SYMBOL_INFO_WIDGET_CONFIG(profile.companyProfile.ticker)}
                             height={120}
                         />
+                    </div>
+                    <div className="mb-6 grid gap-4 rounded-lg border border-neutral-800 bg-neutral-950/40 p-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                            <h3 className="text-sm font-semibold text-white">Business Overview</h3>
+                            <p className="text-sm leading-relaxed text-neutral-300">
+                                {formatDetail(profile.companyProfile.description)}
+                            </p>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            <div>
+                                <div className="text-xs uppercase tracking-wide text-neutral-500">Website</div>
+                                {profile.companyProfile.website ? (
+                                    <a
+                                        href={profile.companyProfile.website}
+                                        className="text-sm text-yellow-400 hover:text-yellow-300"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                    >
+                                        {profile.companyProfile.website}
+                                    </a>
+                                ) : (
+                                    <div className="text-sm text-neutral-300">{formatDetail(profile.companyProfile.website)}</div>
+                                )}
+                            </div>
+                            <div>
+                                <div className="text-xs uppercase tracking-wide text-neutral-500">Headquarters</div>
+                                <div className="text-sm text-neutral-300">
+                                    {formatDetail(
+                                        [profile.companyProfile.headquartersCity, profile.companyProfile.headquartersCountry]
+                                            .filter(Boolean)
+                                            .join(", ")
+                                    )}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-xs uppercase tracking-wide text-neutral-500">Employees</div>
+                                <div className="text-sm text-neutral-300">{formatDetail(profile.companyProfile.employees)}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs uppercase tracking-wide text-neutral-500">CEO</div>
+                                <div className="text-sm text-neutral-300">{formatDetail(profile.companyProfile.ceo)}</div>
+                            </div>
+                        </div>
                     </div>
                     <StockProfileTabs profile={profile} />
                 </section>

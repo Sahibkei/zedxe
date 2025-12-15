@@ -1,19 +1,30 @@
 import { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
 
 export async function getStockProfileV2(symbol: string): Promise<StockProfileV2Model> {
-    const upperSymbol = symbol.toUpperCase();
-    const chartSymbol = `NASDAQ:${upperSymbol}`;
+    const normalizedSymbol = symbol?.trim();
+
+    if (!normalizedSymbol) {
+        throw new Error("Symbol is required for stock profile lookup");
+    }
+
+    const upperSymbol = normalizedSymbol.toUpperCase();
+    const chartSymbol = normalizedSymbol.includes(":") ? upperSymbol : `NASDAQ:${upperSymbol}`;
+    const ticker = upperSymbol.includes(":") ? upperSymbol.split(":")[1] ?? upperSymbol : upperSymbol;
 
     // TODO: Replace mocked data with real providers (Finnhub, SEC, OpenBB, etc.)
     const mockData: StockProfileV2Model = {
         companyProfile: {
             name: "Example Corp",
-            ticker: upperSymbol,
+            ticker,
             exchange: "NASDAQ",
             sector: "Technology",
             industry: "Software - Infrastructure",
             website: "https://www.example.com",
             description: "Example Corp builds cloud-native tools for modern workflows.",
+            headquartersCity: "Seattle",
+            headquartersCountry: "US",
+            employees: 115000,
+            ceo: "Alex Example",
             country: "US",
             currency: "USD",
         },
@@ -125,58 +136,72 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
             period: "2024 Q3",
             eps: 1.55,
             consensusEps: 1.47,
-            surprisePercent: 5.4,
+            surprisePercent: 0.054,
             revenue: 46_200_000_000,
         },
         earningsLatestAnnual: {
             period: "FY 2024",
             eps: 6.12,
             revenue: 182_500_000_000,
-            revenueYoYPercent: 6.9,
+            revenueYoYPercent: 0.069,
         },
         filings: {
             latest10Q: {
                 formType: "10-Q",
                 filingDate: "2024-10-28",
                 periodEnd: "2024-09-30",
-                url: "https://www.sec.gov/ixviewer/doc/2024q3",
+                cik: "0000320193",
+                accessionNumber: "0000320193-24-000058",
+                primaryDocument: "aapl-20240930.htm",
             },
             latest10K: {
                 formType: "10-K",
                 filingDate: "2025-02-15",
                 periodEnd: "2024-12-31",
-                url: "https://www.sec.gov/ixviewer/doc/2024k",
+                cik: "0000320193",
+                accessionNumber: "0000320193-25-000010",
+                primaryDocument: "aapl-20241231x10k.htm",
             },
             recent: [
                 {
                     formType: "8-K",
                     filingDate: "2024-11-05",
                     periodEnd: "2024-09-30",
-                    url: "https://www.sec.gov/ixviewer/doc/2024-8k",
+                    cik: "0000320193",
+                    accessionNumber: "0000320193-24-000060",
+                    primaryDocument: "aapl-20241105x8k.htm",
                 },
                 {
                     formType: "10-Q",
                     filingDate: "2024-10-28",
                     periodEnd: "2024-09-30",
-                    url: "https://www.sec.gov/ixviewer/doc/2024q3",
+                    cik: "0000320193",
+                    accessionNumber: "0000320193-24-000058",
+                    primaryDocument: "aapl-20240930.htm",
                 },
                 {
                     formType: "8-K",
                     filingDate: "2024-08-10",
                     periodEnd: "2024-06-30",
-                    url: "https://www.sec.gov/ixviewer/doc/2024-8k-q2",
+                    cik: "0000320193",
+                    accessionNumber: "0000320193-24-000040",
+                    primaryDocument: "aapl-20240810x8k.htm",
                 },
                 {
                     formType: "10-Q",
                     filingDate: "2024-07-25",
                     periodEnd: "2024-06-30",
-                    url: "https://www.sec.gov/ixviewer/doc/2024q2",
+                    cik: "0000320193",
+                    accessionNumber: "0000320193-24-000038",
+                    primaryDocument: "aapl-20240630.htm",
                 },
                 {
                     formType: "10-K",
                     filingDate: "2025-02-15",
                     periodEnd: "2024-12-31",
-                    url: "https://www.sec.gov/ixviewer/doc/2024k",
+                    cik: "0000320193",
+                    accessionNumber: "0000320193-25-000010",
+                    primaryDocument: "aapl-20241231x10k.htm",
                 },
             ],
         },

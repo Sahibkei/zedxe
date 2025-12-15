@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FinancialStatementEntry, StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
+import { FinancialStatementEntry, FilingItem, StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
 
 const tabOptions = [
     { key: "financials", label: "Financials" },
@@ -23,9 +23,30 @@ function formatCurrency(value?: number) {
     return formatter.format(value);
 }
 
+function isMissingNumber(value?: number) {
+    return value === null || value === undefined || Number.isNaN(value);
+}
+
+function formatPercentFromFraction(value?: number) {
+    if (isMissingNumber(value)) return "—";
+    return `${(value * 100).toFixed(2)}%`;
+}
+
 function formatRatio(value?: number, suffix = "") {
     if (value === undefined || value === null || Number.isNaN(value)) return "—";
     return `${value.toFixed(2)}${suffix}`;
+}
+
+function buildSecArchiveUrl(cik?: string | number, accessionNumber?: string, primaryDocument?: string) {
+    if (!cik || !accessionNumber || !primaryDocument) return undefined;
+
+    const accPlain = accessionNumber.replace(/-/g, "");
+    const cikNumeric = Number(cik);
+
+    if (Number.isNaN(cikNumeric)) return undefined;
+
+    const cikPlain = String(cikNumeric);
+    return `https://www.sec.gov/Archives/edgar/data/${cikPlain}/${accPlain}/${primaryDocument}`;
 }
 
 function Table({ title, data }: { title: string; data: FinancialStatementEntry[] }) {
@@ -88,7 +109,7 @@ function RatiosPanel({ profile }: { profile: StockProfileV2Model }) {
             { label: "EV/EBITDA", value: formatRatio(profile.ratios.evToEbitda) },
             { label: "Debt/Equity", value: formatRatio(profile.ratios.debtToEquity) },
             { label: "Current Ratio", value: formatRatio(profile.ratios.currentRatio) },
-            { label: "Dividend Yield", value: formatRatio(profile.ratios.dividendYield, "%") },
+            { label: "Dividend Yield", value: formatPercentFromFraction(profile.ratios.dividendYield) },
         ],
         [profile.ratios]
     );
@@ -142,19 +163,15 @@ function EarningsPanel({ profile }: { profile: StockProfileV2Model }) {
                         </div>
                         <div className="flex items-center justify-between">
                             <span>Surprise</span>
-                            <span>{card.data?.surprisePercent ? `${card.data.surprisePercent.toFixed(2)}%` : "—"}</span>
+                            <span>{formatPercentFromFraction(card.data?.surprisePercent)}</span>
                         </div>
                         <div className="flex items-center justify-between">
                             <span>Revenue</span>
-                            <span>{card.data?.revenue ? formatCurrency(card.data.revenue) : "—"}</span>
+                            <span>{isMissingNumber(card.data?.revenue) ? "—" : formatCurrency(card.data?.revenue)}</span>
                         </div>
                         <div className="flex items-center justify-between">
                             <span>Revenue YoY</span>
-                            <span>
-                                {card.data?.revenueYoYPercent !== undefined
-                                    ? `${card.data.revenueYoYPercent.toFixed(2)}%`
-                                    : "—"}
-                            </span>
+                            <span>{formatPercentFromFraction(card.data?.revenueYoYPercent)}</span>
                         </div>
                     </div>
                 </div>
@@ -170,6 +187,20 @@ function FilingsPanel({ profile }: { profile: StockProfileV2Model }) {
         { label: "Latest 10-K", item: filings.latest10K },
     ];
 
+    const renderFilingLink = (item?: FilingItem) => {
+        const derivedUrl = item?.url ?? buildSecArchiveUrl(item?.cik, item?.accessionNumber, item?.primaryDocument);
+
+        if (!derivedUrl) {
+            return <div className="text-neutral-500">Link available when data provider is connected</div>;
+        }
+
+        return (
+            <a href={derivedUrl} className="text-yellow-400 hover:text-yellow-300" target="_blank" rel="noreferrer">
+                View filing
+            </a>
+        );
+    };
+
     return (
         <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -183,18 +214,7 @@ function FilingsPanel({ profile }: { profile: StockProfileV2Model }) {
                                     <span className="text-neutral-300">{item.filingDate}</span>
                                 </div>
                                 <div className="text-neutral-400">Period end: {item.periodEnd}</div>
-                                {item.url ? (
-                                    <a
-                                        href={item.url}
-                                        className="text-yellow-400 hover:text-yellow-300"
-                                        target="_blank"
-                                        rel="noreferrer"
-                                    >
-                                        View filing
-                                    </a>
-                                ) : (
-                                    <div className="text-neutral-500">No link available</div>
-                                )}
+                                {renderFilingLink(item)}
                             </div>
                         ) : (
                             <div className="text-sm text-neutral-500">No filing data</div>
@@ -214,18 +234,7 @@ function FilingsPanel({ profile }: { profile: StockProfileV2Model }) {
                                     <span className="text-neutral-400">{item.filingDate}</span>
                                 </div>
                                 <div className="text-neutral-400">Period end: {item.periodEnd}</div>
-                                {item.url ? (
-                                    <a
-                                        href={item.url}
-                                        className="text-yellow-400 hover:text-yellow-300"
-                                        target="_blank"
-                                        rel="noreferrer"
-                                    >
-                                        View filing
-                                    </a>
-                                ) : (
-                                    <span className="text-neutral-500">No link</span>
-                                )}
+                                {renderFilingLink(item)}
                             </li>
                         ))
                     ) : (

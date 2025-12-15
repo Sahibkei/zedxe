@@ -6,11 +6,16 @@ export interface CompanyProfile {
     industry?: string;
     website?: string;
     description?: string;
+    headquartersCity?: string;
+    headquartersCountry?: string;
+    employees?: number;
+    ceo?: string;
     country?: string;
     currency?: string;
 }
 
 export interface FinancialStatementEntry {
+    /** Date formatted as YYYY-MM-DD */
     fiscalDate: string;
     fiscalYear: string;
     revenue?: number;
@@ -28,6 +33,7 @@ export interface RatioGroup {
     evToEbitda?: number;
     debtToEquity?: number;
     currentRatio?: number;
+    /** Stored as FRACTION (e.g., 0.009 for 0.9%) */
     dividendYield?: number;
 }
 
@@ -35,15 +41,22 @@ export interface EarningsSnapshot {
     period: string;
     eps?: number;
     consensusEps?: number;
+    /** Stored as FRACTION (e.g., 0.054 for 5.4%) */
     surprisePercent?: number;
     revenue?: number;
+    /** Stored as FRACTION (e.g., 0.069 for 6.9%) */
     revenueYoYPercent?: number;
 }
 
 export interface FilingItem {
     formType: string;
+    /** Date formatted as YYYY-MM-DD */
     filingDate: string;
+    /** Date formatted as YYYY-MM-DD */
     periodEnd: string;
+    cik?: string | number;
+    accessionNumber?: string;
+    primaryDocument?: string;
     url?: string;
 }
 
