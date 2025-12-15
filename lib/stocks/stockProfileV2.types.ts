@@ -14,6 +14,8 @@ export type StockMetricSet = {
     pb?: number;
     ps?: number;
     evToEbitda?: number;
+    debtToEquity?: number;
+    currentRatio?: number;
     dividendYieldPercent?: number;
 };
 
@@ -21,6 +23,7 @@ export type StockFinancialRow = {
     label: string; // FY 2024, Q3 2024
     endDate?: string;
     revenue?: number;
+    grossProfit?: number;
     operatingIncome?: number;
     netIncome?: number;
     eps?: number;

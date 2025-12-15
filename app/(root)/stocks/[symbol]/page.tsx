@@ -41,6 +41,9 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
         change === undefined || change === null ? "" : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
     const changeClass = change === undefined || change === null ? "text-muted-foreground" : change >= 0 ? "text-green-600" : "text-red-600";
 
+    const showProviderDebug =
+        process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_DEBUG_PROVIDER_STATUS === "1";
+
     return (
         <div className="mx-auto w-full max-w-7xl px-4 md:px-6 py-6 space-y-6">
             <div className="flex flex-col gap-4">
@@ -144,7 +147,7 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
 
             <div className="rounded-lg border bg-card p-4 shadow-sm space-y-4">
                 <StockProfileTabs profile={stockProfile} />
-                <ProviderStatusDebug errors={stockProfile.providerErrors} />
+                {showProviderDebug ? <ProviderStatusDebug errors={stockProfile.providerErrors} /> : null}
             </div>
         </div>
     );

@@ -4,9 +4,7 @@ import React from 'react';
 
 export function ProviderStatusDebug({ errors }: { errors?: string[] | null }) {
     const debugEnabled =
-        typeof window !== 'undefined' &&
-        process.env.NODE_ENV !== 'production' &&
-        process.env.NEXT_PUBLIC_DEBUG_PROVIDER_STATUS === '1';
+        process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_DEBUG_PROVIDER_STATUS === '1';
 
     if (!debugEnabled || !errors || errors.length === 0) return null;
 

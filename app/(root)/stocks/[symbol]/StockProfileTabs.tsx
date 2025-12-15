@@ -91,6 +91,8 @@ function RatiosTab({ profile }: { profile: StockProfileV2Model }) {
             <RatioRow label="P/B" value={ratios.pb} />
             <RatioRow label="P/S" value={ratios.ps} />
             <RatioRow label="EV/EBITDA" value={ratios.evToEbitda} />
+            <RatioRow label="Debt/Equity" value={ratios.debtToEquity} />
+            <RatioRow label="Current Ratio" value={ratios.currentRatio} />
             <RatioRow label="Dividend Yield" value={ratios.dividendYieldPercent} isPercent />
         </div>
     );
@@ -108,6 +110,7 @@ function FinancialTable({ rows, title }: { rows: StockProfileV2Model["financials
                     <tr className="text-left">
                         <th className="px-2 py-2">Period</th>
                         <th className="px-2 py-2">Revenue</th>
+                        <th className="px-2 py-2">Gross Profit</th>
                         <th className="px-2 py-2">Operating Income</th>
                         <th className="px-2 py-2">Net Income</th>
                         <th className="px-2 py-2">EPS (Diluted)</th>
@@ -119,6 +122,7 @@ function FinancialTable({ rows, title }: { rows: StockProfileV2Model["financials
                         <tr key={`${title}-${row.label}`} className="border-t">
                             <td className="px-2 py-2 font-medium">{row.label}</td>
                             <td className="px-2 py-2">{formatNumber(row.revenue)}</td>
+                            <td className="px-2 py-2">{formatNumber(row.grossProfit)}</td>
                             <td className="px-2 py-2">{formatNumber(row.operatingIncome)}</td>
                             <td className="px-2 py-2">{formatNumber(row.netIncome)}</td>
                             <td className="px-2 py-2">{formatNumber(row.eps)}</td>
@@ -157,7 +161,10 @@ function FilingsTab({ profile }: { profile: StockProfileV2Model }) {
                 <div key={`${filing.accessionNumber}-${idx}`} className="border rounded-lg p-3 text-sm">
                     <div className="flex items-center justify-between">
                         <span className="font-semibold">{filing.formType}</span>
-                        <span className="text-muted-foreground">{filing.filedAt || ""}</span>
+                        <span className="text-muted-foreground">
+                            {filing.filedAt || ""}
+                            {filing.periodEnd ? ` · Period end ${filing.periodEnd}` : ""}
+                        </span>
                     </div>
                     <p className="text-muted-foreground">{filing.description || ""}</p>
                     {filing.link && (

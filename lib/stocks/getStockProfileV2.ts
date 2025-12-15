@@ -1,7 +1,8 @@
 import 'server-only';
 
 import { getFinnhubFinancials, getFinnhubMetrics, getFinnhubProfile, getFinnhubQuote } from './providers/finnhub';
-import { getRecentSecFilings } from './providers/sec';
+import { getRecentSecFilings, getSecCompanyFacts } from './providers/sec';
+import type { SecCompanyFacts } from './providers/sec';
 import type {
     FinancialsMapperFn,
     FilingInfo,
@@ -55,55 +56,157 @@ const pickValue = (items: { concept?: string; label?: string; value?: number }[]
     return undefined;
 };
 
+const sortRows = (rows: StockFinancialRow[]) =>
+    rows.slice().sort((a, b) => {
+        const aTime = a?.endDate ? new Date(a.endDate).getTime() : 0;
+        const bTime = b?.endDate ? new Date(b.endDate).getTime() : 0;
+        return bTime - aTime;
+    });
+
 const mapFinancials: FinancialsMapperFn = ({ financials, limit = 8, frequency }) => {
     const rows: StockFinancialRow[] = [];
     const entries = financials?.data || [];
     const seen = new Set<string>();
 
-    entries
-        .slice()
-        .sort((a, b) => {
-            const aTime = a?.endDate ? new Date(a.endDate).getTime() : 0;
-            const bTime = b?.endDate ? new Date(b.endDate).getTime() : 0;
-            return bTime - aTime;
-        })
-        .forEach((entry) => {
-            const endDate = entry.endDate;
-            const year = endDate ? new Date(endDate).getUTCFullYear() : entry.year;
-            if (!year) return;
-            const quarter = entry.quarter ?? deriveQuarter(endDate);
-            const dedupeKey = frequency === 'annual' ? String(year) : quarter ? `${year}-Q${quarter}` : undefined;
-            if (!dedupeKey || seen.has(dedupeKey)) return;
-            seen.add(dedupeKey);
+    sortRows(entries as any as StockFinancialRow[]).forEach((entry) => {
+        const endDate = (entry as any).endDate;
+        const year = endDate ? new Date(endDate).getUTCFullYear() : (entry as any).year;
+        if (!year) return;
+        const quarter = (entry as any).quarter ?? deriveQuarter(endDate);
+        const dedupeKey = frequency === 'annual' ? String(year) : quarter ? `${year}-Q${quarter}` : undefined;
+        if (!dedupeKey || seen.has(dedupeKey)) return;
+        seen.add(dedupeKey);
 
-            const ic = entry.report?.ic;
-            const cf = entry.report?.cf;
+        const ic = (entry as any).report?.ic;
+        const cf = (entry as any).report?.cf;
 
-            const revenue = pickValue(ic, ['us-gaap:Revenues', 'us-gaap:SalesRevenueNet', 'revenue']);
-            const operatingIncome = pickValue(ic, ['us-gaap:OperatingIncomeLoss', 'operating income']);
-            const netIncome = pickValue(ic, ['us-gaap:NetIncomeLoss', 'net income']);
-            const eps = pickValue(ic, ['us-gaap:EarningsPerShareDiluted', 'eps diluted', 'eps']);
-            const operatingCashFlow = pickValue(cf, [
-                'us-gaap:NetCashProvidedByUsedInOperatingActivities',
-                'operating cash flow',
-            ]);
+        const revenue = pickValue(ic, [
+            'us-gaap:Revenues',
+            'us-gaap:SalesRevenueNet',
+            'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax',
+            'total revenue',
+            'revenue',
+        ]);
+        const grossProfit = pickValue(ic, ['us-gaap:GrossProfit', 'gross profit']);
+        const operatingIncome = pickValue(ic, ['us-gaap:OperatingIncomeLoss', 'operating income']);
+        const netIncome = pickValue(ic, [
+            'us-gaap:NetIncomeLoss',
+            'us-gaap:ProfitLoss',
+            'net income',
+        ]);
+        const eps = pickValue(ic, ['us-gaap:EarningsPerShareDiluted', 'eps diluted', 'eps']);
+        const operatingCashFlow = pickValue(cf, [
+            'us-gaap:NetCashProvidedByUsedInOperatingActivities',
+            'us-gaap:NetCashProvidedByUsedInOperatingActivitiesContinuingOperations',
+            'operating cash flow',
+        ]);
 
-            const label = frequency === 'annual' ? `FY ${year}` : `Q${quarter} ${year}`;
+        const label = frequency === 'annual' ? `FY ${year}` : `Q${quarter} ${year}`;
 
-            rows.push({
-                label: label.trim(),
-                endDate,
-                revenue,
-                operatingIncome,
-                netIncome,
-                eps,
-                operatingCashFlow,
-                currency: entry.currency,
-            });
+        rows.push({
+            label: label.trim(),
+            endDate,
+            revenue,
+            grossProfit,
+            operatingIncome,
+            netIncome,
+            eps,
+            operatingCashFlow,
+            currency: (entry as any).currency,
         });
+    });
 
     return rows.slice(0, limit);
 };
+
+type SecFactUnits = {
+    end?: string;
+    fy?: number;
+    fp?: string;
+    form?: string;
+    val?: number;
+    frame?: string;
+};
+
+type SecFactMap = Record<string, { units?: Record<string, SecFactUnits[]> }> | undefined;
+
+const SEC_FACT_TARGETS: Record<keyof Omit<StockFinancialRow, 'label'>, string[]> = {
+    endDate: [],
+    revenue: ['Revenues', 'SalesRevenueNet', 'RevenueFromContractWithCustomerExcludingAssessedTax'],
+    grossProfit: ['GrossProfit'],
+    operatingIncome: ['OperatingIncomeLoss'],
+    netIncome: ['NetIncomeLoss', 'ProfitLoss'],
+    eps: ['EarningsPerShareDiluted'],
+    operatingCashFlow: ['NetCashProvidedByUsedInOperatingActivities'],
+    currency: [],
+};
+
+function mapSecFinancials(facts: SecCompanyFacts | undefined, frequency: 'annual' | 'quarterly', limit: number) {
+    const factMap = facts?.facts?.['us-gaap'] as SecFactMap;
+    if (!factMap) return [] as StockFinancialRow[];
+
+    const rows = new Map<string, StockFinancialRow>();
+
+    Object.entries(SEC_FACT_TARGETS).forEach(([key, concepts]) => {
+        if (concepts.length === 0) return;
+        concepts.forEach((concept) => {
+            const units = factMap[concept]?.units?.USD || [];
+            units.forEach((entry) => {
+                const year = entry.fy ?? (entry.end ? new Date(entry.end).getUTCFullYear() : undefined);
+                const quarterMatch = entry.fp?.match(/^Q([1-4])$/);
+                const quarter = quarterMatch ? Number(quarterMatch[1]) : undefined;
+                const isAnnual = entry.fp === 'FY' || !quarter;
+
+                if (frequency === 'annual' && !isAnnual) return;
+                if (frequency === 'quarterly' && (!quarter || entry.fp === 'FY')) return;
+
+                const label = frequency === 'annual' ? `FY ${year}` : `Q${quarter} ${year}`;
+                if (!label || !year) return;
+
+                const existing = rows.get(label) || { label, endDate: entry.end };
+                const numericValue = typeof entry.val === 'number' ? entry.val : undefined;
+
+                (existing as any)[key] ??= numericValue;
+                if (!existing.endDate && entry.end) existing.endDate = entry.end;
+
+                rows.set(label, existing);
+            });
+        });
+    });
+
+    return sortRows(Array.from(rows.values())).slice(0, limit);
+}
+
+function mergeFinancialRows(primary: StockFinancialRow[], secondary: StockFinancialRow[], limit: number) {
+    const combined = new Map<string, StockFinancialRow>();
+
+    const apply = (row: StockFinancialRow, preferExisting: boolean) => {
+        const existing = combined.get(row.label);
+        if (!existing) {
+            combined.set(row.label, { ...row });
+            return;
+        }
+
+        const target = preferExisting ? existing : row;
+        const source = preferExisting ? row : existing;
+
+        target.endDate ||= source.endDate;
+        target.currency ||= source.currency;
+        target.revenue ??= source.revenue;
+        target.grossProfit ??= source.grossProfit;
+        target.operatingIncome ??= source.operatingIncome;
+        target.netIncome ??= source.netIncome;
+        target.eps ??= source.eps;
+        target.operatingCashFlow ??= source.operatingCashFlow;
+
+        combined.set(row.label, preferExisting ? target : source);
+    };
+
+    primary.forEach((row) => apply(row, true));
+    secondary.forEach((row) => apply(row, false));
+
+    return sortRows(Array.from(combined.values())).slice(0, limit);
+}
 
 const mapFilings: FilingsMapperFn = (filingsResp) => {
     const filings: FilingInfo[] = filingsResp?.filings || [];
@@ -140,6 +243,10 @@ const mapRatios: RatioMapperFn = (metrics) => {
     const rawPb = safeNumber(metrics?.pbAnnual ?? metrics?.priceToBookMRQ ?? metrics?.priceToBookRatioTTM);
     const rawPs = safeNumber(metrics?.psTTM ?? metrics?.priceToSalesTTM);
     const rawEvEbitda = safeNumber(metrics?.evEbitdaAnnual ?? metrics?.evToEbitda ?? metrics?.enterpriseToEbitda);
+    const rawDebtToEquity = safeNumber(
+        metrics?.totalDebtToEquityQuarterly ?? metrics?.totalDebtToEquityAnnual ?? metrics?.totalDebtToEquity
+    );
+    const rawCurrentRatio = safeNumber(metrics?.currentRatioQuarterly ?? metrics?.currentRatioAnnual);
     const rawDividend = safeNumber(metrics?.dividendYieldIndicatedAnnual ?? metrics?.dividendYield5Y ?? metrics?.dividendYield);
 
     let dividendYieldPercent: number | undefined = rawDividend;
@@ -153,6 +260,8 @@ const mapRatios: RatioMapperFn = (metrics) => {
         pb: rawPb,
         ps: rawPs,
         evToEbitda: rawEvEbitda,
+        debtToEquity: rawDebtToEquity,
+        currentRatio: rawCurrentRatio,
         dividendYieldPercent,
     };
 };
@@ -175,14 +284,24 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
     const profilePromise = finnhubAvailable ? getFinnhubProfile(finnhubSymbol) : Promise.resolve(undefined);
     const metricsPromise = finnhubAvailable ? getFinnhubMetrics(finnhubSymbol) : Promise.resolve(undefined);
     const annualPromise = finnhubAvailable ? getFinnhubFinancials(finnhubSymbol, 'annual') : Promise.resolve(undefined);
-    const quarterlyPromise = finnhubAvailable ? getFinnhubFinancials(finnhubSymbol, 'quarterly') : Promise.resolve(undefined);
+    const quarterlyPromise = finnhubAvailable
+        ? getFinnhubFinancials(finnhubSymbol, 'quarterly')
+        : Promise.resolve(undefined);
     const quotePromise = finnhubAvailable ? getFinnhubQuote(finnhubSymbol) : Promise.resolve(undefined);
-    const secPromise = secAvailable ? getRecentSecFilings(secTicker).catch((e) => {
-        status.push({ source: 'sec', level: 'warning', message: e instanceof Error ? e.message : 'Failed to load SEC filings.' });
-        return undefined;
-    }) : Promise.resolve(undefined);
+    const secPromise = secAvailable
+        ? getRecentSecFilings(secTicker).catch((e) => {
+              status.push({ source: 'sec', level: 'warning', message: e instanceof Error ? e.message : 'Failed to load SEC filings.' });
+              return undefined;
+          })
+        : Promise.resolve(undefined);
+    const secFactsPromise = secAvailable
+        ? getSecCompanyFacts(secTicker).catch((e) => {
+              status.push({ source: 'sec', level: 'warning', message: e instanceof Error ? e.message : 'Company facts fetch failed.' });
+              return undefined;
+          })
+        : Promise.resolve(undefined);
 
-    const [profileRes, metricsRes, annualRes, quarterlyRes, quoteRes, filingsRes] = await Promise.all([
+    const [profileRes, metricsRes, annualRes, quarterlyRes, quoteRes, filingsRes, secFacts] = await Promise.all([
         profilePromise.catch((e) => {
             status.push({ source: 'finnhub', level: 'warning', message: e instanceof Error ? e.message : 'Profile fetch failed.' });
             return undefined;
@@ -204,12 +323,17 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
             return undefined;
         }),
         secPromise,
+        secFactsPromise,
     ]);
 
     const company = mapProfile(profileRes as any);
     const metrics = mapRatios(metricsRes?.metric ?? undefined);
-    const annual = mapFinancials({ financials: annualRes, limit: 5, frequency: 'annual' });
-    const quarterly = mapFinancials({ financials: quarterlyRes, limit: 8, frequency: 'quarterly' });
+    const annualPrimary = mapFinancials({ financials: annualRes, limit: 5, frequency: 'annual' });
+    const quarterlyPrimary = mapFinancials({ financials: quarterlyRes, limit: 8, frequency: 'quarterly' });
+    const secAnnual = mapSecFinancials(secFacts || {}, 'annual', 5);
+    const secQuarterly = mapSecFinancials(secFacts || {}, 'quarterly', 8);
+    const annual = mergeFinancialRows(annualPrimary, secAnnual, 5);
+    const quarterly = mergeFinancialRows(quarterlyPrimary, secQuarterly, 8);
     const filings = mapFilings(filingsRes);
 
     const providerErrors = status
@@ -223,7 +347,7 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
         secTicker,
         company: {
             ...company,
-            name: (profileRes as any)?.name || company.name || finnhubSymbol,
+            name: (profileRes as any)?.name || secFacts?.entityName || company.name || finnhubSymbol,
             website: (profileRes as any)?.weburl || company.website,
             industry: (profileRes as any)?.finnhubIndustry || company.industry,
             exchange: (profileRes as any)?.exchange || company.exchange,

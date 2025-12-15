@@ -1,6 +1,7 @@
 import 'server-only';
 
 const SEC_BASE_URL = 'https://data.sec.gov';
+const SEC_FILES_FALLBACK = 'https://www.sec.gov';
 const SEC_USER_AGENT = process.env.SEC_USER_AGENT;
 
 export type SecRecentFilings = {
@@ -12,6 +13,7 @@ export type SecRecentFilings = {
 export type SecFiling = {
     formType?: string;
     filedAt?: string;
+    periodEnd?: string;
     accessionNumber?: string;
     primaryDocument?: string;
     link?: string;
@@ -35,8 +37,34 @@ type SecSubmissions = {
             form?: string[];
             primaryDocument?: string[];
             isInlineXBRL?: number[];
+            reportDate?: string[];
         };
     };
+};
+
+export type SecCompanyFacts = {
+    cik?: string;
+    ticker?: string;
+    entityName?: string;
+    facts?: Record<
+        string,
+        Record<
+            string,
+            {
+                units?: Record<
+                    string,
+                    {
+                        end?: string;
+                        fy?: number;
+                        fp?: string;
+                        form?: string;
+                        val?: number;
+                        frame?: string;
+                    }[]
+                >;
+            }
+        >
+    >;
 };
 
 const cikCache = new Map<string, string>();
@@ -46,7 +74,8 @@ async function secFetch<T>(path: string, ttlSeconds = 1800): Promise<T> {
         throw new Error('SEC_USER_AGENT is not configured');
     }
 
-    const res = await fetch(`${SEC_BASE_URL}${path}`, {
+    const url = path.startsWith('http') ? path : `${SEC_BASE_URL}${path}`;
+    const res = await fetch(url, {
         headers: {
             'User-Agent': SEC_USER_AGENT,
             Accept: 'application/json',
@@ -66,7 +95,21 @@ async function secFetch<T>(path: string, ttlSeconds = 1800): Promise<T> {
 async function getTickerToCikMap(): Promise<Map<string, string>> {
     if (cikCache.size > 0) return cikCache;
 
-    const data = await secFetch<Record<string, SecTickerEntry>>('/files/company_tickers.json', 86400);
+    let data: Record<string, SecTickerEntry> | undefined;
+
+    try {
+        data = await secFetch<Record<string, SecTickerEntry>>('/files/company_tickers.json', 86400);
+    } catch (err) {
+        // Fallback to canonical SEC files host if the data subdomain path fails.
+        data = await secFetch<Record<string, SecTickerEntry>>(
+            `${SEC_FILES_FALLBACK}/files/company_tickers.json`,
+            86400
+        );
+    }
+
+    if (!data) {
+        throw new Error('Unable to load SEC ticker map');
+    }
     Object.values(data || {}).forEach((entry) => {
         if (!entry?.ticker) return;
         const cik = String(entry.cik_str ?? '').padStart(10, '0');
@@ -88,6 +131,7 @@ export async function getRecentSecFilings(ticker: string): Promise<SecRecentFili
     const forms = recent?.form || [];
     const accessionNumbers = recent?.accessionNumber || [];
     const filingDates = recent?.filingDate || [];
+    const periodDates = recent?.reportDate || [];
     const primaryDocs = recent?.primaryDocument || [];
 
     const filings: SecFiling[] = forms.map((form, idx) => {
@@ -100,6 +144,7 @@ export async function getRecentSecFilings(ticker: string): Promise<SecRecentFili
         return {
             formType: form,
             filedAt: filingDates[idx],
+            periodEnd: periodDates[idx],
             accessionNumber: accession,
             primaryDocument: doc,
             link,
@@ -114,4 +159,19 @@ export async function getRecentSecFilings(ticker: string): Promise<SecRecentFili
         ticker: submissions?.ticker ?? ticker.toUpperCase(),
         cik,
     };
+}
+
+export async function getSecCompanyFacts(ticker: string): Promise<SecCompanyFacts | undefined> {
+    const map = await getTickerToCikMap();
+    const cik = map.get(ticker.toUpperCase());
+    if (!cik) return undefined;
+
+    try {
+        return await secFetch<SecCompanyFacts>(`/api/xbrl/companyfacts/CIK${cik}.json`, 10_800);
+    } catch (err) {
+        // As a fallback, try the legacy host in case of CDN hiccups.
+        return secFetch<SecCompanyFacts>(`${SEC_FILES_FALLBACK}/api/xbrl/companyfacts/CIK${cik}.json`, 10_800).catch(
+            () => undefined
+        );
+    }
 }
