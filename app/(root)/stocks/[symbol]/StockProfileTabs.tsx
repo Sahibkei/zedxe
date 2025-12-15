@@ -195,7 +195,12 @@ function FilingsPanel({ profile }: { profile: StockProfileV2Model }) {
         }
 
         return (
-            <a href={derivedUrl} className="text-yellow-400 hover:text-yellow-300" target="_blank" rel="noreferrer">
+            <a
+                href={derivedUrl}
+                className="text-yellow-400 hover:text-yellow-300"
+                target="_blank"
+                rel="noopener noreferrer"
+            >
                 View filing
             </a>
         );

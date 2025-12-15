@@ -116,7 +116,7 @@ const NewsArticlePage = async ({ params, searchParams }: NewsArticlePageProps) =
                 <a
                     href={externalUrl}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className="inline-flex items-center text-sm font-medium text-emerald-400 hover:text-emerald-300"
                 >
                     Read full story on {source}

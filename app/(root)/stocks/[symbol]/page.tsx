@@ -10,7 +10,7 @@ import { getStockProfileV2 } from "@/lib/stocks/getStockProfileV2";
 import { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
 import StockProfileTabs from "./StockProfileTabs";
 
-const scriptUrl = "https://s3.tradingview.com/external-embedding/embed-widget-";
+const scriptUrlBase = "https://s3.tradingview.com/external-embedding/embed-widget-";
 
 function formatDetail(value?: string | number) {
     if (value === null || value === undefined) return "—";
@@ -57,62 +57,50 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
     const symbolAlertDisplay = symbolAlert
         ? {
               ...symbolAlert,
-              id: String((symbolAlert as { _id?: string })._id || symbolAlert._id || ""),
+              id: String(symbolAlert._id ?? symbolAlert.id ?? ""),
               createdAt: symbolAlert.createdAt,
           }
         : undefined;
 
-    const companyName = profile?.companyProfile.name || snapshot.company || symbolUpper;
-
-    if (!profile) {
-        const fallbackMessage = profileError?.includes("SEC_USER_AGENT")
-            ? "SEC data unavailable: please configure SEC_USER_AGENT for sec.gov requests."
-            : profileError ?? "No stock data available. Please verify the symbol or try again later.";
-
-        return (
-            <div className="flex min-h-screen p-4 md:p-6 lg:p-8">
-                <div className="w-full space-y-6">
-                    <div className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-900/60 p-4">
-                        <div className="space-y-1">
-                            <div className="h-6 w-40 animate-pulse rounded bg-neutral-800" />
-                            <div className="h-4 w-24 animate-pulse rounded bg-neutral-800" />
-                        </div>
-                        <StockActionBar
-                            symbol={symbolUpper}
-                            company={companyName}
-                            isInWatchlist={inWatchlist}
-                            initialAlert={symbolAlertDisplay as AlertDisplay | undefined}
-                        />
-                    </div>
-                    <EmptyState message={fallbackMessage} />
-                </div>
-            </div>
-        );
-    }
+    const companyProfile = profile?.companyProfile;
+    const companyName = companyProfile?.name || snapshot.company || symbolUpper;
+    const chartSymbol = profile?.chartSymbol ?? (symbolUpper.includes(":") ? symbolUpper : `NASDAQ:${symbolUpper}`);
+    const hasSecData = Boolean(profile);
 
     const dataSources: string[] = [];
-    dataSources.push("Financials & filings: SEC (XBRL/EDGAR)");
-    if (profile.chartSymbol) {
-        dataSources.push("Market data: TradingView");
+    dataSources.push(hasSecData ? "Financials & filings: SEC (XBRL/EDGAR)" : "Financials & filings: SEC data unavailable");
+    if (chartSymbol) {
+        dataSources.push("Chart: TradingView");
     }
 
-    const overviewDescription =
-        profile.companyProfile.description && profile.companyProfile.description.trim() !== ""
-            ? profile.companyProfile.description
-            : "Business description not available in SEC-only mode.";
+    const overviewDescription = companyProfile?.description && companyProfile.description.trim() !== ""
+        ? companyProfile.description
+        : hasSecData
+          ? "Business description not available in SEC-only mode."
+          : "Company overview unavailable because SEC data could not be loaded.";
+
+    const tickerDisplay = companyProfile?.ticker || symbolUpper;
+    const exchangeDisplay = companyProfile?.exchange;
+    const sectorDisplay = companyProfile?.sector;
+    const industryDisplay = companyProfile?.industry;
 
     return (
         <div className="flex min-h-screen p-4 md:p-6 lg:p-8">
             <div className="w-full space-y-6">
+                {profileError && (
+                    <div className="rounded-lg border border-yellow-700 bg-yellow-900/30 p-4 text-sm text-yellow-200">
+                        SEC data unavailable: {profileError}
+                    </div>
+                )}
                 <section className="rounded-lg border border-neutral-800 bg-neutral-900/60 p-4 shadow-sm">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div className="space-y-1">
-                            <h1 className="text-2xl font-semibold text-white">{companyName}</h1>
+                            <h1 className="text-2xl font-semibold text-white">{companyName || "Unknown company"}</h1>
                             <div className="flex flex-wrap gap-3 text-sm text-neutral-300">
-                                <span className="rounded-full bg-neutral-800 px-3 py-1 font-semibold">{profile.companyProfile.ticker}</span>
-                                <span className="rounded-full bg-neutral-800 px-3 py-1">{formatDetail(profile.companyProfile.exchange)}</span>
-                                <span className="rounded-full bg-neutral-800 px-3 py-1">{formatDetail(profile.companyProfile.sector)}</span>
-                                <span className="rounded-full bg-neutral-800 px-3 py-1">{formatDetail(profile.companyProfile.industry)}</span>
+                                <span className="rounded-full bg-neutral-800 px-3 py-1 font-semibold">{tickerDisplay}</span>
+                                <span className="rounded-full bg-neutral-800 px-3 py-1">{formatDetail(exchangeDisplay)}</span>
+                                <span className="rounded-full bg-neutral-800 px-3 py-1">{formatDetail(sectorDisplay)}</span>
+                                <span className="rounded-full bg-neutral-800 px-3 py-1">{formatDetail(industryDisplay)}</span>
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -129,13 +117,13 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                 <section className="rounded-lg border border-neutral-800 bg-neutral-900/60 p-4 shadow-sm">
                     <div className="mb-3 flex items-center justify-between">
                         <h2 className="text-lg font-semibold text-white">Price & Chart</h2>
-                        <div className="text-xs text-neutral-400">TradingView data · {profile.chartSymbol}</div>
+                        <div className="text-xs text-neutral-400">TradingView data · {chartSymbol ?? "Unavailable"}</div>
                     </div>
                     <div className="overflow-hidden rounded-lg border border-neutral-800 bg-black/40">
-                        {profile.chartSymbol ? (
+                        {chartSymbol ? (
                             <TradingViewWidget
-                                scripUrl={`${scriptUrl}advanced-chart.js`}
-                                config={CANDLE_CHART_WIDGET_CONFIG(profile.chartSymbol)}
+                                scriptUrl={`${scriptUrlBase}advanced-chart.js`}
+                                config={CANDLE_CHART_WIDGET_CONFIG(chartSymbol)}
                                 className="custom-chart"
                                 height={520}
                             />
@@ -152,8 +140,8 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                             <p className="text-sm text-neutral-400">Fundamentals, earnings, ratios, and filings</p>
                         </div>
                         <TradingViewWidget
-                            scripUrl={`${scriptUrl}symbol-info.js`}
-                            config={SYMBOL_INFO_WIDGET_CONFIG(profile.companyProfile.ticker)}
+                            scriptUrl={`${scriptUrlBase}symbol-info.js`}
+                            config={SYMBOL_INFO_WIDGET_CONFIG(tickerDisplay)}
                             height={120}
                         />
                     </div>
@@ -167,24 +155,24 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                         <div className="grid gap-3 sm:grid-cols-2">
                             <div>
                                 <div className="text-xs uppercase tracking-wide text-neutral-500">Website</div>
-                                {profile.companyProfile.website ? (
+                                {companyProfile?.website ? (
                                     <a
-                                        href={profile.companyProfile.website}
+                                        href={companyProfile.website}
                                         className="text-sm text-yellow-400 hover:text-yellow-300"
                                         target="_blank"
-                                        rel="noreferrer"
+                                        rel="noopener noreferrer"
                                     >
-                                        {profile.companyProfile.website}
+                                        {companyProfile.website}
                                     </a>
                                 ) : (
-                                    <div className="text-sm text-neutral-300">{formatDetail(profile.companyProfile.website)}</div>
+                                    <div className="text-sm text-neutral-300">{formatDetail(companyProfile?.website)}</div>
                                 )}
                             </div>
                             <div>
                                 <div className="text-xs uppercase tracking-wide text-neutral-500">Headquarters</div>
                                 <div className="text-sm text-neutral-300">
                                     {formatDetail(
-                                        [profile.companyProfile.headquartersCity, profile.companyProfile.headquartersCountry]
+                                        [companyProfile?.headquartersCity, companyProfile?.headquartersCountry]
                                             .filter(Boolean)
                                             .join(", ")
                                     )}
@@ -192,15 +180,19 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                             </div>
                             <div>
                                 <div className="text-xs uppercase tracking-wide text-neutral-500">Employees</div>
-                                <div className="text-sm text-neutral-300">{formatDetail(profile.companyProfile.employees)}</div>
+                                <div className="text-sm text-neutral-300">{formatDetail(companyProfile?.employees)}</div>
                             </div>
                             <div>
                                 <div className="text-xs uppercase tracking-wide text-neutral-500">CEO</div>
-                                <div className="text-sm text-neutral-300">{formatDetail(profile.companyProfile.ceo)}</div>
+                                <div className="text-sm text-neutral-300">{formatDetail(companyProfile?.ceo)}</div>
                             </div>
                         </div>
                     </div>
-                    <StockProfileTabs profile={profile} />
+                    {hasSecData ? (
+                        <StockProfileTabs profile={profile} />
+                    ) : (
+                        <EmptyState message="Financials, ratios, earnings, and filings are unavailable because SEC data could not be loaded." />
+                    )}
                     {dataSources.length > 0 && (
                         <div className="mt-2 text-xs text-neutral-500">{dataSources.join(" · ")}</div>
                     )}

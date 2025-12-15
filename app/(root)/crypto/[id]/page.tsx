@@ -90,7 +90,7 @@ export default async function CryptoCoinPage({ params }: { params: { id: string 
             <div className="rounded-xl border border-gray-800 bg-[#0f0f0f] p-4 shadow-lg">
                 <TradingViewWidget
                     title={`${coin.symbol.toUpperCase()} Price Chart`}
-                    scripUrl={`https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js`}
+                    scriptUrl={`https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js`}
                     config={{
                         height: 550,
                         symbol: tradingViewSymbol,

@@ -198,7 +198,7 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
     );
 
     const quarterLabel = (fy?: string, fp?: string) => {
-        const quarter = fp?.replace("Q", "Q");
+        const quarter = fp;
         return [fy, quarter].filter(Boolean).join(" ") || "Quarter";
     };
 

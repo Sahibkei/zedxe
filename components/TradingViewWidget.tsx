@@ -5,14 +5,14 @@ import {cn} from "@/lib/utils";
 
 interface TradingViewWidgetProps {
     title?: string;
-    scripUrl: string;
+    scriptUrl: string;
     config: Record<string, unknown>;
     height?: number;
     className?: string;
 }
 
-const TradingViewWidget = ({ title, scripUrl, config, height, className}: TradingViewWidgetProps) => {
-    const containerRef = useTradingViewWidget(scripUrl, config, height ?? 600);
+const TradingViewWidget = ({ title, scriptUrl, config, height, className}: TradingViewWidgetProps) => {
+    const containerRef = useTradingViewWidget(scriptUrl, config, height ?? 600);
 
     return (
         <div className="w-full">

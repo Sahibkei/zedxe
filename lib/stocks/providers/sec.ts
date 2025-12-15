@@ -37,6 +37,7 @@ export async function fetchSecJson<T>(url: string): Promise<T> {
     }
 
     const response = await fetch(url, {
+        signal: AbortSignal.timeout(30000),
         headers: {
             "User-Agent": userAgent,
             "Accept-Encoding": "gzip, deflate, br",
