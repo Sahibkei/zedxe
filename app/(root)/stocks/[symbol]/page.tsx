@@ -83,8 +83,14 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
     const secAvailable = profile?.sources?.secAvailable ?? false;
 
     const dataSources: string[] = [];
-    dataSources.push(finnhubAvailable ? "Fundamentals & ratios: Finnhub" : "Fundamentals unavailable (Finnhub)");
-    dataSources.push(secAvailable ? "Financials & filings: SEC (XBRL/EDGAR)" : "Filings unavailable (SEC)");
+    if (profile?.financialsSource === "FINNHUB_REPORTED") {
+        dataSources.push("Financials & ratios: Finnhub");
+    } else if (profile?.financialsSource === "SEC_XBRL") {
+        dataSources.push("Financials: SEC XBRL fallback");
+    } else if (finnhubAvailable) {
+        dataSources.push("Fundamentals: Finnhub");
+    }
+    dataSources.push(secAvailable ? "Filings: SEC (XBRL/EDGAR)" : "Filings unavailable (SEC)");
     if (chartSymbol) {
         dataSources.push("Chart: TradingView");
     }

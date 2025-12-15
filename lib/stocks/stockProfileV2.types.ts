@@ -89,6 +89,8 @@ export interface StockProfileV2Model {
     chartSymbol: string;
     financialsAnnual: FinancialStatementEntry[];
     financialsQuarterly: FinancialStatementEntry[];
+    financialsSource?: "FINNHUB_REPORTED" | "SEC_XBRL";
+    financialsWarning?: string;
     ratios: RatioGroup;
     quote?: QuoteSnapshot;
     earningsLatestQuarter?: EarningsSnapshot;

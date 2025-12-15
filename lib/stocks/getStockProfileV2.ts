@@ -1,28 +1,26 @@
-import { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
+import { FinancialStatementEntry, StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
 import {
+    FinnhubIncomeRow,
+    getFinancialsReported,
     getFinnhubBasicFinancials,
     getFinnhubProfile,
     getFinnhubQuote,
-    tryGetFinnhubFinancials,
+    parseIncomeStatementRowsFromReported,
 } from "@/lib/stocks/providers/finnhub";
-import { getCikForTicker, getSubmissions, normalizeTicker } from "@/lib/stocks/providers/sec";
+import { getCikForTicker, getCompanyFacts, getSubmissions, normalizeTicker } from "@/lib/stocks/providers/sec";
 import { buildSecArchiveUrl } from "@/lib/stocks/providers/secUrl";
-
-type NormalizedFinancialPoint = {
-    end: string;
-    fy?: number;
-    fp?: string;
-    form?: string;
-    revenue?: number;
-    grossProfit?: number;
-    operatingIncome?: number;
-    netIncome?: number;
-    eps?: number;
-};
 
 const RECENT_LIMIT = 10;
 const MAX_ANNUAL_YEARS = 5;
 const MAX_QUARTERS = 12;
+
+type SecFactPoint = {
+    end: string;
+    fy?: number;
+    fp?: string;
+    form?: string;
+    val: number;
+};
 
 function coalesceNumber(...values: Array<number | null | undefined>) {
     for (const value of values) {
@@ -45,125 +43,6 @@ function normalizeChartSymbol(input: string): { ticker: string; chartSymbol: str
     }
 
     return { ticker: trimmed, chartSymbol: trimmed };
-}
-
-function normalizeFinancialsFromFinancialsResponse(raw: any): NormalizedFinancialPoint[] {
-    const items: any[] = raw?.financials ?? raw?.data ?? [];
-
-    return items
-        .map((item) => {
-            const end = item.endDate ?? item.reportDate ?? item.date ?? item.period;
-            if (!end) return null;
-
-            const fp = item.period ?? item.fp ?? item.fiscalQuarter;
-            const fy = item.fiscalYear ?? item.year ?? (end ? Number(end.slice(0, 4)) : undefined);
-
-            const eps = coalesceNumber(item.epsDiluted, item.epsBasic, item.eps);
-            const shares = coalesceNumber(item.weightedAverageShsOutDil, item.weightedAverageShsOut, item.shareIssued);
-            const derivedEps = eps ?? (typeof item.netIncome === "number" && typeof shares === "number" && shares !== 0
-                ? item.netIncome / shares
-                : undefined);
-
-            return {
-                end,
-                fy,
-                fp,
-                form: item.form,
-                revenue: coalesceNumber(item.revenue, item.totalRevenue, item.sales),
-                grossProfit: coalesceNumber(item.grossProfit),
-                operatingIncome: coalesceNumber(item.operatingIncome, item.operatingIncomeLoss),
-                netIncome: coalesceNumber(item.netIncome, item.netIncomeLoss),
-                eps: derivedEps,
-            } satisfies NormalizedFinancialPoint;
-        })
-        .filter(Boolean) as NormalizedFinancialPoint[];
-}
-
-function findConceptValue(reportSection: any[] | undefined, concepts: string[]): number | undefined {
-    if (!Array.isArray(reportSection)) return undefined;
-
-    for (const candidate of concepts) {
-        const entry = reportSection.find(
-            (item) => item?.concept === candidate || item?.label === candidate || item?.value?.[candidate] !== undefined
-        );
-
-        if (entry && typeof entry.value === "number") {
-            return entry.value;
-        }
-
-        if (entry && typeof entry.value?.[candidate] === "number") {
-            return entry.value[candidate];
-        }
-    }
-
-    return undefined;
-}
-
-function normalizeFinancialsFromReported(raw: any): NormalizedFinancialPoint[] {
-    const items: any[] = raw?.data ?? [];
-
-    return items
-        .map((item) => {
-            const end = item.endDate;
-            if (!end) return null;
-
-            const ic = item.report?.ic ?? [];
-            const bs = item.report?.bs ?? [];
-
-            const revenue = findConceptValue(ic, [
-                "Revenues",
-                "SalesRevenueNet",
-                "RevenueFromContractWithCustomerExcludingAssessedTax",
-            ]);
-            const grossProfit = findConceptValue(ic, ["GrossProfit"]);
-            const operatingIncome = findConceptValue(ic, ["OperatingIncomeLoss"]);
-            const netIncome = findConceptValue(ic, ["NetIncomeLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"]);
-
-            const eps = findConceptValue(ic, ["EarningsPerShareDiluted", "EarningsPerShareBasic"]);
-            const shares = findConceptValue(bs, ["WeightedAverageNumberOfDilutedSharesOutstanding", "CommonStockSharesOutstanding"]);
-            const derivedEps = eps ?? (netIncome !== undefined && shares ? netIncome / shares : undefined);
-
-            const fp = item.quarter ? `Q${item.quarter}` : item.fp ?? item.form;
-            const fy = item.fiscalYear ?? item.year ?? item.calendaryear ?? (end ? Number(end.slice(0, 4)) : undefined);
-
-            return {
-                end,
-                fy,
-                fp,
-                form: item.form,
-                revenue,
-                grossProfit,
-                operatingIncome,
-                netIncome,
-                eps: derivedEps,
-            } satisfies NormalizedFinancialPoint;
-        })
-        .filter(Boolean) as NormalizedFinancialPoint[];
-}
-
-function buildSeries(points: NormalizedFinancialPoint[], filter: (p: NormalizedFinancialPoint) => boolean, limit: number) {
-    const filtered = points.filter(filter).sort((a, b) => (a.end < b.end ? 1 : -1));
-    const seen = new Set<string>();
-    const deduped: NormalizedFinancialPoint[] = [];
-
-    for (const point of filtered) {
-        if (seen.has(point.end)) continue;
-        deduped.push(point);
-        seen.add(point.end);
-        if (deduped.length >= limit) break;
-    }
-
-    return deduped.map((entry) => ({
-        fiscalDate: entry.end,
-        fiscalYear: entry.fp && entry.fp.startsWith("Q")
-            ? `${entry.fy ?? entry.end.slice(0, 4)} ${entry.fp}`
-            : `FY ${entry.fy ?? entry.end.slice(0, 4)}`,
-        revenue: entry.revenue,
-        grossProfit: entry.grossProfit,
-        operatingIncome: entry.operatingIncome,
-        netIncome: entry.netIncome,
-        eps: entry.eps,
-    }));
 }
 
 function mapFilings(submissions: any | undefined, cik10: string) {
@@ -195,10 +74,7 @@ function mapFilings(submissions: any | undefined, cik10: string) {
             ? {
                   ...item,
                   cik: cik10,
-                  url:
-                      item.accessionNumber && item.primaryDocument
-                          ? buildSecArchiveUrl(cik10, item.accessionNumber, item.primaryDocument)
-                          : undefined,
+                  url: item.accessionNumber && item.primaryDocument ? buildSecArchiveUrl(cik10, item.accessionNumber, item.primaryDocument) : undefined,
               }
             : undefined;
 
@@ -208,10 +84,7 @@ function mapFilings(submissions: any | undefined, cik10: string) {
         recent: recent.map((item) => ({
             ...item,
             cik: cik10,
-            url:
-                item.accessionNumber && item.primaryDocument
-                    ? buildSecArchiveUrl(cik10, item.accessionNumber, item.primaryDocument)
-                    : undefined,
+            url: item.accessionNumber && item.primaryDocument ? buildSecArchiveUrl(cik10, item.accessionNumber, item.primaryDocument) : undefined,
         })),
     };
 }
@@ -237,54 +110,132 @@ function mapRatios(metrics: Record<string, unknown> | undefined) {
     };
 }
 
-function buildFinancialSeries(
-    annualPoints: NormalizedFinancialPoint[],
-    quarterlyPoints: NormalizedFinancialPoint[]
-) {
-    const annualSeries = buildSeries(annualPoints, (p) => p.fp === "FY", MAX_ANNUAL_YEARS);
-    const quarterlySeries = buildSeries(
-        quarterlyPoints,
-        (p) => p.fp === "Q1" || p.fp === "Q2" || p.fp === "Q3" || p.fp === "Q4",
-        MAX_QUARTERS
-    );
+function getFactPoints(facts: any, tag: string, preferredUnits: string[]): SecFactPoint[] {
+    const units = facts?.facts?.["us-gaap"]?.[tag]?.units;
+    if (!units) return [];
 
-    return { annualSeries, quarterlySeries };
+    const unitKey = preferredUnits.find((unit) => units[unit]) ?? Object.keys(units)[0];
+    const data = unitKey ? units[unitKey] : undefined;
+    if (!Array.isArray(data)) return [];
+
+    return data
+        .map((item) => {
+            const end = item?.end ?? item?.endDate;
+            const rawVal = typeof item?.val === "number" ? item.val : typeof item?.value === "number" ? item.value : Number(item?.val);
+            if (!end || !Number.isFinite(rawVal)) return null;
+
+            return {
+                end,
+                fy: typeof item?.fy === "number" ? item.fy : Number(item?.fy),
+                fp: item?.fp,
+                form: item?.form,
+                val: rawVal,
+            } satisfies SecFactPoint;
+        })
+        .filter(Boolean) as SecFactPoint[];
 }
 
-function normalizeFinancialResponses(
-    annualResponse: { source: "financials" | "financials-reported"; raw: any } | null,
-    quarterlyResponse: { source: "financials" | "financials-reported"; raw: any } | null
-) {
-    const withDefaults = (points: NormalizedFinancialPoint[], freq: "annual" | "quarterly") =>
-        points.map((p) => {
-            if (freq === "annual") {
-                return { ...p, fp: p.fp ?? "FY" };
-            }
+function filterByFp(points: SecFactPoint[], allowed: string[]) {
+    return points.filter((point) => point.fp && allowed.includes(point.fp));
+}
 
-            const endMonth = p.end ? Number(p.end.slice(5, 7)) : NaN;
-            const derivedQuarter = Number.isFinite(endMonth) ? `Q${Math.min(4, Math.max(1, Math.ceil(endMonth / 3)))}` : undefined;
-            return { ...p, fp: p.fp ?? derivedQuarter };
+function mapByEnd(points: SecFactPoint[]) {
+    const sorted = [...points].sort((a, b) => (a.end < b.end ? 1 : -1));
+    const map = new Map<string, SecFactPoint>();
+
+    for (const point of sorted) {
+        if (!map.has(point.end)) {
+            map.set(point.end, point);
+        }
+    }
+
+    return map;
+}
+
+function buildSecFinancials(facts: any): { annual: FinancialStatementEntry[]; quarterly: FinancialStatementEntry[] } {
+    const revenuePoints = getFactPoints(facts, "Revenues", ["USD"]);
+    const grossPoints = getFactPoints(facts, "GrossProfit", ["USD"]);
+    const operatingPoints = getFactPoints(facts, "OperatingIncomeLoss", ["USD"]);
+    const netIncomePoints = getFactPoints(facts, "NetIncomeLoss", ["USD"]);
+    const epsPoints = getFactPoints(facts, "EarningsPerShareDiluted", ["USD/shares", "USD / shares"]);
+
+    const annualRevenue = filterByFp(revenuePoints, ["FY"]);
+    const quarterlyRevenue = filterByFp(revenuePoints, ["Q1", "Q2", "Q3", "Q4"]);
+
+    const annualGrossMap = mapByEnd(filterByFp(grossPoints, ["FY"]));
+    const annualOperatingMap = mapByEnd(filterByFp(operatingPoints, ["FY"]));
+    const annualNetIncomeMap = mapByEnd(filterByFp(netIncomePoints, ["FY"]));
+    const annualEpsMap = mapByEnd(filterByFp(epsPoints, ["FY"]));
+
+    const quarterlyGrossMap = mapByEnd(filterByFp(grossPoints, ["Q1", "Q2", "Q3", "Q4"]));
+    const quarterlyOperatingMap = mapByEnd(filterByFp(operatingPoints, ["Q1", "Q2", "Q3", "Q4"]));
+    const quarterlyNetIncomeMap = mapByEnd(filterByFp(netIncomePoints, ["Q1", "Q2", "Q3", "Q4"]));
+    const quarterlyEpsMap = mapByEnd(filterByFp(epsPoints, ["Q1", "Q2", "Q3", "Q4"]));
+
+    const annualSeries: FinancialStatementEntry[] = [];
+    const seenAnnual = new Set<string>();
+    for (const point of annualRevenue.sort((a, b) => (a.end < b.end ? 1 : -1))) {
+        if (seenAnnual.has(point.end)) continue;
+        seenAnnual.add(point.end);
+        annualSeries.push({
+            fiscalDate: point.end,
+            fiscalYear: `FY ${point.fy ?? point.end.slice(0, 4)}`,
+            revenue: point.val,
+            grossProfit: annualGrossMap.get(point.end)?.val,
+            operatingIncome: annualOperatingMap.get(point.end)?.val,
+            netIncome: annualNetIncomeMap.get(point.end)?.val,
+            eps: annualEpsMap.get(point.end)?.val,
         });
+        if (annualSeries.length >= MAX_ANNUAL_YEARS) break;
+    }
 
-    const annualPoints = annualResponse
-        ? withDefaults(
-              annualResponse.source === "financials"
-                  ? normalizeFinancialsFromFinancialsResponse(annualResponse.raw)
-                  : normalizeFinancialsFromReported(annualResponse.raw),
-              "annual"
-          )
-        : [];
+    const quarterlySeries: FinancialStatementEntry[] = [];
+    const seenQuarterly = new Set<string>();
+    for (const point of quarterlyRevenue.sort((a, b) => (a.end < b.end ? 1 : -1))) {
+        if (seenQuarterly.has(point.end)) continue;
+        seenQuarterly.add(point.end);
+        quarterlySeries.push({
+            fiscalDate: point.end,
+            fiscalYear: `${point.fy ?? point.end.slice(0, 4)} ${point.fp}`,
+            revenue: point.val,
+            grossProfit: quarterlyGrossMap.get(point.end)?.val,
+            operatingIncome: quarterlyOperatingMap.get(point.end)?.val,
+            netIncome: quarterlyNetIncomeMap.get(point.end)?.val,
+            eps: quarterlyEpsMap.get(point.end)?.val,
+        });
+        if (quarterlySeries.length >= MAX_QUARTERS) break;
+    }
 
-    const quarterlyPoints = quarterlyResponse
-        ? withDefaults(
-              quarterlyResponse.source === "financials"
-                  ? normalizeFinancialsFromFinancialsResponse(quarterlyResponse.raw)
-                  : normalizeFinancialsFromReported(quarterlyResponse.raw),
-              "quarterly"
-          )
-        : [];
+    return { annual: annualSeries, quarterly: quarterlySeries };
+}
 
-    return buildFinancialSeries(annualPoints, quarterlyPoints);
+function mapFinnhubRows(rows: FinnhubIncomeRow[], limit: number): FinancialStatementEntry[] {
+    const sorted = [...rows].sort((a, b) => {
+        if (a.year === b.year) {
+            return (b.quarter ?? 0) - (a.quarter ?? 0);
+        }
+        return b.year - a.year;
+    });
+
+    const seen = new Set<string>();
+    const result: FinancialStatementEntry[] = [];
+
+    for (const row of sorted) {
+        if (seen.has(row.periodKey)) continue;
+        seen.add(row.periodKey);
+        result.push({
+            fiscalDate: row.endDate ?? row.periodKey,
+            fiscalYear: row.periodLabel,
+            revenue: row.revenue,
+            grossProfit: row.grossProfit,
+            operatingIncome: row.operatingIncome,
+            netIncome: row.netIncome,
+            eps: row.eps,
+        });
+        if (result.length >= limit) break;
+    }
+
+    return result;
 }
 
 export async function getStockProfileV2(symbol: string): Promise<StockProfileV2Model> {
@@ -294,30 +245,53 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
     let finnhubProfile: any | null = null;
     let finnhubQuote: any | null = null;
     let finnhubBasics: any | null = null;
-    let annualFinancials: { source: "financials" | "financials-reported"; raw: any } | null = null;
-    let quarterlyFinancials: { source: "financials" | "financials-reported"; raw: any } | null = null;
+    let finnhubAnnualRows: FinnhubIncomeRow[] = [];
+    let finnhubQuarterlyRows: FinnhubIncomeRow[] = [];
+    let financialsWarning: string | undefined;
     let finnhubError: string | undefined;
+    let financialsSource: "FINNHUB_REPORTED" | "SEC_XBRL" = "FINNHUB_REPORTED";
 
     if (process.env.FINNHUB_API_KEY) {
         try {
-            [finnhubProfile, finnhubQuote, finnhubBasics, annualFinancials, quarterlyFinancials] = await Promise.all([
+            const [profileRes, quoteRes, basicsRes, annualRes, quarterlyRes] = await Promise.all([
                 getFinnhubProfile(ticker),
                 getFinnhubQuote(ticker),
                 getFinnhubBasicFinancials(ticker),
-                tryGetFinnhubFinancials(ticker, "ic", "annual"),
-                tryGetFinnhubFinancials(ticker, "ic", "quarterly"),
+                getFinancialsReported(ticker, "annual"),
+                getFinancialsReported(ticker, "quarterly"),
             ]);
+
+            finnhubProfile = profileRes;
+            finnhubQuote = quoteRes;
+            finnhubBasics = basicsRes;
+
+            if (annualRes.ok) {
+                finnhubAnnualRows = parseIncomeStatementRowsFromReported(annualRes.data, "annual").filter((row) => row.quarter === 0);
+            } else {
+                financialsWarning = annualRes.hint ?? "Finnhub annual financials unavailable.";
+            }
+
+            if (quarterlyRes.ok) {
+                finnhubQuarterlyRows = parseIncomeStatementRowsFromReported(quarterlyRes.data, "quarterly").filter(
+                    (row) => row.quarter > 0
+                );
+            } else {
+                financialsWarning = financialsWarning ?? quarterlyRes.hint ?? "Finnhub quarterly financials unavailable.";
+            }
         } catch (error) {
             finnhubError = error instanceof Error ? error.message : String(error);
+            financialsWarning = financialsWarning ?? finnhubError;
         }
     } else {
         finnhubError = "FINNHUB_API_KEY environment variable is required to load fundamentals.";
+        financialsWarning = finnhubError;
     }
 
     let secTitle: string | undefined;
     let cik10: string | undefined;
     let secExchange: string | undefined;
     let submissions: any | undefined;
+    let secFacts: any | undefined;
     let secError: string | undefined;
 
     try {
@@ -330,10 +304,49 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
         secError = error instanceof Error ? error.message : String(error);
     }
 
+    let annualSeries: FinancialStatementEntry[] = [];
+    let quarterlySeries: FinancialStatementEntry[] = [];
+
+    const hasFinnhubAnnual = finnhubAnnualRows.length > 0;
+    const hasFinnhubQuarterly = finnhubQuarterlyRows.length > 0;
+
+    if (hasFinnhubAnnual && hasFinnhubQuarterly) {
+        annualSeries = mapFinnhubRows(finnhubAnnualRows, MAX_ANNUAL_YEARS);
+        quarterlySeries = mapFinnhubRows(finnhubQuarterlyRows, MAX_QUARTERS);
+    } else {
+        financialsSource = "SEC_XBRL";
+        if (!financialsWarning && finnhubError) {
+            financialsWarning = finnhubError;
+        }
+        if (cik10) {
+            try {
+                secFacts = await getCompanyFacts(cik10);
+                const secSeries = buildSecFinancials(secFacts);
+                annualSeries = secSeries.annual;
+                quarterlySeries = secSeries.quarterly;
+                if (!financialsWarning) {
+                    financialsWarning = "Finnhub financials unavailable; showing SEC XBRL fallback.";
+                }
+            } catch (error) {
+                secError = secError ?? (error instanceof Error ? error.message : String(error));
+            }
+        }
+
+        if (annualSeries.length === 0 && hasFinnhubAnnual) {
+            financialsSource = "FINNHUB_REPORTED";
+            annualSeries = mapFinnhubRows(finnhubAnnualRows, MAX_ANNUAL_YEARS);
+        }
+        if (quarterlySeries.length === 0 && hasFinnhubQuarterly) {
+            financialsSource = "FINNHUB_REPORTED";
+            quarterlySeries = mapFinnhubRows(finnhubQuarterlyRows, MAX_QUARTERS);
+        }
+    }
+
+    if (annualSeries.length === 0 && quarterlySeries.length === 0 && !financialsWarning) {
+        financialsWarning = "Financials unavailable from Finnhub and SEC.";
+    }
+
     const filings = cik10 ? mapFilings(submissions, cik10) : { latest10K: undefined, latest10Q: undefined, recent: [] };
-
-    const { annualSeries, quarterlySeries } = normalizeFinancialResponses(annualFinancials, quarterlyFinancials);
-
     const ratios = mapRatios(finnhubBasics?.metric);
 
     const profile: StockProfileV2Model = {
@@ -357,6 +370,8 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
         chartSymbol,
         financialsAnnual: annualSeries,
         financialsQuarterly: quarterlySeries,
+        financialsSource,
+        financialsWarning,
         ratios,
         quote: {
             price: finnhubQuote?.c,

@@ -83,6 +83,11 @@ function Table({ title, data }: { title: string; data: FinancialStatementEntry[]
 function FinancialsPanel({ profile }: { profile: StockProfileV2Model }) {
     return (
         <div className="space-y-4">
+            {profile.financialsWarning && (
+                <div className="rounded-md border border-yellow-800 bg-yellow-900/30 px-4 py-3 text-sm text-yellow-200">
+                    {profile.financialsWarning}
+                </div>
+            )}
             <Table title="Annual" data={profile.financialsAnnual} />
             <Table title="Quarterly" data={profile.financialsQuarterly} />
         </div>
