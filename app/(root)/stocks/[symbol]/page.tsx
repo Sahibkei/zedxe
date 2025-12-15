@@ -1,16 +1,26 @@
 import TradingViewWidget from "@/components/TradingViewWidget";
-import {SYMBOL_INFO_WIDGET_CONFIG, CANDLE_CHART_WIDGET_CONFIG, BASELINE_WIDGET_CONFIG, TECHNICAL_ANALYSIS_WIDGET_CONFIG, COMPANY_PROFILE_WIDGET_CONFIG, COMPANY_FINANCIALS_WIDGET_CONFIG,} from "@/lib/constants";
+import {
+    SYMBOL_INFO_WIDGET_CONFIG,
+    CANDLE_CHART_WIDGET_CONFIG,
+    BASELINE_WIDGET_CONFIG,
+    TECHNICAL_ANALYSIS_WIDGET_CONFIG,
+    COMPANY_PROFILE_WIDGET_CONFIG,
+    COMPANY_FINANCIALS_WIDGET_CONFIG,
+} from "@/lib/constants";
 import { headers } from "next/headers";
 import { auth } from "@/lib/better-auth/auth";
 import { getSymbolSnapshot } from "@/lib/actions/finnhub.actions";
 import { isSymbolInWatchlist } from "@/lib/actions/watchlist.actions";
 import { getAlertsByUser } from "@/lib/actions/alert.actions";
 import StockActionBar from "./StockActionBar";
+import { getStockProfileV2 } from "@/lib/stocks/getStockProfileV2";
+import StockProfileTabs from "./StockProfileTabs";
 
 export default async function StockDetails({ params }: StockDetailsPageProps) {
     const { symbol } = await params;
     const session = await auth.api.getSession({ headers: await headers() });
     const symbolUpper = symbol.toUpperCase();
+    const stockProfile = await getStockProfileV2(symbolUpper);
     const [snapshot, inWatchlist, alerts] = await Promise.all([
         getSymbolSnapshot(symbolUpper).catch(() => ({ symbol: symbolUpper })),
         session?.user ? isSymbolInWatchlist(session.user.id, symbolUpper) : Promise.resolve(false),
@@ -82,6 +92,10 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                         height={464}
                     />
                 </div>
+            </section>
+
+            <section className="mt-8">
+                <StockProfileTabs profile={stockProfile} />
             </section>
         </div>
     );
