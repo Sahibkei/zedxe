@@ -57,6 +57,7 @@ export type StockProfileV2Model = {
     };
     filings: FilingInfo[];
     providerStatus: ProviderStatus[];
+    providerErrors?: string[];
 };
 
 export type FinancialsMapperInput = {

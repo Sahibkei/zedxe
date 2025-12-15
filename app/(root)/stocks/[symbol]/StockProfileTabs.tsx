@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
-import { formatMarketCapValue, formatPrice } from "@/lib/utils";
+import { formatMarketCapValue } from "@/lib/utils";
 
 const tabList = [
     { key: "overview", label: "Overview" },
@@ -23,56 +23,26 @@ function formatPercent(value?: number) {
     return `${value.toFixed(2)}%`;
 }
 
-function formatCurrency(value?: number) {
-    if (value === undefined || value === null || Number.isNaN(value)) return "—";
-    return formatPrice(value);
-}
-
-function Callout({ title, messages }: { title: string; messages: string[] }) {
-    if (messages.length === 0) return null;
-    return (
-        <div className="rounded-lg border border-yellow-400 bg-yellow-50 p-4 text-sm text-yellow-900">
-            <p className="font-semibold">{title}</p>
-            <ul className="list-disc pl-5 mt-2 space-y-1">
-                {messages.map((msg, idx) => (
-                    <li key={`${msg}-${idx}`}>{msg}</li>
-                ))}
-            </ul>
-        </div>
-    );
-}
-
-function DataStatus({ profile }: { profile: StockProfileV2Model }) {
-    const messages = profile.providerStatus.map((s) => `${s.source.toUpperCase()}: ${s.message}`);
-    const showUnavailable =
-        profile.financials.annual.length === 0 && profile.financials.quarterly.length === 0 && messages.length > 0;
-
-    if (!showUnavailable && messages.length === 0) return null;
-
-    return (
-        <div className="space-y-2">
-            {showUnavailable && <Callout title="Data temporarily unavailable" messages={["Some provider requests failed."]} />}
-            {messages.length > 0 && <Callout title="Provider status" messages={messages} />}
-        </div>
-    );
-}
-
 function OverviewTab({ profile }: { profile: StockProfileV2Model }) {
     const description = profile.company.description || "Business description not available from current provider.";
     return (
-        <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
+        <div className="space-y-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">Company</p>
                     <p className="text-xl font-semibold">{profile.company.name || profile.finnhubSymbol}</p>
-                    <a
-                        href={profile.company.website}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-blue-600 text-sm underline"
-                    >
-                        {profile.company.website}
-                    </a>
+                    {profile.company.website ? (
+                        <a
+                            href={profile.company.website}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-sm text-primary underline"
+                        >
+                            {profile.company.website}
+                        </a>
+                    ) : (
+                        <p className="text-sm text-muted-foreground">Website not available.</p>
+                    )}
                 </div>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
@@ -96,9 +66,9 @@ function OverviewTab({ profile }: { profile: StockProfileV2Model }) {
                 </div>
             </div>
 
-            <div className="rounded-lg border p-4 bg-muted/30 space-y-2">
-                <p className="text-sm text-muted-foreground">Business Overview</p>
-                <p className="text-sm leading-relaxed">{description}</p>
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+                <p className="text-sm font-medium">Business Overview</p>
+                <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
             </div>
         </div>
     );
@@ -203,46 +173,43 @@ function FilingsTab({ profile }: { profile: StockProfileV2Model }) {
 
 export default function StockProfileTabs({ profile }: { profile: StockProfileV2Model }) {
     const [activeTab, setActiveTab] = useState<TabKey>("overview");
-
-    const headerMetrics = useMemo(() => {
-        const price = profile.price?.current;
-        const change = profile.price?.changePercent;
-        return {
-            price: price !== undefined ? formatCurrency(price) : "—",
-            change: change !== undefined ? formatPercent(change) : "",
-        };
-    }, [profile.price]);
+    const fundamentalsMissing =
+        (!profile.company?.name && !profile.company?.website) ||
+        (profile.financials.annual.length === 0 && profile.financials.quarterly.length === 0);
 
     return (
-        <div className="space-y-4">
-            <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
-                <div>
-                    <p className="text-sm text-muted-foreground">{profile.finnhubSymbol}</p>
-                    <h2 className="text-2xl font-semibold">{profile.company.name || profile.finnhubSymbol}</h2>
-                    <div className="text-sm text-muted-foreground">{headerMetrics.price}</div>
-                    {headerMetrics.change && <div className="text-xs text-muted-foreground">{headerMetrics.change}</div>}
-                </div>
-                <div className="flex gap-2 overflow-x-auto">
-                    {tabList.map((tab) => (
+        <div className="space-y-3">
+            <div className="flex flex-wrap gap-2 border-b pb-2 text-sm font-medium">
+                {tabList.map((tab) => {
+                    const isActive = activeTab === tab.key;
+                    return (
                         <button
                             key={tab.key}
-                            className={`px-3 py-2 rounded-md text-sm border ${
-                                activeTab === tab.key ? "bg-primary text-primary-foreground" : "bg-background"
-                            }`}
                             onClick={() => setActiveTab(tab.key)}
+                            className={`rounded-md px-3 py-2 transition-colors ${
+                                isActive
+                                    ? "bg-primary/10 text-foreground ring-1 ring-primary"
+                                    : "text-muted-foreground hover:text-foreground"
+                            }`}
                         >
                             {tab.label}
                         </button>
-                    ))}
-                </div>
+                    );
+                })}
             </div>
 
-            <DataStatus profile={profile} />
+            {fundamentalsMissing && (
+                <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
+                    We couldn’t load fundamentals for this symbol right now. Please try again.
+                </div>
+            )}
 
-            {activeTab === "overview" && <OverviewTab profile={profile} />}
-            {activeTab === "financials" && <FinancialsTab profile={profile} />}
-            {activeTab === "ratios" && <RatiosTab profile={profile} />}
-            {activeTab === "filings" && <FilingsTab profile={profile} />}
+            <div className="rounded-lg border bg-card p-4">
+                {activeTab === "overview" && <OverviewTab profile={profile} />}
+                {activeTab === "financials" && <FinancialsTab profile={profile} />}
+                {activeTab === "ratios" && <RatiosTab profile={profile} />}
+                {activeTab === "filings" && <FilingsTab profile={profile} />}
+            </div>
         </div>
     );
 }

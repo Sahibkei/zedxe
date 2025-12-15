@@ -212,6 +212,10 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
     const quarterly = mapFinancials({ financials: quarterlyRes, limit: 8, frequency: 'quarterly' });
     const filings = mapFilings(filingsRes);
 
+    const providerErrors = status
+        .filter((s) => s.level === 'warning' || s.level === 'error')
+        .map((s) => `${s.source.toUpperCase()}: ${s.message}`);
+
     return {
         symbolRaw,
         finnhubSymbol,
@@ -235,5 +239,6 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
         },
         filings,
         providerStatus: status,
+        providerErrors,
     };
 }

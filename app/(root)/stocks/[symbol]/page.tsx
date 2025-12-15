@@ -1,12 +1,5 @@
 import TradingViewWidget from "@/components/TradingViewWidget";
-import {
-    SYMBOL_INFO_WIDGET_CONFIG,
-    CANDLE_CHART_WIDGET_CONFIG,
-    BASELINE_WIDGET_CONFIG,
-    TECHNICAL_ANALYSIS_WIDGET_CONFIG,
-    COMPANY_PROFILE_WIDGET_CONFIG,
-    COMPANY_FINANCIALS_WIDGET_CONFIG,
-} from "@/lib/constants";
+import { CANDLE_CHART_WIDGET_CONFIG, TECHNICAL_ANALYSIS_WIDGET_CONFIG } from "@/lib/constants";
 import { headers } from "next/headers";
 import { auth } from "@/lib/better-auth/auth";
 import { getSymbolSnapshot } from "@/lib/actions/finnhub.actions";
@@ -15,6 +8,8 @@ import { getAlertsByUser } from "@/lib/actions/alert.actions";
 import StockActionBar from "./StockActionBar";
 import { getStockProfileV2 } from "@/lib/stocks/getStockProfileV2";
 import StockProfileTabs from "./StockProfileTabs";
+import { formatMarketCapValue, formatPrice } from "@/lib/utils";
+import ProviderStatusDebug from "./ProviderStatusDebug";
 
 export default async function StockDetails({ params }: StockDetailsPageProps) {
     const { symbol } = await params;
@@ -36,67 +31,121 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
           }
         : undefined;
     const scriptUrl = `https://s3.tradingview.com/external-embedding/embed-widget-`;
+    const companyName = stockProfile.company.name || stockProfile.finnhubSymbol;
+    const marketCapDisplay = stockProfile.company.marketCap
+        ? formatMarketCapValue(stockProfile.company.marketCap)
+        : "—";
+    const priceDisplay = stockProfile.price?.current ? formatPrice(stockProfile.price.current) : "—";
+    const change = stockProfile.price?.changePercent;
+    const changeDisplay =
+        change === undefined || change === null ? "" : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
+    const changeClass = change === undefined || change === null ? "text-muted-foreground" : change >= 0 ? "text-green-600" : "text-red-600";
 
     return (
-        <div className="flex min-h-screen p-4 md:p-6 lg:p-8">
-            <section className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full">
-                {/* Left column */}
-                <div className="flex flex-col gap-6">
-                    <TradingViewWidget
-                        scripUrl={`${scriptUrl}symbol-info.js`}
-                        config={SYMBOL_INFO_WIDGET_CONFIG(symbol)}
-                        height={170}
-                    />
-
-                    <TradingViewWidget
-                        scripUrl={`${scriptUrl}advanced-chart.js`}
-                        config={CANDLE_CHART_WIDGET_CONFIG(symbol)}
-                        className="custom-chart"
-                        height={600}
-                    />
-
-                    <TradingViewWidget
-                        scripUrl={`${scriptUrl}advanced-chart.js`}
-                        config={BASELINE_WIDGET_CONFIG(symbol)}
-                        className="custom-chart"
-                        height={600}
+        <div className="mx-auto w-full max-w-7xl px-4 md:px-6 py-6 space-y-6">
+            <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <h1 className="text-3xl font-semibold leading-tight">{companyName}</h1>
+                            <span className="rounded-full bg-muted px-3 py-1 text-sm font-medium text-foreground">
+                                {stockProfile.finnhubSymbol}
+                            </span>
+                            {stockProfile.company.exchange && (
+                                <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                                    {stockProfile.company.exchange}
+                                </span>
+                            )}
+                            {stockProfile.company.industry && (
+                                <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                                    {stockProfile.company.industry}
+                                </span>
+                            )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                            <span className="text-lg font-semibold text-foreground">{priceDisplay}</span>
+                            {changeDisplay && <span className={changeClass}>{changeDisplay}</span>}
+                        </div>
+                    </div>
+                    <StockActionBar
+                        symbol={symbolUpper}
+                        company={snapshot.company || symbolUpper}
+                        isInWatchlist={inWatchlist}
+                        initialAlert={symbolAlertDisplay as AlertDisplay | undefined}
                     />
                 </div>
 
-                {/* Right column */}
-                <div className="flex flex-col gap-6">
-                    <div className="flex items-center justify-between">
-                        <StockActionBar
-                            symbol={symbolUpper}
-                            company={snapshot.company || symbolUpper}
-                            isInWatchlist={inWatchlist}
-                            initialAlert={symbolAlertDisplay as AlertDisplay | undefined}
-                        />
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+                    <div className="space-y-4 lg:col-span-8">
+                        <div className="rounded-lg border bg-card p-4 shadow-sm">
+                            <div className="mb-3 flex items-center justify-between">
+                                <h3 className="text-lg font-semibold">Price Chart</h3>
+                            </div>
+                            <TradingViewWidget
+                                scripUrl={`${scriptUrl}advanced-chart.js`}
+                                config={CANDLE_CHART_WIDGET_CONFIG(symbol)}
+                                className="custom-chart"
+                                height={520}
+                            />
+                        </div>
+
+                        <div className="rounded-lg border bg-card p-4 shadow-sm">
+                            <div className="mb-3 flex items-center justify-between">
+                                <h3 className="text-lg font-semibold">Technical Analysis</h3>
+                            </div>
+                            <TradingViewWidget
+                                scripUrl={`${scriptUrl}technical-analysis.js`}
+                                config={TECHNICAL_ANALYSIS_WIDGET_CONFIG(symbol)}
+                                height={380}
+                            />
+                        </div>
                     </div>
 
-                    <TradingViewWidget
-                        scripUrl={`${scriptUrl}technical-analysis.js`}
-                        config={TECHNICAL_ANALYSIS_WIDGET_CONFIG(symbol)}
-                        height={400}
-                    />
-
-                    <TradingViewWidget
-                        scripUrl={`${scriptUrl}company-profile.js`}
-                        config={COMPANY_PROFILE_WIDGET_CONFIG(symbol)}
-                        height={440}
-                    />
-
-                    <TradingViewWidget
-                        scripUrl={`${scriptUrl}financials.js`}
-                        config={COMPANY_FINANCIALS_WIDGET_CONFIG(symbol)}
-                        height={464}
-                    />
+                    <div className="space-y-4 lg:col-span-4">
+                        <div className="rounded-lg border bg-card p-4 shadow-sm space-y-3">
+                            <h3 className="text-lg font-semibold">Company Snapshot</h3>
+                            <div className="space-y-2 text-sm">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-muted-foreground">Market Cap</span>
+                                    <span className="font-medium text-foreground">{marketCapDisplay}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-muted-foreground">Country</span>
+                                    <span className="font-medium text-foreground">
+                                        {stockProfile.company.country || "—"}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-muted-foreground">Exchange</span>
+                                    <span className="font-medium text-foreground">
+                                        {stockProfile.company.exchange || "—"}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-muted-foreground">Website</span>
+                                    {stockProfile.company.website ? (
+                                        <a
+                                            href={stockProfile.company.website}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="font-medium text-primary underline"
+                                        >
+                                            Visit
+                                        </a>
+                                    ) : (
+                                        <span className="font-medium text-foreground">—</span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </section>
+            </div>
 
-            <section className="mt-8">
+            <div className="rounded-lg border bg-card p-4 shadow-sm space-y-4">
                 <StockProfileTabs profile={stockProfile} />
-            </section>
+                <ProviderStatusDebug errors={stockProfile.providerErrors} />
+            </div>
         </div>
     );
 }
