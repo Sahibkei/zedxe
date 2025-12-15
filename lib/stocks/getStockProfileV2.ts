@@ -1,4 +1,170 @@
 import { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
+import {
+    buildSecArchiveUrl,
+    getCikForTicker,
+    getCompanyFacts,
+    getSubmissions,
+    normalizeTicker,
+} from "@/lib/stocks/providers/sec";
+
+type FactValue = {
+    end: string;
+    val: number;
+    fy?: string;
+    fp?: string;
+    form?: string;
+};
+
+type CompanyFacts = {
+    facts?: {
+        [key: string]: {
+            [factKey: string]: {
+                units?: Record<string, FactValue[]>;
+            };
+        };
+    };
+};
+
+type Submissions = {
+    filings?: {
+        recent?: {
+            form?: string[];
+            filingDate?: string[];
+            reportDate?: string[];
+            accessionNumber?: string[];
+            primaryDocument?: string[];
+        };
+    };
+};
+
+const ANNUAL_FORMS = ["10-K", "20-F", "40-F"];
+const QUARTERLY_FORMS = ["10-Q"];
+const RECENT_LIMIT = 10;
+const MAX_ANNUAL_YEARS = 5;
+const MAX_QUARTERS = 8;
+
+function pickUnit(units?: Record<string, FactValue[]>, preferred: string[] = ["USD"]): FactValue[] | undefined {
+    if (!units) return undefined;
+    const unitKeys = Object.keys(units);
+
+    if (unitKeys.length === 0) return undefined;
+
+    const chosenKey = preferred.find((key) => unitKeys.includes(key)) ?? unitKeys.find((key) => key.includes("USD")) ?? unitKeys[0];
+    return chosenKey ? units[chosenKey] : undefined;
+}
+
+function getFactValues(facts: CompanyFacts, tag: string, preferredUnits?: string[], forms?: string[]): FactValue[] {
+    const tagEntry = facts.facts?.["us-gaap"]?.[tag];
+    const values = pickUnit(tagEntry?.units, preferredUnits) || [];
+
+    const filtered = forms?.length
+        ? values.filter((item) => !item.form || forms.includes(item.form))
+        : values;
+
+    return filtered
+        .filter((item) => typeof item.val === "number" && item.end)
+        .sort((a, b) => (a.end < b.end ? 1 : -1));
+}
+
+function findValueForPeriod(values: FactValue[], fy?: string, fp?: string) {
+    return values.find((item) => item.fy === fy && (fp ? item.fp === fp : true));
+}
+
+function toStatementEntries(
+    facts: CompanyFacts,
+    forms: string[],
+    limit: number,
+    labelFormatter: (fy?: string, fp?: string) => string
+) {
+    const revenueValues = getFactValues(facts, "Revenues", ["USD"], forms) ?? [];
+    const fallbackRevenue = revenueValues.length ? revenueValues : getFactValues(facts, "SalesRevenueNet", ["USD"], forms);
+    const base = fallbackRevenue ?? [];
+
+    const yearsOrPeriods: { fy?: string; fp?: string; end: string }[] = [];
+    base.forEach((entry) => {
+        if (!yearsOrPeriods.some((item) => item.fy === entry.fy && item.fp === entry.fp)) {
+            yearsOrPeriods.push({ fy: entry.fy, fp: entry.fp, end: entry.end });
+        }
+    });
+
+    yearsOrPeriods.sort((a, b) => (a.end < b.end ? 1 : -1));
+
+    const selected = yearsOrPeriods.slice(0, limit);
+
+    const grossProfitValues = getFactValues(facts, "GrossProfit", ["USD"], forms) ?? [];
+    const operatingIncomeValues = getFactValues(facts, "OperatingIncomeLoss", ["USD"], forms) ?? [];
+    const netIncomeValues = getFactValues(facts, "NetIncomeLoss", ["USD"], forms) ?? [];
+    const epsValues =
+        getFactValues(facts, "EarningsPerShareDiluted", ["USD/shares", "USD/share", "USD"], forms) ?? [];
+
+    return selected.map((period) => {
+        const revenue = findValueForPeriod(base, period.fy, period.fp);
+        const grossProfit = findValueForPeriod(grossProfitValues, period.fy, period.fp);
+        const operatingIncome = findValueForPeriod(operatingIncomeValues, period.fy, period.fp);
+        const netIncome = findValueForPeriod(netIncomeValues, period.fy, period.fp);
+        const eps = findValueForPeriod(epsValues, period.fy, period.fp);
+
+        return {
+            fiscalDate: period.end,
+            fiscalYear: labelFormatter(period.fy, period.fp),
+            revenue: revenue?.val,
+            grossProfit: grossProfit?.val,
+            operatingIncome: operatingIncome?.val,
+            netIncome: netIncome?.val,
+            eps: eps?.val,
+        };
+    });
+}
+
+function mapFilings(submissions: Submissions | undefined, cik10: string) {
+    const recentForms = submissions?.filings?.recent;
+
+    if (!recentForms?.form || !recentForms.filingDate || !recentForms.reportDate) {
+        return { latest10Q: undefined, latest10K: undefined, recent: [] };
+    }
+
+    const recent: { formType: string; filingDate: string; periodEnd: string; accessionNumber?: string; primaryDocument?: string }[] = [];
+
+    for (let i = 0; i < recentForms.form.length && recent.length < RECENT_LIMIT; i += 1) {
+        const formType = recentForms.form[i];
+        const filingDate = recentForms.filingDate[i];
+        const periodEnd = recentForms.reportDate[i];
+        const accessionNumber = recentForms.accessionNumber?.[i];
+        const primaryDocument = recentForms.primaryDocument?.[i];
+
+        if (!formType || !filingDate || !periodEnd) continue;
+
+        recent.push({ formType, filingDate, periodEnd, accessionNumber, primaryDocument });
+    }
+
+    const latest10Q = recent.find((item) => item.formType === "10-Q");
+    const latest10K = recent.find((item) => item.formType === "10-K" || item.formType === "20-F" || item.formType === "40-F");
+
+    const decorate = (item?: typeof recent[number]) =>
+        item
+            ? {
+                  ...item,
+                  cik: cik10,
+                  url:
+                      item.accessionNumber && item.primaryDocument
+                          ? buildSecArchiveUrl(cik10, item.accessionNumber, item.primaryDocument)
+                          : undefined,
+              }
+            : undefined;
+
+    return {
+        latest10Q: decorate(latest10Q),
+        latest10K: decorate(latest10K),
+        recent: recent.map((item) => ({
+            ...item,
+            cik: cik10,
+            url:
+                item.accessionNumber && item.primaryDocument
+                    ? buildSecArchiveUrl(cik10, item.accessionNumber, item.primaryDocument)
+                    : undefined,
+        })),
+    };
+}
 
 export async function getStockProfileV2(symbol: string): Promise<StockProfileV2Model> {
     const normalizedSymbol = symbol?.trim();
@@ -9,210 +175,72 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
 
     const upperSymbol = normalizedSymbol.toUpperCase();
     const chartSymbol = normalizedSymbol.includes(":") ? upperSymbol : `NASDAQ:${upperSymbol}`;
-    const ticker = upperSymbol.includes(":") ? upperSymbol.split(":")[1] ?? upperSymbol : upperSymbol;
+    const tickerForSec = normalizeTicker(upperSymbol);
 
-    // TODO: Replace mocked data with real providers (Finnhub, SEC, OpenBB, etc.)
-    const mockData: StockProfileV2Model = {
+    const { cik10, title, exchange } = await getCikForTicker(tickerForSec);
+
+    const [submissions, companyFacts] = await Promise.all([
+        getSubmissions(cik10).catch((error) => {
+            throw new Error(`Unable to fetch SEC submissions: ${error instanceof Error ? error.message : String(error)}`);
+        }),
+        getCompanyFacts(cik10).catch((error) => {
+            throw new Error(`Unable to fetch SEC company facts: ${error instanceof Error ? error.message : String(error)}`);
+        }),
+    ]);
+
+    const filings = mapFilings(submissions, cik10);
+
+    const annual = toStatementEntries(
+        companyFacts,
+        ANNUAL_FORMS,
+        MAX_ANNUAL_YEARS,
+        (fy) => (fy ? `FY ${fy}` : "FY")
+    );
+
+    const quarterLabel = (fy?: string, fp?: string) => {
+        const quarter = fp?.replace("Q", "Q");
+        return [fy, quarter].filter(Boolean).join(" ") || "Quarter";
+    };
+
+    const quarterly = toStatementEntries(companyFacts, QUARTERLY_FORMS, MAX_QUARTERS, quarterLabel);
+
+    const profile: StockProfileV2Model = {
         companyProfile: {
-            name: "Example Corp",
-            ticker,
-            exchange: "NASDAQ",
-            sector: "Technology",
-            industry: "Software - Infrastructure",
-            website: "https://www.example.com",
-            description: "Example Corp builds cloud-native tools for modern workflows.",
-            headquartersCity: "Seattle",
-            headquartersCountry: "US",
-            employees: 115000,
-            ceo: "Alex Example",
-            country: "US",
+            name: title,
+            ticker: tickerForSec,
+            cik: cik10,
+            exchange,
+            sector: undefined,
+            industry: undefined,
+            website: undefined,
+            description: undefined,
+            headquartersCity: undefined,
+            headquartersCountry: undefined,
+            employees: undefined,
+            ceo: undefined,
+            country: undefined,
             currency: "USD",
         },
         chartSymbol,
-        financialsAnnual: [
-            {
-                fiscalDate: "2024-12-31",
-                fiscalYear: "2024",
-                revenue: 182_500_000_000,
-                grossProfit: 98_000_000_000,
-                operatingIncome: 58_500_000_000,
-                netIncome: 44_200_000_000,
-                eps: 6.12,
-                freeCashFlow: 45_300_000_000,
-            },
-            {
-                fiscalDate: "2023-12-31",
-                fiscalYear: "2023",
-                revenue: 170_800_000_000,
-                grossProfit: 90_100_000_000,
-                operatingIncome: 52_000_000_000,
-                netIncome: 40_400_000_000,
-                eps: 5.64,
-                freeCashFlow: 41_000_000_000,
-            },
-            {
-                fiscalDate: "2022-12-31",
-                fiscalYear: "2022",
-                revenue: 160_200_000_000,
-                grossProfit: 82_500_000_000,
-                operatingIncome: 47_500_000_000,
-                netIncome: 36_900_000_000,
-                eps: 5.05,
-                freeCashFlow: 38_700_000_000,
-            },
-            {
-                fiscalDate: "2021-12-31",
-                fiscalYear: "2021",
-                revenue: 151_000_000_000,
-                grossProfit: 78_400_000_000,
-                operatingIncome: 42_900_000_000,
-                netIncome: 33_200_000_000,
-                eps: 4.52,
-                freeCashFlow: 35_900_000_000,
-            },
-            {
-                fiscalDate: "2020-12-31",
-                fiscalYear: "2020",
-                revenue: 138_400_000_000,
-                grossProfit: 70_700_000_000,
-                operatingIncome: 36_200_000_000,
-                netIncome: 29_900_000_000,
-                eps: 3.98,
-                freeCashFlow: 31_500_000_000,
-            },
-        ],
-        financialsQuarterly: [
-            {
-                fiscalDate: "2024-09-30",
-                fiscalYear: "2024 Q3",
-                revenue: 46_200_000_000,
-                grossProfit: 24_800_000_000,
-                operatingIncome: 14_500_000_000,
-                netIncome: 11_200_000_000,
-                eps: 1.55,
-                freeCashFlow: 11_600_000_000,
-            },
-            {
-                fiscalDate: "2024-06-30",
-                fiscalYear: "2024 Q2",
-                revenue: 45_300_000_000,
-                grossProfit: 24_100_000_000,
-                operatingIncome: 14_000_000_000,
-                netIncome: 10_800_000_000,
-                eps: 1.50,
-                freeCashFlow: 11_200_000_000,
-            },
-            {
-                fiscalDate: "2024-03-31",
-                fiscalYear: "2024 Q1",
-                revenue: 44_900_000_000,
-                grossProfit: 23_600_000_000,
-                operatingIncome: 13_800_000_000,
-                netIncome: 10_500_000_000,
-                eps: 1.48,
-                freeCashFlow: 10_900_000_000,
-            },
-            {
-                fiscalDate: "2023-12-31",
-                fiscalYear: "2023 Q4",
-                revenue: 45_600_000_000,
-                grossProfit: 23_900_000_000,
-                operatingIncome: 13_900_000_000,
-                netIncome: 10_400_000_000,
-                eps: 1.46,
-                freeCashFlow: 10_800_000_000,
-            },
-        ],
-        ratios: {
-            pe: 28.4,
-            pb: 9.2,
-            ps: 7.4,
-            evToEbitda: 19.6,
-            debtToEquity: 1.12,
-            currentRatio: 1.52,
-            dividendYield: 0.009,
-        },
-        earningsLatestQuarter: {
-            period: "2024 Q3",
-            eps: 1.55,
-            consensusEps: 1.47,
-            surprisePercent: 0.054,
-            revenue: 46_200_000_000,
-        },
-        earningsLatestAnnual: {
-            period: "FY 2024",
-            eps: 6.12,
-            revenue: 182_500_000_000,
-            revenueYoYPercent: 0.069,
-        },
-        filings: {
-            latest10Q: {
-                formType: "10-Q",
-                filingDate: "2024-10-28",
-                periodEnd: "2024-09-30",
-                cik: "0000320193",
-                accessionNumber: "0000320193-24-000058",
-                primaryDocument: "aapl-20240930.htm",
-            },
-            latest10K: {
-                formType: "10-K",
-                filingDate: "2025-02-15",
-                periodEnd: "2024-12-31",
-                cik: "0000320193",
-                accessionNumber: "0000320193-25-000010",
-                primaryDocument: "aapl-20241231x10k.htm",
-            },
-            recent: [
-                {
-                    formType: "8-K",
-                    filingDate: "2024-11-05",
-                    periodEnd: "2024-09-30",
-                    cik: "0000320193",
-                    accessionNumber: "0000320193-24-000060",
-                    primaryDocument: "aapl-20241105x8k.htm",
-                },
-                {
-                    formType: "10-Q",
-                    filingDate: "2024-10-28",
-                    periodEnd: "2024-09-30",
-                    cik: "0000320193",
-                    accessionNumber: "0000320193-24-000058",
-                    primaryDocument: "aapl-20240930.htm",
-                },
-                {
-                    formType: "8-K",
-                    filingDate: "2024-08-10",
-                    periodEnd: "2024-06-30",
-                    cik: "0000320193",
-                    accessionNumber: "0000320193-24-000040",
-                    primaryDocument: "aapl-20240810x8k.htm",
-                },
-                {
-                    formType: "10-Q",
-                    filingDate: "2024-07-25",
-                    periodEnd: "2024-06-30",
-                    cik: "0000320193",
-                    accessionNumber: "0000320193-24-000038",
-                    primaryDocument: "aapl-20240630.htm",
-                },
-                {
-                    formType: "10-K",
-                    filingDate: "2025-02-15",
-                    periodEnd: "2024-12-31",
-                    cik: "0000320193",
-                    accessionNumber: "0000320193-25-000010",
-                    primaryDocument: "aapl-20241231x10k.htm",
-                },
-            ],
-        },
-        presentation: {
-            latestDeck: {
-                title: "Q3 2024 Investor Deck",
-                publishedDate: "2024-10-20",
-                url: "https://www.example.com/investors/deck-q3-2024.pdf",
-            },
-        },
+        financialsAnnual: annual,
+        financialsQuarterly: quarterly,
+        ratios: {},
+        earningsLatestQuarter: quarterly.length > 0
+            ? {
+                  period: quarterly[0].fiscalYear,
+                  eps: quarterly[0].eps,
+                  revenue: quarterly[0].revenue,
+              }
+            : undefined,
+        earningsLatestAnnual: annual.length > 0
+            ? {
+                  period: annual[0].fiscalYear,
+                  eps: annual[0].eps,
+                  revenue: annual[0].revenue,
+              }
+            : undefined,
+        filings,
     };
 
-    return mockData;
+    return profile;
 }

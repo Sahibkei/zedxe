@@ -1,6 +1,7 @@
 export interface CompanyProfile {
     name: string;
     ticker: string;
+    cik?: string;
     exchange?: string;
     sector?: string;
     industry?: string;

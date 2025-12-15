@@ -38,8 +38,16 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
 
     const session = await auth.api.getSession({ headers: await headers() });
 
-    const [profile, snapshot, inWatchlist, alerts] = await Promise.all([
-        getStockProfileV2(symbolUpper).catch<StockProfileV2Model | null>(() => null),
+    let profile: StockProfileV2Model | null = null;
+    let profileError: string | null = null;
+
+    try {
+        profile = await getStockProfileV2(symbolUpper);
+    } catch (error) {
+        profileError = error instanceof Error ? error.message : "Unable to load stock profile.";
+    }
+
+    const [snapshot, inWatchlist, alerts] = await Promise.all([
         getSymbolSnapshot(symbolUpper).catch(() => ({ symbol: symbolUpper })),
         session?.user ? isSymbolInWatchlist(session.user.id, symbolUpper) : Promise.resolve(false),
         session?.user ? getAlertsByUser(session.user.id) : Promise.resolve([]),
@@ -57,6 +65,10 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
     const companyName = profile?.companyProfile.name || snapshot.company || symbolUpper;
 
     if (!profile) {
+        const fallbackMessage = profileError?.includes("SEC_USER_AGENT")
+            ? "SEC data unavailable: please configure SEC_USER_AGENT for sec.gov requests."
+            : profileError ?? "No stock data available. Please verify the symbol or try again later.";
+
         return (
             <div className="flex min-h-screen p-4 md:p-6 lg:p-8">
                 <div className="w-full space-y-6">
@@ -72,11 +84,22 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                             initialAlert={symbolAlertDisplay as AlertDisplay | undefined}
                         />
                     </div>
-                    <EmptyState message="No stock data available. Please verify the symbol or try again later." />
+                    <EmptyState message={fallbackMessage} />
                 </div>
             </div>
         );
     }
+
+    const dataSources: string[] = [];
+    dataSources.push("Financials & filings: SEC (XBRL/EDGAR)");
+    if (profile.chartSymbol) {
+        dataSources.push("Market data: TradingView");
+    }
+
+    const overviewDescription =
+        profile.companyProfile.description && profile.companyProfile.description.trim() !== ""
+            ? profile.companyProfile.description
+            : "Business description not available in SEC-only mode.";
 
     return (
         <div className="flex min-h-screen p-4 md:p-6 lg:p-8">
@@ -138,7 +161,7 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                         <div className="space-y-2">
                             <h3 className="text-sm font-semibold text-white">Business Overview</h3>
                             <p className="text-sm leading-relaxed text-neutral-300">
-                                {formatDetail(profile.companyProfile.description)}
+                                {overviewDescription}
                             </p>
                         </div>
                         <div className="grid gap-3 sm:grid-cols-2">
@@ -178,6 +201,9 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                         </div>
                     </div>
                     <StockProfileTabs profile={profile} />
+                    {dataSources.length > 0 && (
+                        <div className="mt-2 text-xs text-neutral-500">{dataSources.join(" · ")}</div>
+                    )}
                 </section>
             </div>
         </div>
