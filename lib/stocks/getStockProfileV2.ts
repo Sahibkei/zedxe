@@ -1,121 +1,172 @@
 import { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
-import { getCikForTicker, getCompanyFacts, getSubmissions, normalizeTicker } from "@/lib/stocks/providers/sec";
+import {
+    getFinnhubBasicFinancials,
+    getFinnhubProfile,
+    getFinnhubQuote,
+    tryGetFinnhubFinancials,
+} from "@/lib/stocks/providers/finnhub";
+import { getCikForTicker, getSubmissions, normalizeTicker } from "@/lib/stocks/providers/sec";
 import { buildSecArchiveUrl } from "@/lib/stocks/providers/secUrl";
 
-type FactValue = {
+type NormalizedFinancialPoint = {
     end: string;
-    val: number;
     fy?: number;
     fp?: string;
     form?: string;
+    revenue?: number;
+    grossProfit?: number;
+    operatingIncome?: number;
+    netIncome?: number;
+    eps?: number;
 };
 
-type CompanyFacts = {
-    facts?: {
-        [key: string]: {
-            [factKey: string]: {
-                units?: Record<string, FactValue[]>;
-            };
-        };
-    };
-};
-
-type Submissions = {
-    filings?: {
-        recent?: {
-            form?: string[];
-            filingDate?: string[];
-            reportDate?: string[];
-            accessionNumber?: string[];
-            primaryDocument?: string[];
-        };
-    };
-};
-
-const ANNUAL_FORMS = ["10-K", "20-F", "40-F"];
-const QUARTERLY_FORMS = ["10-Q"];
 const RECENT_LIMIT = 10;
 const MAX_ANNUAL_YEARS = 5;
 const MAX_QUARTERS = 12;
 
-function getFactPoints(facts: CompanyFacts, tag: string, preferredUnits: string[]): FactValue[] {
-    const tagEntry = facts.facts?.["us-gaap"]?.[tag];
-    const units = tagEntry?.units;
-
-    if (!units) return [];
-
-    const unitKeys = Object.keys(units);
-    const chosenUnit = preferredUnits.find((unit) => unitKeys.includes(unit)) ?? unitKeys[0];
-    const points = chosenUnit ? units[chosenUnit] ?? [] : [];
-
-    return points
-        .filter((item) => typeof item.val === "number" && item.end)
-        .map((item) => ({
-            ...item,
-            fy: typeof item.fy === "string" ? Number(item.fy) : item.fy,
-        }))
-        .sort((a, b) => (a.end < b.end ? 1 : -1));
+function coalesceNumber(...values: Array<number | null | undefined>) {
+    for (const value of values) {
+        if (typeof value === "number" && !Number.isNaN(value)) return value;
+    }
+    return undefined;
 }
 
-function buildEndDateMap(values: FactValue[]): Map<string, number> {
-    const map = new Map<string, number>();
+function normalizeChartSymbol(input: string): { ticker: string; chartSymbol: string } {
+    const trimmed = input.trim().toUpperCase();
 
-    values.forEach((item) => {
-        if (!map.has(item.end)) {
-            map.set(item.end, item.val);
+    if (!trimmed) {
+        throw new Error("Symbol is required for stock profile lookup");
+    }
+
+    if (trimmed.includes(":")) {
+        const [, tickerPart] = trimmed.split(":");
+        const ticker = (tickerPart ?? trimmed).toUpperCase();
+        return { ticker, chartSymbol: trimmed };
+    }
+
+    return { ticker: trimmed, chartSymbol: trimmed };
+}
+
+function normalizeFinancialsFromFinancialsResponse(raw: any): NormalizedFinancialPoint[] {
+    const items: any[] = raw?.financials ?? raw?.data ?? [];
+
+    return items
+        .map((item) => {
+            const end = item.endDate ?? item.reportDate ?? item.date ?? item.period;
+            if (!end) return null;
+
+            const fp = item.period ?? item.fp ?? item.fiscalQuarter;
+            const fy = item.fiscalYear ?? item.year ?? (end ? Number(end.slice(0, 4)) : undefined);
+
+            const eps = coalesceNumber(item.epsDiluted, item.epsBasic, item.eps);
+            const shares = coalesceNumber(item.weightedAverageShsOutDil, item.weightedAverageShsOut, item.shareIssued);
+            const derivedEps = eps ?? (typeof item.netIncome === "number" && typeof shares === "number" && shares !== 0
+                ? item.netIncome / shares
+                : undefined);
+
+            return {
+                end,
+                fy,
+                fp,
+                form: item.form,
+                revenue: coalesceNumber(item.revenue, item.totalRevenue, item.sales),
+                grossProfit: coalesceNumber(item.grossProfit),
+                operatingIncome: coalesceNumber(item.operatingIncome, item.operatingIncomeLoss),
+                netIncome: coalesceNumber(item.netIncome, item.netIncomeLoss),
+                eps: derivedEps,
+            } satisfies NormalizedFinancialPoint;
+        })
+        .filter(Boolean) as NormalizedFinancialPoint[];
+}
+
+function findConceptValue(reportSection: any[] | undefined, concepts: string[]): number | undefined {
+    if (!Array.isArray(reportSection)) return undefined;
+
+    for (const candidate of concepts) {
+        const entry = reportSection.find(
+            (item) => item?.concept === candidate || item?.label === candidate || item?.value?.[candidate] !== undefined
+        );
+
+        if (entry && typeof entry.value === "number") {
+            return entry.value;
         }
-    });
 
-    return map;
-}
-
-function sortByEndDescending(values: FactValue[], forms: string[]): FactValue[] {
-    return [...values].sort((a, b) => {
-        if (a.end === b.end) {
-            const aPreferred = a.form ? forms.some((form) => a.form?.startsWith(form)) : false;
-            const bPreferred = b.form ? forms.some((form) => b.form?.startsWith(form)) : false;
-
-            if (aPreferred !== bPreferred) return aPreferred ? -1 : 1;
-            return 0;
+        if (entry && typeof entry.value?.[candidate] === "number") {
+            return entry.value[candidate];
         }
+    }
 
-        return a.end < b.end ? 1 : -1;
-    });
+    return undefined;
 }
 
-function dedupeByEnd(values: FactValue[]): FactValue[] {
-    const deduped: FactValue[] = [];
+function normalizeFinancialsFromReported(raw: any): NormalizedFinancialPoint[] {
+    const items: any[] = raw?.data ?? [];
+
+    return items
+        .map((item) => {
+            const end = item.endDate;
+            if (!end) return null;
+
+            const ic = item.report?.ic ?? [];
+            const bs = item.report?.bs ?? [];
+
+            const revenue = findConceptValue(ic, [
+                "Revenues",
+                "SalesRevenueNet",
+                "RevenueFromContractWithCustomerExcludingAssessedTax",
+            ]);
+            const grossProfit = findConceptValue(ic, ["GrossProfit"]);
+            const operatingIncome = findConceptValue(ic, ["OperatingIncomeLoss"]);
+            const netIncome = findConceptValue(ic, ["NetIncomeLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"]);
+
+            const eps = findConceptValue(ic, ["EarningsPerShareDiluted", "EarningsPerShareBasic"]);
+            const shares = findConceptValue(bs, ["WeightedAverageNumberOfDilutedSharesOutstanding", "CommonStockSharesOutstanding"]);
+            const derivedEps = eps ?? (netIncome !== undefined && shares ? netIncome / shares : undefined);
+
+            const fp = item.quarter ? `Q${item.quarter}` : item.fp ?? item.form;
+            const fy = item.fiscalYear ?? item.year ?? item.calendaryear ?? (end ? Number(end.slice(0, 4)) : undefined);
+
+            return {
+                end,
+                fy,
+                fp,
+                form: item.form,
+                revenue,
+                grossProfit,
+                operatingIncome,
+                netIncome,
+                eps: derivedEps,
+            } satisfies NormalizedFinancialPoint;
+        })
+        .filter(Boolean) as NormalizedFinancialPoint[];
+}
+
+function buildSeries(points: NormalizedFinancialPoint[], filter: (p: NormalizedFinancialPoint) => boolean, limit: number) {
+    const filtered = points.filter(filter).sort((a, b) => (a.end < b.end ? 1 : -1));
     const seen = new Set<string>();
+    const deduped: NormalizedFinancialPoint[] = [];
 
-    values.forEach((item) => {
-        if (seen.has(item.end)) return;
-        deduped.push(item);
-        seen.add(item.end);
-    });
+    for (const point of filtered) {
+        if (seen.has(point.end)) continue;
+        deduped.push(point);
+        seen.add(point.end);
+        if (deduped.length >= limit) break;
+    }
 
-    return deduped;
+    return deduped.map((entry) => ({
+        fiscalDate: entry.end,
+        fiscalYear: entry.fp && entry.fp.startsWith("Q")
+            ? `${entry.fy ?? entry.end.slice(0, 4)} ${entry.fp}`
+            : `FY ${entry.fy ?? entry.end.slice(0, 4)}`,
+        revenue: entry.revenue,
+        grossProfit: entry.grossProfit,
+        operatingIncome: entry.operatingIncome,
+        netIncome: entry.netIncome,
+        eps: entry.eps,
+    }));
 }
 
-function filterByFpAndForm(values: FactValue[], fps: Set<string>, forms: string[]): FactValue[] {
-    const filtered = values.filter(
-        (item) => item.fp && fps.has(item.fp) && (!item.form || forms.some((form) => item.form?.startsWith(form)))
-    );
-
-    return dedupeByEnd(sortByEndDescending(filtered, forms));
-}
-
-function filterRevenueSeries(facts: CompanyFacts, fps: Set<string>, forms: string[]): FactValue[] {
-    const revenues = getFactPoints(facts, "Revenues", ["USD"]);
-    const revenueBase = revenues.length ? revenues : getFactPoints(facts, "SalesRevenueNet", ["USD"]);
-
-    const filtered = revenueBase.filter(
-        (item) => item.fp && fps.has(item.fp) && (!item.form || forms.some((form) => item.form?.startsWith(form)))
-    );
-
-    return dedupeByEnd(sortByEndDescending(filtered, forms));
-}
-
-function mapFilings(submissions: Submissions | undefined, cik10: string) {
+function mapFilings(submissions: any | undefined, cik10: string) {
     const recentForms = submissions?.filings?.recent;
 
     if (!recentForms?.form || !recentForms.filingDate || !recentForms.reportDate) {
@@ -165,127 +216,176 @@ function mapFilings(submissions: Submissions | undefined, cik10: string) {
     };
 }
 
-export async function getStockProfileV2(symbol: string): Promise<StockProfileV2Model> {
-    const normalizedSymbol = symbol?.trim();
+function mapRatios(metrics: Record<string, unknown> | undefined) {
+    const metric = metrics ?? {};
 
-    if (!normalizedSymbol) {
-        throw new Error("Symbol is required for stock profile lookup");
+    const dividendRaw = metric["dividendYieldIndicatedAnnual"] as number | undefined;
+    const dividendYield = typeof dividendRaw === "number" ? dividendRaw / 100 : undefined;
+
+    return {
+        pe: coalesceNumber(metric["peInclExtraTTM"] as number, metric["peTTM"] as number, metric["peBasicExclExtraTTM"] as number),
+        pb: coalesceNumber(metric["pbAnnual"] as number, metric["priceToBookMRQ"] as number),
+        ps: coalesceNumber(metric["psTTM"] as number, metric["priceToSalesTTM"] as number),
+        evToEbitda: coalesceNumber(metric["evToEbitda"] as number, metric["evebitda"] as number),
+        debtToEquity: coalesceNumber(
+            metric["totalDebtToEquityQuarterly"] as number,
+            metric["totalDebtToEquity"] as number,
+            metric["debtEquityRatio"] as number
+        ),
+        currentRatio: coalesceNumber(metric["currentRatioQuarterly"] as number, metric["currentRatioAnnual"] as number),
+        dividendYield,
+    };
+}
+
+function buildFinancialSeries(
+    annualPoints: NormalizedFinancialPoint[],
+    quarterlyPoints: NormalizedFinancialPoint[]
+) {
+    const annualSeries = buildSeries(annualPoints, (p) => p.fp === "FY", MAX_ANNUAL_YEARS);
+    const quarterlySeries = buildSeries(
+        quarterlyPoints,
+        (p) => p.fp === "Q1" || p.fp === "Q2" || p.fp === "Q3" || p.fp === "Q4",
+        MAX_QUARTERS
+    );
+
+    return { annualSeries, quarterlySeries };
+}
+
+function normalizeFinancialResponses(
+    annualResponse: { source: "financials" | "financials-reported"; raw: any } | null,
+    quarterlyResponse: { source: "financials" | "financials-reported"; raw: any } | null
+) {
+    const withDefaults = (points: NormalizedFinancialPoint[], freq: "annual" | "quarterly") =>
+        points.map((p) => {
+            if (freq === "annual") {
+                return { ...p, fp: p.fp ?? "FY" };
+            }
+
+            const endMonth = p.end ? Number(p.end.slice(5, 7)) : NaN;
+            const derivedQuarter = Number.isFinite(endMonth) ? `Q${Math.min(4, Math.max(1, Math.ceil(endMonth / 3)))}` : undefined;
+            return { ...p, fp: p.fp ?? derivedQuarter };
+        });
+
+    const annualPoints = annualResponse
+        ? withDefaults(
+              annualResponse.source === "financials"
+                  ? normalizeFinancialsFromFinancialsResponse(annualResponse.raw)
+                  : normalizeFinancialsFromReported(annualResponse.raw),
+              "annual"
+          )
+        : [];
+
+    const quarterlyPoints = quarterlyResponse
+        ? withDefaults(
+              quarterlyResponse.source === "financials"
+                  ? normalizeFinancialsFromFinancialsResponse(quarterlyResponse.raw)
+                  : normalizeFinancialsFromReported(quarterlyResponse.raw),
+              "quarterly"
+          )
+        : [];
+
+    return buildFinancialSeries(annualPoints, quarterlyPoints);
+}
+
+export async function getStockProfileV2(symbol: string): Promise<StockProfileV2Model> {
+    const { ticker, chartSymbol } = normalizeChartSymbol(symbol);
+    const tickerForSec = normalizeTicker(ticker);
+
+    let finnhubProfile: any | null = null;
+    let finnhubQuote: any | null = null;
+    let finnhubBasics: any | null = null;
+    let annualFinancials: { source: "financials" | "financials-reported"; raw: any } | null = null;
+    let quarterlyFinancials: { source: "financials" | "financials-reported"; raw: any } | null = null;
+    let finnhubError: string | undefined;
+
+    if (process.env.FINNHUB_API_KEY) {
+        try {
+            [finnhubProfile, finnhubQuote, finnhubBasics, annualFinancials, quarterlyFinancials] = await Promise.all([
+                getFinnhubProfile(ticker),
+                getFinnhubQuote(ticker),
+                getFinnhubBasicFinancials(ticker),
+                tryGetFinnhubFinancials(ticker, "ic", "annual"),
+                tryGetFinnhubFinancials(ticker, "ic", "quarterly"),
+            ]);
+        } catch (error) {
+            finnhubError = error instanceof Error ? error.message : String(error);
+        }
+    } else {
+        finnhubError = "FINNHUB_API_KEY environment variable is required to load fundamentals.";
     }
 
-    const upperSymbol = normalizedSymbol.toUpperCase();
-    const chartSymbol = normalizedSymbol.includes(":") ? upperSymbol : upperSymbol;
-    const tickerForSec = normalizeTicker(upperSymbol);
+    let secTitle: string | undefined;
+    let cik10: string | undefined;
+    let secExchange: string | undefined;
+    let submissions: any | undefined;
+    let secError: string | undefined;
 
-    const { cik10, title, exchange } = await getCikForTicker(tickerForSec);
+    try {
+        const secLookup = await getCikForTicker(tickerForSec);
+        cik10 = secLookup.cik10;
+        secTitle = secLookup.title;
+        secExchange = secLookup.exchange;
+        submissions = await getSubmissions(cik10);
+    } catch (error) {
+        secError = error instanceof Error ? error.message : String(error);
+    }
 
-    const [submissions, companyFacts] = await Promise.all([
-        getSubmissions(cik10).catch((error) => {
-            throw new Error(`Unable to fetch SEC submissions: ${error instanceof Error ? error.message : String(error)}`);
-        }),
-        getCompanyFacts(cik10).catch((error) => {
-            throw new Error(`Unable to fetch SEC company facts: ${error instanceof Error ? error.message : String(error)}`);
-        }),
-    ]);
+    const filings = cik10 ? mapFilings(submissions, cik10) : { latest10K: undefined, latest10Q: undefined, recent: [] };
 
-    const filings = mapFilings(submissions, cik10);
+    const { annualSeries, quarterlySeries } = normalizeFinancialResponses(annualFinancials, quarterlyFinancials);
 
-    const annualFps = new Set(["FY"]);
-    const quarterlyFps = new Set(["Q1", "Q2", "Q3", "Q4"]);
-
-    const annualRevenueValues = filterRevenueSeries(companyFacts, annualFps, ANNUAL_FORMS).slice(0, MAX_ANNUAL_YEARS);
-    const annualRevenueMap = buildEndDateMap(annualRevenueValues);
-    const annualGrossProfitMap = buildEndDateMap(
-        filterByFpAndForm(getFactPoints(companyFacts, "GrossProfit", ["USD"]), annualFps, ANNUAL_FORMS)
-    );
-    const annualOperatingIncomeMap = buildEndDateMap(
-        filterByFpAndForm(getFactPoints(companyFacts, "OperatingIncomeLoss", ["USD"]), annualFps, ANNUAL_FORMS)
-    );
-    const annualNetIncomeMap = buildEndDateMap(
-        filterByFpAndForm(getFactPoints(companyFacts, "NetIncomeLoss", ["USD"]), annualFps, ANNUAL_FORMS)
-    );
-    const annualEpsMap = buildEndDateMap(
-        filterByFpAndForm(
-            getFactPoints(companyFacts, "EarningsPerShareDiluted", ["USD/shares", "USD / shares", "USD/share", "USD"]),
-            annualFps,
-            ANNUAL_FORMS
-        )
-    );
-
-    const annual = annualRevenueValues.map((entry) => ({
-        fiscalDate: entry.end,
-        fiscalYear: `FY ${entry.fy ?? entry.end.slice(0, 4)}`,
-        revenue: annualRevenueMap.get(entry.end),
-        grossProfit: annualGrossProfitMap.get(entry.end),
-        operatingIncome: annualOperatingIncomeMap.get(entry.end),
-        netIncome: annualNetIncomeMap.get(entry.end),
-        eps: annualEpsMap.get(entry.end),
-    }));
-
-    const quarterlyRevenueValues = filterRevenueSeries(companyFacts, quarterlyFps, QUARTERLY_FORMS).slice(0, MAX_QUARTERS);
-    const quarterlyRevenueMap = buildEndDateMap(quarterlyRevenueValues);
-    const quarterlyGrossProfitMap = buildEndDateMap(
-        filterByFpAndForm(getFactPoints(companyFacts, "GrossProfit", ["USD"]), quarterlyFps, QUARTERLY_FORMS)
-    );
-    const quarterlyOperatingIncomeMap = buildEndDateMap(
-        filterByFpAndForm(getFactPoints(companyFacts, "OperatingIncomeLoss", ["USD"]), quarterlyFps, QUARTERLY_FORMS)
-    );
-    const quarterlyNetIncomeMap = buildEndDateMap(
-        filterByFpAndForm(getFactPoints(companyFacts, "NetIncomeLoss", ["USD"]), quarterlyFps, QUARTERLY_FORMS)
-    );
-    const quarterlyEpsMap = buildEndDateMap(
-        filterByFpAndForm(
-            getFactPoints(companyFacts, "EarningsPerShareDiluted", ["USD/shares", "USD / shares", "USD/share", "USD"]),
-            quarterlyFps,
-            QUARTERLY_FORMS
-        )
-    );
-
-    const quarterly = quarterlyRevenueValues.map((entry) => ({
-        fiscalDate: entry.end,
-        fiscalYear: `${entry.fy ?? entry.end.slice(0, 4)} ${entry.fp ?? "Quarter"}`.trim(),
-        revenue: quarterlyRevenueMap.get(entry.end),
-        grossProfit: quarterlyGrossProfitMap.get(entry.end),
-        operatingIncome: quarterlyOperatingIncomeMap.get(entry.end),
-        netIncome: quarterlyNetIncomeMap.get(entry.end),
-        eps: quarterlyEpsMap.get(entry.end),
-    }));
+    const ratios = mapRatios(finnhubBasics?.metric);
 
     const profile: StockProfileV2Model = {
         companyProfile: {
-            name: title,
-            ticker: tickerForSec,
+            name: finnhubProfile?.name || secTitle || ticker,
+            ticker,
             cik: cik10,
-            exchange,
-            sector: undefined,
-            industry: undefined,
-            website: undefined,
-            description: undefined,
-            headquartersCity: undefined,
-            headquartersCountry: undefined,
-            employees: undefined,
-            ceo: undefined,
-            country: undefined,
-            currency: "USD",
+            exchange: finnhubProfile?.exchange ?? secExchange,
+            sector: finnhubProfile?.gsector ?? finnhubProfile?.sector,
+            industry: finnhubProfile?.finnhubIndustry ?? finnhubProfile?.industry,
+            website: finnhubProfile?.weburl,
+            description: finnhubProfile?.description,
+            headquartersCity: finnhubProfile?.city,
+            headquartersCountry: finnhubProfile?.country,
+            employees: finnhubProfile?.employeeTotal,
+            ceo: finnhubProfile?.ceo,
+            country: finnhubProfile?.country,
+            currency: finnhubProfile?.currency,
+            marketCap: finnhubBasics?.metric?.marketCapitalization,
         },
         chartSymbol,
-        financialsAnnual: annual,
-        financialsQuarterly: quarterly,
-        ratios: {},
-        earningsLatestQuarter: quarterly.length > 0
+        financialsAnnual: annualSeries,
+        financialsQuarterly: quarterlySeries,
+        ratios,
+        quote: {
+            price: finnhubQuote?.c,
+            change: finnhubQuote?.d,
+            changePercent: typeof finnhubQuote?.dp === "number" ? finnhubQuote.dp : undefined,
+            asOf: finnhubQuote?.t ? finnhubQuote.t * 1000 : undefined,
+            currency: finnhubProfile?.currency,
+        },
+        earningsLatestQuarter: quarterlySeries.length
             ? {
-                  period: quarterly[0].fiscalYear,
-                  eps: quarterly[0].eps,
-                  revenue: quarterly[0].revenue,
+                  period: quarterlySeries[0].fiscalYear,
+                  eps: quarterlySeries[0].eps,
+                  revenue: quarterlySeries[0].revenue,
               }
             : undefined,
-        earningsLatestAnnual: annual.length > 0
+        earningsLatestAnnual: annualSeries.length
             ? {
-                  period: annual[0].fiscalYear,
-                  eps: annual[0].eps,
-                  revenue: annual[0].revenue,
+                  period: annualSeries[0].fiscalYear,
+                  eps: annualSeries[0].eps,
+                  revenue: annualSeries[0].revenue,
               }
             : undefined,
         filings,
+        sources: {
+            finnhubAvailable: !finnhubError,
+            secAvailable: !secError,
+            finnhubError,
+            secError,
+        },
     };
 
     return profile;

@@ -32,6 +32,19 @@ function EmptyState({ message }: { message: string }) {
     );
 }
 
+function formatPrice(value?: number) {
+    if (value === null || value === undefined || Number.isNaN(value)) return "—";
+    return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatChange(change?: number, changePercent?: number) {
+    if (change === null || change === undefined || Number.isNaN(change)) return "—";
+
+    const percent = changePercent !== undefined && !Number.isNaN(changePercent) ? `${changePercent.toFixed(2)}%` : "—";
+    const sign = change > 0 ? "+" : "";
+    return `${sign}${change.toFixed(2)} (${percent})`;
+}
+
 export default async function StockDetails({ params }: StockDetailsPageProps) {
     const { symbol } = await params;
     const symbolUpper = symbol.toUpperCase();
@@ -65,24 +78,25 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
     const companyProfile = profile?.companyProfile;
     const companyName = companyProfile?.name || snapshot.company || symbolUpper;
     const chartSymbol = profile?.chartSymbol ?? symbolUpper;
-    const hasSecData = Boolean(profile);
+
+    const finnhubAvailable = profile?.sources?.finnhubAvailable ?? false;
+    const secAvailable = profile?.sources?.secAvailable ?? false;
 
     const dataSources: string[] = [];
-    dataSources.push(hasSecData ? "Financials & filings: SEC (XBRL/EDGAR)" : "Financials & filings: SEC data unavailable");
+    dataSources.push(finnhubAvailable ? "Fundamentals & ratios: Finnhub" : "Fundamentals unavailable (Finnhub)");
+    dataSources.push(secAvailable ? "Financials & filings: SEC (XBRL/EDGAR)" : "Filings unavailable (SEC)");
     if (chartSymbol) {
         dataSources.push("Chart: TradingView");
     }
 
-    const overviewDescription = companyProfile?.description && companyProfile.description.trim() !== ""
-        ? companyProfile.description
-        : hasSecData
-          ? "Business description not available in SEC-only mode."
-          : "Company overview unavailable because SEC data could not be loaded.";
+    const overviewDescription = companyProfile?.description && companyProfile.description.trim() !== "" ? companyProfile.description : "—";
 
     const tickerDisplay = companyProfile?.ticker || symbolUpper;
     const exchangeDisplay = companyProfile?.exchange;
     const sectorDisplay = companyProfile?.sector;
     const industryDisplay = companyProfile?.industry;
+    const priceDisplay = formatPrice(profile?.quote?.price);
+    const changeDisplay = formatChange(profile?.quote?.change, profile?.quote?.changePercent);
 
     return (
         <div className="flex min-h-screen p-4 md:p-6 lg:p-8">
@@ -90,6 +104,16 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                 {profileError && (
                     <div className="rounded-lg border border-yellow-700 bg-yellow-900/30 p-4 text-sm text-yellow-200">
                         SEC data unavailable: {profileError}
+                    </div>
+                )}
+                {profile?.sources?.finnhubError && (
+                    <div className="rounded-lg border border-yellow-700 bg-yellow-900/30 p-4 text-sm text-yellow-200">
+                        Fundamentals unavailable: {profile.sources.finnhubError}
+                    </div>
+                )}
+                {profile?.sources?.secError && !profileError && (
+                    <div className="rounded-lg border border-yellow-700 bg-yellow-900/30 p-4 text-sm text-yellow-200">
+                        SEC filings unavailable: {profile.sources.secError}
                     </div>
                 )}
                 <section className="rounded-lg border border-neutral-800 bg-neutral-900/60 p-4 shadow-sm">
@@ -103,7 +127,11 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                                 <span className="rounded-full bg-neutral-800 px-3 py-1">{formatDetail(industryDisplay)}</span>
                             </div>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-4">
+                            <div className="text-right text-sm">
+                                <div className="text-xl font-semibold text-white">{priceDisplay}</div>
+                                <div className="text-xs text-neutral-400">{changeDisplay}</div>
+                            </div>
                             <StockActionBar
                                 symbol={symbolUpper}
                                 company={companyName}
@@ -188,10 +216,10 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                             </div>
                         </div>
                     </div>
-                    {hasSecData ? (
+                    {profile ? (
                         <StockProfileTabs profile={profile} />
                     ) : (
-                        <EmptyState message="Financials, ratios, earnings, and filings are unavailable because SEC data could not be loaded." />
+                        <EmptyState message="Financials, ratios, earnings, and filings are unavailable." />
                     )}
                     {dataSources.length > 0 && (
                         <div className="mt-2 text-xs text-neutral-500">{dataSources.join(" · ")}</div>

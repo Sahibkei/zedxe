@@ -13,6 +13,7 @@ export interface CompanyProfile {
     ceo?: string;
     country?: string;
     currency?: string;
+    marketCap?: number;
 }
 
 export interface FinancialStatementEntry {
@@ -49,6 +50,14 @@ export interface EarningsSnapshot {
     revenueYoYPercent?: number;
 }
 
+export interface QuoteSnapshot {
+    price?: number;
+    change?: number;
+    changePercent?: number;
+    asOf?: number;
+    currency?: string;
+}
+
 export interface FilingItem {
     formType: string;
     /** Date formatted as YYYY-MM-DD */
@@ -81,8 +90,15 @@ export interface StockProfileV2Model {
     financialsAnnual: FinancialStatementEntry[];
     financialsQuarterly: FinancialStatementEntry[];
     ratios: RatioGroup;
+    quote?: QuoteSnapshot;
     earningsLatestQuarter?: EarningsSnapshot;
     earningsLatestAnnual?: EarningsSnapshot;
     filings: FilingsSummary;
     presentation?: PresentationSummary;
+    sources?: {
+        finnhubAvailable: boolean;
+        secAvailable: boolean;
+        finnhubError?: string;
+        secError?: string;
+    };
 }
