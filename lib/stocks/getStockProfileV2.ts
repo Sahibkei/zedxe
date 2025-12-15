@@ -5,7 +5,7 @@ import { buildSecArchiveUrl } from "@/lib/stocks/providers/secUrl";
 type FactValue = {
     end: string;
     val: number;
-    fy?: string;
+    fy?: number;
     fp?: string;
     form?: string;
 };
@@ -38,63 +38,81 @@ const RECENT_LIMIT = 10;
 const MAX_ANNUAL_YEARS = 5;
 const MAX_QUARTERS = 12;
 
-function getFactValues(
-    facts: CompanyFacts,
-    tag: string,
-    preferredUnits: string[],
-    forms?: string[]
-): FactValue[] {
+function getFactPoints(facts: CompanyFacts, tag: string, preferredUnits: string[]): FactValue[] {
     const tagEntry = facts.facts?.["us-gaap"]?.[tag];
     const units = tagEntry?.units;
 
     if (!units) return [];
 
     const unitKeys = Object.keys(units);
-    const chosenUnit = preferredUnits.find((unit) => unitKeys.includes(unit)) ?? unitKeys.find((key) => key.includes("USD")) ?? unitKeys[0];
-    const values = chosenUnit ? units[chosenUnit] ?? [] : [];
+    const chosenUnit = preferredUnits.find((unit) => unitKeys.includes(unit)) ?? unitKeys[0];
+    const points = chosenUnit ? units[chosenUnit] ?? [] : [];
 
-    const filtered = forms?.length ? values.filter((item) => !item.form || forms.includes(item.form)) : values;
-
-    return filtered
+    return points
         .filter((item) => typeof item.val === "number" && item.end)
+        .map((item) => ({
+            ...item,
+            fy: typeof item.fy === "string" ? Number(item.fy) : item.fy,
+        }))
         .sort((a, b) => (a.end < b.end ? 1 : -1));
 }
 
 function buildEndDateMap(values: FactValue[]): Map<string, number> {
     const map = new Map<string, number>();
 
-    values
-        .filter((item) => typeof item.val === "number" && item.end)
-        .sort((a, b) => (a.end < b.end ? 1 : -1))
-        .forEach((item) => {
-            if (!map.has(item.end)) {
-                map.set(item.end, item.val);
-            }
-        });
+    values.forEach((item) => {
+        if (!map.has(item.end)) {
+            map.set(item.end, item.val);
+        }
+    });
 
     return map;
 }
 
-function selectRevenueValues(
-    facts: CompanyFacts,
-    forms: string[],
-    filterFn: (item: FactValue) => boolean
-): FactValue[] {
-    const revenues = getFactValues(facts, "Revenues", ["USD"], forms);
-    const revenueBase = revenues.length ? revenues : getFactValues(facts, "SalesRevenueNet", ["USD"], forms);
+function sortByEndDescending(values: FactValue[], forms: string[]): FactValue[] {
+    return [...values].sort((a, b) => {
+        if (a.end === b.end) {
+            const aPreferred = a.form ? forms.some((form) => a.form?.startsWith(form)) : false;
+            const bPreferred = b.form ? forms.some((form) => b.form?.startsWith(form)) : false;
 
-    const filtered = revenueBase.filter(filterFn);
+            if (aPreferred !== bPreferred) return aPreferred ? -1 : 1;
+            return 0;
+        }
 
-    const uniqueByEnd: FactValue[] = [];
-    const seenEnds = new Set<string>();
+        return a.end < b.end ? 1 : -1;
+    });
+}
 
-    filtered.forEach((item) => {
-        if (!item.end || seenEnds.has(item.end)) return;
-        uniqueByEnd.push(item);
-        seenEnds.add(item.end);
+function dedupeByEnd(values: FactValue[]): FactValue[] {
+    const deduped: FactValue[] = [];
+    const seen = new Set<string>();
+
+    values.forEach((item) => {
+        if (seen.has(item.end)) return;
+        deduped.push(item);
+        seen.add(item.end);
     });
 
-    return uniqueByEnd.sort((a, b) => (a.end < b.end ? 1 : -1));
+    return deduped;
+}
+
+function filterByFpAndForm(values: FactValue[], fps: Set<string>, forms: string[]): FactValue[] {
+    const filtered = values.filter(
+        (item) => item.fp && fps.has(item.fp) && (!item.form || forms.some((form) => item.form?.startsWith(form)))
+    );
+
+    return dedupeByEnd(sortByEndDescending(filtered, forms));
+}
+
+function filterRevenueSeries(facts: CompanyFacts, fps: Set<string>, forms: string[]): FactValue[] {
+    const revenues = getFactPoints(facts, "Revenues", ["USD"]);
+    const revenueBase = revenues.length ? revenues : getFactPoints(facts, "SalesRevenueNet", ["USD"]);
+
+    const filtered = revenueBase.filter(
+        (item) => item.fp && fps.has(item.fp) && (!item.form || forms.some((form) => item.form?.startsWith(form)))
+    );
+
+    return dedupeByEnd(sortByEndDescending(filtered, forms));
 }
 
 function mapFilings(submissions: Submissions | undefined, cik10: string) {
@@ -171,25 +189,31 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
 
     const filings = mapFilings(submissions, cik10);
 
-    const annualRevenueValues = selectRevenueValues(companyFacts, ANNUAL_FORMS, (item) => item.fp === "FY");
+    const annualFps = new Set(["FY"]);
+    const quarterlyFps = new Set(["Q1", "Q2", "Q3", "Q4"]);
+
+    const annualRevenueValues = filterRevenueSeries(companyFacts, annualFps, ANNUAL_FORMS).slice(0, MAX_ANNUAL_YEARS);
     const annualRevenueMap = buildEndDateMap(annualRevenueValues);
     const annualGrossProfitMap = buildEndDateMap(
-        getFactValues(companyFacts, "GrossProfit", ["USD"], ANNUAL_FORMS).filter((item) => item.fp === "FY")
+        filterByFpAndForm(getFactPoints(companyFacts, "GrossProfit", ["USD"]), annualFps, ANNUAL_FORMS)
     );
     const annualOperatingIncomeMap = buildEndDateMap(
-        getFactValues(companyFacts, "OperatingIncomeLoss", ["USD"], ANNUAL_FORMS).filter((item) => item.fp === "FY")
+        filterByFpAndForm(getFactPoints(companyFacts, "OperatingIncomeLoss", ["USD"]), annualFps, ANNUAL_FORMS)
     );
     const annualNetIncomeMap = buildEndDateMap(
-        getFactValues(companyFacts, "NetIncomeLoss", ["USD"], ANNUAL_FORMS).filter((item) => item.fp === "FY")
+        filterByFpAndForm(getFactPoints(companyFacts, "NetIncomeLoss", ["USD"]), annualFps, ANNUAL_FORMS)
     );
     const annualEpsMap = buildEndDateMap(
-        getFactValues(companyFacts, "EarningsPerShareDiluted", ["USD/shares", "USD / shares", "USD/share", "USD"], ANNUAL_FORMS)
-            .filter((item) => item.fp === "FY")
+        filterByFpAndForm(
+            getFactPoints(companyFacts, "EarningsPerShareDiluted", ["USD/shares", "USD / shares", "USD/share", "USD"]),
+            annualFps,
+            ANNUAL_FORMS
+        )
     );
 
-    const annual = annualRevenueValues.slice(0, MAX_ANNUAL_YEARS).map((entry) => ({
+    const annual = annualRevenueValues.map((entry) => ({
         fiscalDate: entry.end,
-        fiscalYear: entry.end ? `FY ${entry.end.slice(0, 4)}` : "FY",
+        fiscalYear: `FY ${entry.fy ?? entry.end.slice(0, 4)}`,
         revenue: annualRevenueMap.get(entry.end),
         grossProfit: annualGrossProfitMap.get(entry.end),
         operatingIncome: annualOperatingIncomeMap.get(entry.end),
@@ -197,40 +221,28 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
         eps: annualEpsMap.get(entry.end),
     }));
 
-    const quarterlyRevenueValues = selectRevenueValues(
-        companyFacts,
-        QUARTERLY_FORMS,
-        (item) => typeof item.fp === "string" && item.fp.startsWith("Q")
-    );
+    const quarterlyRevenueValues = filterRevenueSeries(companyFacts, quarterlyFps, QUARTERLY_FORMS).slice(0, MAX_QUARTERS);
     const quarterlyRevenueMap = buildEndDateMap(quarterlyRevenueValues);
     const quarterlyGrossProfitMap = buildEndDateMap(
-        getFactValues(companyFacts, "GrossProfit", ["USD"], QUARTERLY_FORMS).filter(
-            (item) => typeof item.fp === "string" && item.fp.startsWith("Q")
-        )
+        filterByFpAndForm(getFactPoints(companyFacts, "GrossProfit", ["USD"]), quarterlyFps, QUARTERLY_FORMS)
     );
     const quarterlyOperatingIncomeMap = buildEndDateMap(
-        getFactValues(companyFacts, "OperatingIncomeLoss", ["USD"], QUARTERLY_FORMS).filter(
-            (item) => typeof item.fp === "string" && item.fp.startsWith("Q")
-        )
+        filterByFpAndForm(getFactPoints(companyFacts, "OperatingIncomeLoss", ["USD"]), quarterlyFps, QUARTERLY_FORMS)
     );
     const quarterlyNetIncomeMap = buildEndDateMap(
-        getFactValues(companyFacts, "NetIncomeLoss", ["USD"], QUARTERLY_FORMS).filter(
-            (item) => typeof item.fp === "string" && item.fp.startsWith("Q")
-        )
+        filterByFpAndForm(getFactPoints(companyFacts, "NetIncomeLoss", ["USD"]), quarterlyFps, QUARTERLY_FORMS)
     );
     const quarterlyEpsMap = buildEndDateMap(
-        getFactValues(
-            companyFacts,
-            "EarningsPerShareDiluted",
-            ["USD/shares", "USD / shares", "USD/share", "USD"],
+        filterByFpAndForm(
+            getFactPoints(companyFacts, "EarningsPerShareDiluted", ["USD/shares", "USD / shares", "USD/share", "USD"]),
+            quarterlyFps,
             QUARTERLY_FORMS
         )
-            .filter((item) => typeof item.fp === "string" && item.fp.startsWith("Q"))
     );
 
-    const quarterly = quarterlyRevenueValues.slice(0, MAX_QUARTERS).map((entry) => ({
+    const quarterly = quarterlyRevenueValues.map((entry) => ({
         fiscalDate: entry.end,
-        fiscalYear: `${entry.end?.slice(0, 4) ?? entry.fy ?? ""} ${entry.fp ?? "Quarter"}`.trim(),
+        fiscalYear: `${entry.fy ?? entry.end.slice(0, 4)} ${entry.fp ?? "Quarter"}`.trim(),
         revenue: quarterlyRevenueMap.get(entry.end),
         grossProfit: quarterlyGrossProfitMap.get(entry.end),
         operatingIncome: quarterlyOperatingIncomeMap.get(entry.end),
