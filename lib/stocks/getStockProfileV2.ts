@@ -216,17 +216,15 @@ const mapFilings: FilingsMapperFn = (filingsResp) => {
 };
 
 const mapProfile: ProfileMapperFn = (profile) => ({
-    name: (profile as any)?.name || (profile as any)?.ticker || profile?.symbol || profile?.report?.ic?.[0]?.label,
-    website: (profile as any)?.weburl || (profile as any)?.website,
-    country: (profile as any)?.country,
-    industry: (profile as any)?.finnhubIndustry,
-    exchange: (profile as any)?.exchange,
-    marketCap: (profile as any)?.marketCapitalization
-        ? (profile as any).marketCapitalization * 1_000_000
-        : undefined,
-    ipo: (profile as any)?.ipo,
-    currency: (profile as any)?.currency,
-    description: (profile as any)?.description,
+    name: profile?.name || profile?.ticker,
+    website: profile?.weburl,
+    country: profile?.country,
+    industry: profile?.finnhubIndustry,
+    exchange: profile?.exchange,
+    marketCap: profile?.marketCapitalization ? profile.marketCapitalization * 1_000_000 : undefined,
+    ipo: profile?.ipo,
+    currency: profile?.currency,
+    description: profile?.description,
 });
 
 const mapRatios: RatioMapperFn = (metrics) => {
@@ -326,7 +324,7 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
         secFactsPromise,
     ]);
 
-    const company = mapProfile(profileRes as any);
+    const company = mapProfile(profileRes);
     const metrics = mapRatios(metricsRes?.metric ?? undefined);
     const annualPrimary = mapFinancials({ financials: annualRes, limit: 5, frequency: 'annual' });
     const quarterlyPrimary = mapFinancials({ financials: quarterlyRes, limit: 8, frequency: 'quarterly' });

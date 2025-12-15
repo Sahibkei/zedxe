@@ -45,6 +45,7 @@ export type FinnhubProfile2Response = {
     weburl?: string;
     logo?: string;
     finnhubIndustry?: string;
+    description?: string;
 };
 
 export type FinnhubMetricResponse = {

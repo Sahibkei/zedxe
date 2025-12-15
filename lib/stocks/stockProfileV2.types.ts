@@ -1,4 +1,4 @@
-import { FinnhubFinancialReport, FinnhubFinancialsReportedResponse } from './providers/finnhub';
+import { FinnhubFinancialsReportedResponse, FinnhubProfile2Response } from './providers/finnhub';
 import { SecFiling, SecRecentFilings } from './providers/sec';
 
 type StatusLevel = 'info' | 'warning' | 'error';
@@ -75,4 +75,4 @@ export type FilingsMapperFn = (filings?: SecRecentFilings) => FilingInfo[];
 
 export type RatioMapperFn = (metrics?: Record<string, number | string | null | undefined>) => StockMetricSet;
 
-export type ProfileMapperFn = (profile?: FinnhubFinancialReport) => StockProfileV2Model['company'];
+export type ProfileMapperFn = (profile?: FinnhubProfile2Response) => StockProfileV2Model['company'];
