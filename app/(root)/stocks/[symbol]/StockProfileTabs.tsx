@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { FinancialStatementEntry, FilingItem, StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
+import { buildSecArchiveUrl } from "@/lib/stocks/providers/secUrl";
 
 const tabOptions = [
     { key: "financials", label: "Financials" },
@@ -35,18 +36,6 @@ function formatPercentFromFraction(value?: number) {
 function formatRatio(value?: number, suffix = "") {
     if (value === undefined || value === null || Number.isNaN(value)) return "—";
     return `${value.toFixed(2)}${suffix}`;
-}
-
-function buildSecArchiveUrl(cik?: string | number, accessionNumber?: string, primaryDocument?: string) {
-    if (!cik || !accessionNumber || !primaryDocument) return undefined;
-
-    const accPlain = accessionNumber.replace(/-/g, "");
-    const cikNumeric = Number(cik);
-
-    if (Number.isNaN(cikNumeric)) return undefined;
-
-    const cikPlain = String(cikNumeric);
-    return `https://www.sec.gov/Archives/edgar/data/${cikPlain}/${accPlain}/${primaryDocument}`;
 }
 
 function Table({ title, data }: { title: string; data: FinancialStatementEntry[] }) {

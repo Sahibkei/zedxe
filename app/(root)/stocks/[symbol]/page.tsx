@@ -64,7 +64,7 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
 
     const companyProfile = profile?.companyProfile;
     const companyName = companyProfile?.name || snapshot.company || symbolUpper;
-    const chartSymbol = profile?.chartSymbol ?? (symbolUpper.includes(":") ? symbolUpper : `NASDAQ:${symbolUpper}`);
+    const chartSymbol = profile?.chartSymbol ?? symbolUpper;
     const hasSecData = Boolean(profile);
 
     const dataSources: string[] = [];

@@ -74,7 +74,8 @@ export const getTickerMap = cache(async (): Promise<TickerMapResult> => {
 export async function getCikForTicker(ticker: string): Promise<{ cik10: string; title: string; exchange?: string }>
 {
     const map = await getTickerMap();
-    const entry = map[ticker];
+    const lookupKey = ticker?.trim().toUpperCase();
+    const entry = map[lookupKey];
 
     if (!entry) {
         throw new Error(`SEC CIK not found for ticker ${ticker}`);
@@ -92,8 +93,3 @@ export async function getCompanyFacts(cik10: string) {
     return fetchSecJson<any>(`${SEC_COMPANY_FACTS_URL}${cik10}.json`);
 }
 
-export function buildSecArchiveUrl(cik10: string | number, accessionNumber: string, primaryDocument: string) {
-    const cikPlain = String(Number(cik10));
-    const accPlain = accessionNumber.replace(/-/g, "");
-    return `https://www.sec.gov/Archives/edgar/data/${cikPlain}/${accPlain}/${primaryDocument}`;
-}

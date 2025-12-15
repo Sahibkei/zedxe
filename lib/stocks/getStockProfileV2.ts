@@ -1,11 +1,6 @@
 import { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
-import {
-    buildSecArchiveUrl,
-    getCikForTicker,
-    getCompanyFacts,
-    getSubmissions,
-    normalizeTicker,
-} from "@/lib/stocks/providers/sec";
+import { getCikForTicker, getCompanyFacts, getSubmissions, normalizeTicker } from "@/lib/stocks/providers/sec";
+import { buildSecArchiveUrl } from "@/lib/stocks/providers/secUrl";
 
 type FactValue = {
     end: string;
@@ -41,79 +36,65 @@ const ANNUAL_FORMS = ["10-K", "20-F", "40-F"];
 const QUARTERLY_FORMS = ["10-Q"];
 const RECENT_LIMIT = 10;
 const MAX_ANNUAL_YEARS = 5;
-const MAX_QUARTERS = 8;
+const MAX_QUARTERS = 12;
 
-function pickUnit(units?: Record<string, FactValue[]>, preferred: string[] = ["USD"]): FactValue[] | undefined {
-    if (!units) return undefined;
-    const unitKeys = Object.keys(units);
-
-    if (unitKeys.length === 0) return undefined;
-
-    const chosenKey = preferred.find((key) => unitKeys.includes(key)) ?? unitKeys.find((key) => key.includes("USD")) ?? unitKeys[0];
-    return chosenKey ? units[chosenKey] : undefined;
-}
-
-function getFactValues(facts: CompanyFacts, tag: string, preferredUnits?: string[], forms?: string[]): FactValue[] {
+function getFactValues(
+    facts: CompanyFacts,
+    tag: string,
+    preferredUnits: string[],
+    forms?: string[]
+): FactValue[] {
     const tagEntry = facts.facts?.["us-gaap"]?.[tag];
-    const values = pickUnit(tagEntry?.units, preferredUnits) || [];
+    const units = tagEntry?.units;
 
-    const filtered = forms?.length
-        ? values.filter((item) => !item.form || forms.includes(item.form))
-        : values;
+    if (!units) return [];
+
+    const unitKeys = Object.keys(units);
+    const chosenUnit = preferredUnits.find((unit) => unitKeys.includes(unit)) ?? unitKeys.find((key) => key.includes("USD")) ?? unitKeys[0];
+    const values = chosenUnit ? units[chosenUnit] ?? [] : [];
+
+    const filtered = forms?.length ? values.filter((item) => !item.form || forms.includes(item.form)) : values;
 
     return filtered
         .filter((item) => typeof item.val === "number" && item.end)
         .sort((a, b) => (a.end < b.end ? 1 : -1));
 }
 
-function findValueForPeriod(values: FactValue[], fy?: string, fp?: string) {
-    return values.find((item) => item.fy === fy && (fp ? item.fp === fp : true));
+function buildEndDateMap(values: FactValue[]): Map<string, number> {
+    const map = new Map<string, number>();
+
+    values
+        .filter((item) => typeof item.val === "number" && item.end)
+        .sort((a, b) => (a.end < b.end ? 1 : -1))
+        .forEach((item) => {
+            if (!map.has(item.end)) {
+                map.set(item.end, item.val);
+            }
+        });
+
+    return map;
 }
 
-function toStatementEntries(
+function selectRevenueValues(
     facts: CompanyFacts,
     forms: string[],
-    limit: number,
-    labelFormatter: (fy?: string, fp?: string) => string
-) {
-    const revenueValues = getFactValues(facts, "Revenues", ["USD"], forms) ?? [];
-    const fallbackRevenue = revenueValues.length ? revenueValues : getFactValues(facts, "SalesRevenueNet", ["USD"], forms);
-    const base = fallbackRevenue ?? [];
+    filterFn: (item: FactValue) => boolean
+): FactValue[] {
+    const revenues = getFactValues(facts, "Revenues", ["USD"], forms);
+    const revenueBase = revenues.length ? revenues : getFactValues(facts, "SalesRevenueNet", ["USD"], forms);
 
-    const yearsOrPeriods: { fy?: string; fp?: string; end: string }[] = [];
-    base.forEach((entry) => {
-        if (!yearsOrPeriods.some((item) => item.fy === entry.fy && item.fp === entry.fp)) {
-            yearsOrPeriods.push({ fy: entry.fy, fp: entry.fp, end: entry.end });
-        }
+    const filtered = revenueBase.filter(filterFn);
+
+    const uniqueByEnd: FactValue[] = [];
+    const seenEnds = new Set<string>();
+
+    filtered.forEach((item) => {
+        if (!item.end || seenEnds.has(item.end)) return;
+        uniqueByEnd.push(item);
+        seenEnds.add(item.end);
     });
 
-    yearsOrPeriods.sort((a, b) => (a.end < b.end ? 1 : -1));
-
-    const selected = yearsOrPeriods.slice(0, limit);
-
-    const grossProfitValues = getFactValues(facts, "GrossProfit", ["USD"], forms) ?? [];
-    const operatingIncomeValues = getFactValues(facts, "OperatingIncomeLoss", ["USD"], forms) ?? [];
-    const netIncomeValues = getFactValues(facts, "NetIncomeLoss", ["USD"], forms) ?? [];
-    const epsValues =
-        getFactValues(facts, "EarningsPerShareDiluted", ["USD/shares", "USD/share", "USD"], forms) ?? [];
-
-    return selected.map((period) => {
-        const revenue = findValueForPeriod(base, period.fy, period.fp);
-        const grossProfit = findValueForPeriod(grossProfitValues, period.fy, period.fp);
-        const operatingIncome = findValueForPeriod(operatingIncomeValues, period.fy, period.fp);
-        const netIncome = findValueForPeriod(netIncomeValues, period.fy, period.fp);
-        const eps = findValueForPeriod(epsValues, period.fy, period.fp);
-
-        return {
-            fiscalDate: period.end,
-            fiscalYear: labelFormatter(period.fy, period.fp),
-            revenue: revenue?.val,
-            grossProfit: grossProfit?.val,
-            operatingIncome: operatingIncome?.val,
-            netIncome: netIncome?.val,
-            eps: eps?.val,
-        };
-    });
+    return uniqueByEnd.sort((a, b) => (a.end < b.end ? 1 : -1));
 }
 
 function mapFilings(submissions: Submissions | undefined, cik10: string) {
@@ -174,7 +155,7 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
     }
 
     const upperSymbol = normalizedSymbol.toUpperCase();
-    const chartSymbol = normalizedSymbol.includes(":") ? upperSymbol : `NASDAQ:${upperSymbol}`;
+    const chartSymbol = normalizedSymbol.includes(":") ? upperSymbol : upperSymbol;
     const tickerForSec = normalizeTicker(upperSymbol);
 
     const { cik10, title, exchange } = await getCikForTicker(tickerForSec);
@@ -190,19 +171,72 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
 
     const filings = mapFilings(submissions, cik10);
 
-    const annual = toStatementEntries(
-        companyFacts,
-        ANNUAL_FORMS,
-        MAX_ANNUAL_YEARS,
-        (fy) => (fy ? `FY ${fy}` : "FY")
+    const annualRevenueValues = selectRevenueValues(companyFacts, ANNUAL_FORMS, (item) => item.fp === "FY");
+    const annualRevenueMap = buildEndDateMap(annualRevenueValues);
+    const annualGrossProfitMap = buildEndDateMap(
+        getFactValues(companyFacts, "GrossProfit", ["USD"], ANNUAL_FORMS).filter((item) => item.fp === "FY")
+    );
+    const annualOperatingIncomeMap = buildEndDateMap(
+        getFactValues(companyFacts, "OperatingIncomeLoss", ["USD"], ANNUAL_FORMS).filter((item) => item.fp === "FY")
+    );
+    const annualNetIncomeMap = buildEndDateMap(
+        getFactValues(companyFacts, "NetIncomeLoss", ["USD"], ANNUAL_FORMS).filter((item) => item.fp === "FY")
+    );
+    const annualEpsMap = buildEndDateMap(
+        getFactValues(companyFacts, "EarningsPerShareDiluted", ["USD/shares", "USD / shares", "USD/share", "USD"], ANNUAL_FORMS)
+            .filter((item) => item.fp === "FY")
     );
 
-    const quarterLabel = (fy?: string, fp?: string) => {
-        const quarter = fp;
-        return [fy, quarter].filter(Boolean).join(" ") || "Quarter";
-    };
+    const annual = annualRevenueValues.slice(0, MAX_ANNUAL_YEARS).map((entry) => ({
+        fiscalDate: entry.end,
+        fiscalYear: entry.end ? `FY ${entry.end.slice(0, 4)}` : "FY",
+        revenue: annualRevenueMap.get(entry.end),
+        grossProfit: annualGrossProfitMap.get(entry.end),
+        operatingIncome: annualOperatingIncomeMap.get(entry.end),
+        netIncome: annualNetIncomeMap.get(entry.end),
+        eps: annualEpsMap.get(entry.end),
+    }));
 
-    const quarterly = toStatementEntries(companyFacts, QUARTERLY_FORMS, MAX_QUARTERS, quarterLabel);
+    const quarterlyRevenueValues = selectRevenueValues(
+        companyFacts,
+        QUARTERLY_FORMS,
+        (item) => typeof item.fp === "string" && item.fp.startsWith("Q")
+    );
+    const quarterlyRevenueMap = buildEndDateMap(quarterlyRevenueValues);
+    const quarterlyGrossProfitMap = buildEndDateMap(
+        getFactValues(companyFacts, "GrossProfit", ["USD"], QUARTERLY_FORMS).filter(
+            (item) => typeof item.fp === "string" && item.fp.startsWith("Q")
+        )
+    );
+    const quarterlyOperatingIncomeMap = buildEndDateMap(
+        getFactValues(companyFacts, "OperatingIncomeLoss", ["USD"], QUARTERLY_FORMS).filter(
+            (item) => typeof item.fp === "string" && item.fp.startsWith("Q")
+        )
+    );
+    const quarterlyNetIncomeMap = buildEndDateMap(
+        getFactValues(companyFacts, "NetIncomeLoss", ["USD"], QUARTERLY_FORMS).filter(
+            (item) => typeof item.fp === "string" && item.fp.startsWith("Q")
+        )
+    );
+    const quarterlyEpsMap = buildEndDateMap(
+        getFactValues(
+            companyFacts,
+            "EarningsPerShareDiluted",
+            ["USD/shares", "USD / shares", "USD/share", "USD"],
+            QUARTERLY_FORMS
+        )
+            .filter((item) => typeof item.fp === "string" && item.fp.startsWith("Q"))
+    );
+
+    const quarterly = quarterlyRevenueValues.slice(0, MAX_QUARTERS).map((entry) => ({
+        fiscalDate: entry.end,
+        fiscalYear: `${entry.end?.slice(0, 4) ?? entry.fy ?? ""} ${entry.fp ?? "Quarter"}`.trim(),
+        revenue: quarterlyRevenueMap.get(entry.end),
+        grossProfit: quarterlyGrossProfitMap.get(entry.end),
+        operatingIncome: quarterlyOperatingIncomeMap.get(entry.end),
+        netIncome: quarterlyNetIncomeMap.get(entry.end),
+        eps: quarterlyEpsMap.get(entry.end),
+    }));
 
     const profile: StockProfileV2Model = {
         companyProfile: {
