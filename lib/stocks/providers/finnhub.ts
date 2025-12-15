@@ -2,6 +2,10 @@ const FINNHUB_BASE = "https://finnhub.io/api/v1";
 
 type FinnhubParams = Record<string, string | number | undefined>;
 
+type FinnhubFetchOptions = {
+    timeoutMs?: number;
+};
+
 export type FinnhubIncomeRow = {
     periodKey: string;
     periodLabel: string;
@@ -15,7 +19,13 @@ export type FinnhubIncomeRow = {
     endDate?: string;
 };
 
-async function finnhubFetch(path: string, params: FinnhubParams) {
+const DEFAULT_TIMEOUT_MS = 10_000;
+
+export async function finnhubFetch<T>(
+    path: string,
+    params: FinnhubParams,
+    opts?: FinnhubFetchOptions,
+): Promise<T> {
     const apiKey = process.env.FINNHUB_API_KEY;
 
     if (!apiKey) {
@@ -31,9 +41,10 @@ async function finnhubFetch(path: string, params: FinnhubParams) {
     searchParams.set("token", apiKey);
 
     const url = `${FINNHUB_BASE}${path}?${searchParams.toString()}`;
+    const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     const response = await fetch(url, {
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (!response.ok) {
@@ -41,38 +52,36 @@ async function finnhubFetch(path: string, params: FinnhubParams) {
         throw new Error(`Finnhub request failed (${response.status}) for ${path}: ${bodySnippet.slice(0, 200)}`);
     }
 
-    return response.json();
+    return response.json() as Promise<T>;
 }
 
-export async function getFinnhubProfile(ticker: string) {
-    return finnhubFetch("/stock/profile2", { symbol: ticker });
+export async function getFinnhubCompanyProfile(symbol: string) {
+    return finnhubFetch("/stock/profile2", { symbol });
 }
 
-export async function getFinnhubQuote(ticker: string) {
-    return finnhubFetch("/quote", { symbol: ticker });
+export async function getFinnhubQuote(symbol: string) {
+    return finnhubFetch("/quote", { symbol });
 }
 
-export async function getFinnhubBasicFinancials(ticker: string) {
-    return finnhubFetch("/stock/metric", { symbol: ticker, metric: "all" });
+export async function getFinnhubBasicFinancials(symbol: string) {
+    return finnhubFetch("/stock/metric", { symbol, metric: "all" });
 }
 
 export async function getFinancialsReported(
     ticker: string,
-    freq: "annual" | "quarterly"
+    freq: "annual" | "quarterly",
 ): Promise<
     | { ok: true; data: any[] }
     | { ok: false; reason: "restricted_or_empty"; status?: number; hint?: string; data?: any }
 > {
     const apiKey = process.env.FINNHUB_API_KEY;
-
     if (!apiKey) {
         throw new Error("FINNHUB_API_KEY environment variable is required to fetch Finnhub data");
     }
 
     const searchParams = new URLSearchParams({ symbol: ticker, freq, token: apiKey });
     const url = `${FINNHUB_BASE}/stock/financials-reported?${searchParams.toString()}`;
-
-    const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
+    const response = await fetch(url, { signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS) });
     const status = response.status;
 
     let json: any = null;
@@ -99,28 +108,39 @@ export async function getFinancialsReported(
     return { ok: true, data };
 }
 
-export async function tryGetFinnhubFinancials(
-    ticker: string,
-    statement: "ic" | "bs" | "cf",
-    freq: "annual" | "quarterly"
-): Promise<{ source: "financials" | "financials-reported"; raw: any } | null> {
-    try {
-        const data = await finnhubFetch("/stock/financials", { symbol: ticker, statement, freq });
-        return { source: "financials", raw: data };
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        // fall back to financials-reported if primary endpoint is unavailable (e.g., plan limits)
-        try {
-            const data = await finnhubFetch("/stock/financials-reported", { symbol: ticker, freq });
-            return { source: "financials-reported", raw: data };
-        } catch (fallbackError) {
-            throw new Error(
-                `Unable to fetch Finnhub financials (${statement}/${freq}). Primary error: ${message}. Fallback error: ${
-                    fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
-                }`
-            );
-        }
-    }
+export async function getFinnhubAnnualFinancials(ticker: string, years = 5) {
+    const res = await getFinancialsReported(ticker, "annual");
+    if (!res.ok) return res;
+
+    const rows = parseIncomeStatementRowsFromReported(res.data, "annual")
+        .filter((row) => row.quarter === 0)
+        .sort((a, b) => b.year - a.year)
+        .reduce<FinnhubIncomeRow[]>((acc, row) => {
+            if (acc.find((existing) => existing.periodKey === row.periodKey)) return acc;
+            if (acc.length < years) acc.push(row);
+            return acc;
+        }, []);
+
+    return { ok: true, data: rows, raw: res.data as any[] } as const;
+}
+
+export async function getFinnhubQuarterlyFinancials(ticker: string, quarters = 12) {
+    const res = await getFinancialsReported(ticker, "quarterly");
+    if (!res.ok) return res;
+
+    const rows = parseIncomeStatementRowsFromReported(res.data, "quarterly")
+        .filter((row) => row.quarter > 0)
+        .sort((a, b) => {
+            if (a.year === b.year) return (b.quarter ?? 0) - (a.quarter ?? 0);
+            return b.year - a.year;
+        })
+        .reduce<FinnhubIncomeRow[]>((acc, row) => {
+            if (acc.find((existing) => existing.periodKey === row.periodKey)) return acc;
+            if (acc.length < quarters) acc.push(row);
+            return acc;
+        }, []);
+
+    return { ok: true, data: rows, raw: res.data as any[] } as const;
 }
 
 function normalizeKey(value?: string) {
@@ -144,7 +164,7 @@ function findConcept(
     lines: any[] | undefined,
     concepts: string[],
     labels: string[],
-    unitAllowlist?: string[]
+    unitAllowlist?: string[],
 ): number | undefined {
     if (!Array.isArray(lines)) return undefined;
 
@@ -155,8 +175,8 @@ function findConcept(
         const conceptKey = normalizeKey(line?.concept);
         const labelKey = normalizeKey(line?.label);
 
-        const matchesConcept = conceptKey && conceptKeys.includes(conceptKey);
-        const matchesLabel = labelKey && labelKeys.includes(labelKey);
+        const matchesConcept = conceptKey && conceptKeys.some((key) => conceptKey === key || conceptKey.includes(key));
+        const matchesLabel = labelKey && labelKeys.some((key) => labelKey === key || labelKey.includes(key));
 
         if (!matchesConcept && !matchesLabel) continue;
         if (unitAllowlist && line?.unit && !unitAllowlist.includes(line.unit)) continue;
@@ -175,7 +195,7 @@ function findConcept(
     return undefined;
 }
 
-export function parseIncomeStatementRowsFromReported(data: any[], freq: "annual" | "quarterly"): FinnhubIncomeRow[] {
+export function parseIncomeStatementRowsFromReported(data: any[], _freq: "annual" | "quarterly"): FinnhubIncomeRow[] {
     if (!Array.isArray(data)) return [];
 
     const preferredRevenueUnits = ["USD"];
@@ -196,27 +216,29 @@ export function parseIncomeStatementRowsFromReported(data: any[], freq: "annual"
                 [
                     "us-gaap_Revenues",
                     "Revenues",
+                    "Revenue",
                     "SalesRevenueNet",
                     "RevenueFromContractWithCustomerExcludingAssessedTax",
+                    "TotalRevenue",
                 ],
-                ["Total revenue", "Net sales", "Revenue"],
-                preferredRevenueUnits
+                ["Total revenue", "Net sales", "Revenue", "Sales"],
+                preferredRevenueUnits,
             );
 
             const grossProfit = findConcept(icLines, ["us-gaap_GrossProfit", "GrossProfit"], ["Gross profit"], preferredRevenueUnits);
 
             const operatingIncome = findConcept(
                 icLines,
-                ["us-gaap_OperatingIncomeLoss", "OperatingIncomeLoss"],
+                ["us-gaap_OperatingIncomeLoss", "OperatingIncomeLoss", "OperatingIncome"],
                 ["Operating income", "Income from operations"],
-                preferredRevenueUnits
+                preferredRevenueUnits,
             );
 
             const netIncome = findConcept(
                 icLines,
-                ["us-gaap_NetIncomeLoss", "NetIncomeLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"],
-                ["Net income", "Net income (loss)"],
-                preferredRevenueUnits
+                ["us-gaap_NetIncomeLoss", "NetIncomeLoss", "NetIncomeLossAvailableToCommonStockholdersBasic", "ProfitLoss"],
+                ["Net income", "Net income (loss)", "Profit"],
+                preferredRevenueUnits,
             );
 
             const eps = findConcept(
@@ -228,7 +250,7 @@ export function parseIncomeStatementRowsFromReported(data: any[], freq: "annual"
                     "EarningsPerShareBasic",
                 ],
                 ["Earnings per share", "EPS diluted", "EPS basic"],
-                preferredEpsUnits
+                preferredEpsUnits,
             );
 
             return {
@@ -246,3 +268,4 @@ export function parseIncomeStatementRowsFromReported(data: any[], freq: "annual"
         })
         .filter(Boolean) as FinnhubIncomeRow[];
 }
+

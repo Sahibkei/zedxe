@@ -1,11 +1,11 @@
 import { FinancialStatementEntry, StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
 import {
     FinnhubIncomeRow,
-    getFinancialsReported,
+    getFinnhubAnnualFinancials,
     getFinnhubBasicFinancials,
-    getFinnhubProfile,
+    getFinnhubCompanyProfile,
+    getFinnhubQuarterlyFinancials,
     getFinnhubQuote,
-    parseIncomeStatementRowsFromReported,
 } from "@/lib/stocks/providers/finnhub";
 import { getCikForTicker, getCompanyFacts, getSubmissions, normalizeTicker } from "@/lib/stocks/providers/sec";
 import { buildSecArchiveUrl } from "@/lib/stocks/providers/secUrl";
@@ -29,20 +29,29 @@ function coalesceNumber(...values: Array<number | null | undefined>) {
     return undefined;
 }
 
-function normalizeChartSymbol(input: string): { ticker: string; chartSymbol: string } {
-    const trimmed = input.trim().toUpperCase();
+function normalizeSymbolInput(input: string): { ticker: string; providedChartSymbol?: string } {
+    const trimmed = input.trim();
 
     if (!trimmed) {
         throw new Error("Symbol is required for stock profile lookup");
     }
 
     if (trimmed.includes(":")) {
-        const [, tickerPart] = trimmed.split(":");
-        const ticker = (tickerPart ?? trimmed).toUpperCase();
-        return { ticker, chartSymbol: trimmed };
+        const [maybeExchange, tickerPart] = trimmed.split(":");
+        const ticker = (tickerPart ?? maybeExchange ?? trimmed).toUpperCase();
+        return { ticker, providedChartSymbol: trimmed.toUpperCase() };
     }
 
-    return { ticker: trimmed, chartSymbol: trimmed };
+    return { ticker: trimmed.toUpperCase() };
+}
+
+function mapExchangeToTradingView(exchange?: string) {
+    if (!exchange) return "NASDAQ";
+    const upper = exchange.toUpperCase();
+    if (upper.includes("NASDAQ")) return "NASDAQ";
+    if (upper.includes("NYSE")) return "NYSE";
+    if (upper.includes("AMEX") || upper.includes("AMERICAN")) return "AMEX";
+    return "NASDAQ";
 }
 
 function mapFilings(submissions: any | undefined, cik10: string) {
@@ -239,7 +248,7 @@ function mapFinnhubRows(rows: FinnhubIncomeRow[], limit: number): FinancialState
 }
 
 export async function getStockProfileV2(symbol: string): Promise<StockProfileV2Model> {
-    const { ticker, chartSymbol } = normalizeChartSymbol(symbol);
+    const { ticker, providedChartSymbol } = normalizeSymbolInput(symbol);
     const tickerForSec = normalizeTicker(ticker);
 
     let finnhubProfile: any | null = null;
@@ -254,11 +263,11 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
     if (process.env.FINNHUB_API_KEY) {
         try {
             const [profileRes, quoteRes, basicsRes, annualRes, quarterlyRes] = await Promise.all([
-                getFinnhubProfile(ticker),
+                getFinnhubCompanyProfile(ticker),
                 getFinnhubQuote(ticker),
                 getFinnhubBasicFinancials(ticker),
-                getFinancialsReported(ticker, "annual"),
-                getFinancialsReported(ticker, "quarterly"),
+                getFinnhubAnnualFinancials(ticker, MAX_ANNUAL_YEARS + 2),
+                getFinnhubQuarterlyFinancials(ticker, MAX_QUARTERS + 2),
             ]);
 
             finnhubProfile = profileRes;
@@ -266,15 +275,13 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
             finnhubBasics = basicsRes;
 
             if (annualRes.ok) {
-                finnhubAnnualRows = parseIncomeStatementRowsFromReported(annualRes.data, "annual").filter((row) => row.quarter === 0);
+                finnhubAnnualRows = annualRes.data;
             } else {
                 financialsWarning = annualRes.hint ?? "Finnhub annual financials unavailable.";
             }
 
             if (quarterlyRes.ok) {
-                finnhubQuarterlyRows = parseIncomeStatementRowsFromReported(quarterlyRes.data, "quarterly").filter(
-                    (row) => row.quarter > 0
-                );
+                finnhubQuarterlyRows = quarterlyRes.data;
             } else {
                 financialsWarning = financialsWarning ?? quarterlyRes.hint ?? "Finnhub quarterly financials unavailable.";
             }
@@ -310,35 +317,42 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
     const hasFinnhubAnnual = finnhubAnnualRows.length > 0;
     const hasFinnhubQuarterly = finnhubQuarterlyRows.length > 0;
 
-    if (hasFinnhubAnnual && hasFinnhubQuarterly) {
+    if (hasFinnhubAnnual) {
         annualSeries = mapFinnhubRows(finnhubAnnualRows, MAX_ANNUAL_YEARS);
+    }
+    if (hasFinnhubQuarterly) {
         quarterlySeries = mapFinnhubRows(finnhubQuarterlyRows, MAX_QUARTERS);
-    } else {
-        financialsSource = "SEC_XBRL";
+    }
+
+    let usedSecFallback = false;
+
+    if ((!hasFinnhubAnnual || !hasFinnhubQuarterly) && cik10) {
+        try {
+            secFacts = await getCompanyFacts(cik10);
+            const secSeries = buildSecFinancials(secFacts);
+
+            if (!hasFinnhubAnnual && secSeries.annual.length > 0) {
+                annualSeries = secSeries.annual;
+                usedSecFallback = true;
+            }
+
+            if (!hasFinnhubQuarterly && secSeries.quarterly.length > 0) {
+                quarterlySeries = secSeries.quarterly;
+                usedSecFallback = true;
+            }
+
+            if (usedSecFallback && !financialsWarning) {
+                financialsWarning = "Finnhub financials unavailable; showing SEC XBRL fallback.";
+            }
+        } catch (error) {
+            secError = secError ?? (error instanceof Error ? error.message : String(error));
+        }
+    }
+
+    if (!hasFinnhubAnnual || !hasFinnhubQuarterly) {
+        financialsSource = usedSecFallback ? "SEC_XBRL" : "FINNHUB_REPORTED";
         if (!financialsWarning && finnhubError) {
             financialsWarning = finnhubError;
-        }
-        if (cik10) {
-            try {
-                secFacts = await getCompanyFacts(cik10);
-                const secSeries = buildSecFinancials(secFacts);
-                annualSeries = secSeries.annual;
-                quarterlySeries = secSeries.quarterly;
-                if (!financialsWarning) {
-                    financialsWarning = "Finnhub financials unavailable; showing SEC XBRL fallback.";
-                }
-            } catch (error) {
-                secError = secError ?? (error instanceof Error ? error.message : String(error));
-            }
-        }
-
-        if (annualSeries.length === 0 && hasFinnhubAnnual) {
-            financialsSource = "FINNHUB_REPORTED";
-            annualSeries = mapFinnhubRows(finnhubAnnualRows, MAX_ANNUAL_YEARS);
-        }
-        if (quarterlySeries.length === 0 && hasFinnhubQuarterly) {
-            financialsSource = "FINNHUB_REPORTED";
-            quarterlySeries = mapFinnhubRows(finnhubQuarterlyRows, MAX_QUARTERS);
         }
     }
 
@@ -348,6 +362,10 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
 
     const filings = cik10 ? mapFilings(submissions, cik10) : { latest10K: undefined, latest10Q: undefined, recent: [] };
     const ratios = mapRatios(finnhubBasics?.metric);
+
+    const chartSymbol = providedChartSymbol
+        ? providedChartSymbol
+        : `${mapExchangeToTradingView(finnhubProfile?.exchange ?? secExchange)}:${ticker}`;
 
     const profile: StockProfileV2Model = {
         companyProfile: {
@@ -402,6 +420,20 @@ export async function getStockProfileV2(symbol: string): Promise<StockProfileV2M
             secError,
         },
     };
+
+    if (process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.debug("getStockProfileV2", {
+            ticker,
+            financialsSource,
+            hasFinnhubAnnual,
+            hasFinnhubQuarterly,
+            usedSecFallback,
+            financialsWarning,
+            finnhubError,
+            secError,
+        });
+    }
 
     return profile;
 }
