@@ -86,18 +86,18 @@ export function FinancialStatementTable({ grid, fallbackCurrency, expanded, onTo
         rows.flatMap((row) => {
             const hasChildren = Boolean(row.children?.length);
             const isExpanded = expandedRows.has(row.id);
-            const paddingLeft = depth * 16 + 12;
+            const paddingLeft = depth * 16 + 16;
 
             const currentRow = (
                 <tr
                     key={`${row.id}-${depth}`}
                     className={cn(
                         "border-b border-border/40 last:border-b-0 transition-colors",
-                        "odd:bg-card/40 even:bg-card/25 hover:bg-card/60"
+                        "odd:bg-card/50 even:bg-card/40 hover:bg-muted/10"
                     )}
                 >
                     <td
-                        className="sticky left-0 z-10 bg-card/80 px-4 py-2.5 text-left backdrop-blur"
+                        className="sticky left-0 z-10 bg-card/90 px-4 py-2.5 text-left shadow-[4px_0_8px_rgba(0,0,0,0.25)] backdrop-blur"
                         style={{ paddingLeft: `${paddingLeft}px` }}
                     >
                         <div className="flex items-center gap-2">
@@ -105,7 +105,7 @@ export function FinancialStatementTable({ grid, fallbackCurrency, expanded, onTo
                                 <button
                                     type="button"
                                     onClick={() => onToggleRow?.(row.id)}
-                                    className="flex h-6 w-6 items-center justify-center rounded hover:bg-muted/40"
+                                    className="flex h-6 w-6 items-center justify-center rounded-md border border-border/50 bg-card/80 hover:bg-muted/40"
                                     aria-expanded={isExpanded}
                                 >
                                     {isExpanded ? (
@@ -150,16 +150,18 @@ export function FinancialStatementTable({ grid, fallbackCurrency, expanded, onTo
             <p className="text-xs text-muted-foreground">
                 All values in {currencyLabel}{scaleLabel} unless stated otherwise
             </p>
-            <div className="overflow-hidden rounded-lg border border-border/60 bg-card shadow-sm">
+            <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-lg">
                 <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                        <thead className="sticky top-0 z-20 bg-card/90 backdrop-blur">
+                    <table className="min-w-[960px] text-sm">
+                        <thead className="sticky top-0 z-20 bg-card/95 backdrop-blur">
                             <tr className="border-b border-border/60 text-xs uppercase tracking-wide text-muted-foreground">
-                                <th className="sticky left-0 z-20 bg-card/90 px-4 py-2.5 text-left font-semibold">Breakdown</th>
+                                <th className="sticky left-0 z-20 bg-card/95 px-4 py-3 text-left font-semibold shadow-[4px_0_8px_rgba(0,0,0,0.25)]">
+                                    Breakdown
+                                </th>
                                 {grid.columns.map((column) => (
                                     <th
                                         key={column.key}
-                                        className="px-4 py-2.5 text-right font-semibold whitespace-nowrap"
+                                        className="px-4 py-3 text-right font-semibold whitespace-nowrap"
                                         scope="col"
                                     >
                                         {column.label}
