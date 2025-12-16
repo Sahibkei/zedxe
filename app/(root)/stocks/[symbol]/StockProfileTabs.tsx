@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
-import { formatMarketCapValue } from "@/lib/utils";
+import { cn, formatMarketCapValue } from "@/lib/utils";
 import { formatCompactFinancialValue } from "@/utils/formatters";
-import { FinancialStatementTable } from "./components/FinancialStatementTable";
+import { FinancialStatementTable, collectExpandableIds } from "./components/FinancialStatementTable";
 
 const tabList = [
     { key: "overview", label: "Overview" },
@@ -159,7 +159,18 @@ function FinancialTable({
 
 function FinancialsTab({ profile }: { profile: StockProfileV2Model }) {
     const [financialView, setFinancialView] = useState<'summary' | 'income' | 'balance' | 'cashflow'>("summary");
+    const [expandedState, setExpandedState] = useState<Record<string, Set<string>>>({});
     const statements = profile.financials.statements;
+
+    const financialOptions = useMemo(
+        () => [
+            { key: "summary", label: "Summary" },
+            { key: "income", label: "Income" },
+            { key: "balance", label: "Balance Sheet" },
+            { key: "cashflow", label: "Cash Flow" },
+        ],
+        []
+    );
 
     const activeGrid =
         financialView === "income"
@@ -170,40 +181,59 @@ function FinancialsTab({ profile }: { profile: StockProfileV2Model }) {
                 ? statements?.cashFlow
                 : undefined;
 
-    const caption = (currency?: string) => {
-        if (currency && currency.toUpperCase() === "USD") {
-            return "All figures in USD unless stated otherwise";
-        }
-        if (currency) {
-            return `All figures in report currency (${currency.toUpperCase()}) unless stated otherwise`;
-        }
-        return "All figures in report currency";
+    useEffect(() => {
+        setExpandedState({});
+    }, [profile.finnhubSymbol]);
+
+    useEffect(() => {
+        if (!activeGrid) return;
+        setExpandedState((prev) => {
+            if (prev[financialView]) return prev;
+            return { ...prev, [financialView]: collectExpandableIds(activeGrid.rows) };
+        });
+    }, [activeGrid, financialView]);
+
+    const handleToggleRow = (rowId: string) => {
+        setExpandedState((prev) => {
+            const current = prev[financialView]
+                ? new Set(prev[financialView])
+                : collectExpandableIds(activeGrid?.rows || []);
+
+            if (current.has(rowId)) {
+                current.delete(rowId);
+            } else {
+                current.add(rowId);
+            }
+
+            return { ...prev, [financialView]: current };
+        });
     };
+
+    const currentExpanded = expandedState[financialView];
 
     return (
         <div className="space-y-4">
-            <div className="inline-flex flex-wrap gap-2 rounded-md bg-muted/40 p-1 text-sm">
-                {[
-                    { key: "summary", label: "Summary" },
-                    { key: "income", label: "Income" },
-                    { key: "balance", label: "Balance Sheet" },
-                    { key: "cashflow", label: "Cash Flow" },
-                ].map((option) => {
-                    const isActive = financialView === option.key;
-                    return (
-                        <button
-                            key={option.key}
-                            onClick={() => setFinancialView(option.key as typeof financialView)}
-                            className={`rounded-md px-3 py-1 transition-colors ${
-                                isActive
-                                    ? "bg-card shadow text-foreground"
-                                    : "text-muted-foreground hover:text-foreground"
-                            }`}
-                        >
-                            {option.label}
-                        </button>
-                    );
-                })}
+            <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex flex-wrap gap-1 rounded-xl border border-border/60 bg-card/60 p-1 text-sm">
+                    {financialOptions.map((option) => {
+                        const isActive = financialView === option.key;
+                        return (
+                            <button
+                                key={option.key}
+                                onClick={() => setFinancialView(option.key as typeof financialView)}
+                                className={cn(
+                                    "rounded-lg px-3 py-1.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                                    isActive
+                                        ? "bg-primary/10 text-foreground shadow-sm ring-1 ring-primary/40"
+                                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                                )}
+                                type="button"
+                            >
+                                {option.label}
+                            </button>
+                        );
+                    })}
+                </div>
             </div>
 
             {financialView === "summary" ? (
@@ -226,10 +256,12 @@ function FinancialsTab({ profile }: { profile: StockProfileV2Model }) {
                     </div>
                 </div>
             ) : (
-                <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">{caption(activeGrid?.currency || profile.company.currency)}</p>
-                    <FinancialStatementTable grid={activeGrid} fallbackCurrency={profile.company.currency} />
-                </div>
+                <FinancialStatementTable
+                    grid={activeGrid}
+                    fallbackCurrency={profile.company.currency}
+                    expanded={currentExpanded}
+                    onToggleRow={handleToggleRow}
+                />
             )}
         </div>
     );

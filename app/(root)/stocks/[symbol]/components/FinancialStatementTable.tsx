@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useMemo } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import type { StatementGrid, StatementRow, StatementValueType } from "@/lib/stocks/stockProfileV2.types";
 import { formatCompactFinancialValue } from "@/utils/formatters";
 
@@ -19,7 +21,7 @@ const formatStatementValue = (value: number | undefined, type: StatementValueTyp
     return formatCompactFinancialValue(value, currency);
 };
 
-const collectExpandableIds = (rows: StatementRow[]): Set<string> => {
+export const collectExpandableIds = (rows: StatementRow[]): Set<string> => {
     const ids = new Set<string>();
     const walk = (items: StatementRow[]) => {
         items.forEach((row) => {
@@ -34,64 +36,105 @@ const collectExpandableIds = (rows: StatementRow[]): Set<string> => {
     return ids;
 };
 
-export function FinancialStatementTable({ grid, fallbackCurrency }: { grid?: StatementGrid; fallbackCurrency?: string }) {
-    const currency = grid?.currency ?? fallbackCurrency;
-    const [expanded, setExpanded] = useState<Set<string>>(() => collectExpandableIds(grid?.rows || []));
+const getDisplayScale = (grid?: StatementGrid) => {
+    if (!grid) return "";
 
-    useEffect(() => {
-        setExpanded(collectExpandableIds(grid?.rows || []));
-    }, [grid?.rows]);
+    const findFirstValue = (rows: StatementRow[]): number | undefined => {
+        for (const row of rows) {
+            const values = Object.values(row.valuesByColumnKey).filter((val) => val !== undefined);
+            if (values.length) return values[0];
+            if (row.children?.length) {
+                const childVal = findFirstValue(row.children);
+                if (childVal !== undefined) return childVal;
+            }
+        }
+        return undefined;
+    };
+
+    const sampleValue = findFirstValue(grid.rows);
+    if (sampleValue === undefined || Number.isNaN(sampleValue)) return "";
+
+    const magnitude = Math.abs(sampleValue);
+    if (magnitude >= 1e12) return "(T)";
+    if (magnitude >= 1e9) return "(B)";
+    if (magnitude >= 1e6) return "(M)";
+    if (magnitude >= 1e3) return "(K)";
+    return "";
+};
+
+type FinancialStatementTableProps = {
+    grid?: StatementGrid;
+    fallbackCurrency?: string;
+    expanded?: Set<string>;
+    onToggleRow?: (id: string) => void;
+};
+
+export function FinancialStatementTable({ grid, fallbackCurrency, expanded, onToggleRow }: FinancialStatementTableProps) {
+    const currency = grid?.currency ?? fallbackCurrency;
+    const displayScale = useMemo(() => getDisplayScale(grid), [grid]);
+    const expandedRows = expanded ?? new Set<string>();
 
     if (!grid || grid.rows.length === 0) {
-        return <p className="text-sm text-muted-foreground">No data available.</p>;
+        return (
+            <div className="rounded-lg border border-border/60 bg-card/60 px-4 py-10 text-center text-sm text-muted-foreground">
+                No data available for this statement.
+            </div>
+        );
     }
-
-    const toggleRow = (id: string) => {
-        setExpanded((prev) => {
-            const next = new Set(prev);
-            if (next.has(id)) {
-                next.delete(id);
-            } else {
-                next.add(id);
-            }
-            return next;
-        });
-    };
 
     const renderRows = (rows: StatementRow[], depth = 0): React.ReactNode[] =>
         rows.flatMap((row) => {
             const hasChildren = Boolean(row.children?.length);
-            const isExpanded = expanded.has(row.id);
+            const isExpanded = expandedRows.has(row.id);
             const paddingLeft = depth * 16 + 12;
 
             const currentRow = (
-                <tr key={`${row.id}-${depth}`} className="border-b last:border-b-0">
+                <tr
+                    key={`${row.id}-${depth}`}
+                    className={cn(
+                        "border-b border-border/40 last:border-b-0 transition-colors",
+                        "odd:bg-card/40 even:bg-card/25 hover:bg-card/60"
+                    )}
+                >
                     <td
-                        className="sticky left-0 bg-card px-3 py-2 text-left"
+                        className="sticky left-0 z-10 bg-card/80 px-4 py-2.5 text-left backdrop-blur"
                         style={{ paddingLeft: `${paddingLeft}px` }}
                     >
                         <div className="flex items-center gap-2">
                             {hasChildren ? (
                                 <button
                                     type="button"
-                                    onClick={() => toggleRow(row.id)}
-                                    className="text-xs text-muted-foreground hover:text-foreground"
+                                    onClick={() => onToggleRow?.(row.id)}
+                                    className="flex h-6 w-6 items-center justify-center rounded hover:bg-muted/40"
                                     aria-expanded={isExpanded}
-                                    aria-controls={`${row.id}-children`}
                                 >
-                                    {isExpanded ? "▾" : "▸"}
+                                    {isExpanded ? (
+                                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                    ) : (
+                                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                    )}
                                 </button>
                             ) : (
-                                <span className="inline-block w-3" />
+                                <span className="inline-block h-6 w-6" />
                             )}
-                            <span className="font-medium">{row.label}</span>
+                            <span className={cn("font-medium", depth > 0 && "text-muted-foreground")}>{row.label}</span>
                         </div>
                     </td>
-                    {grid.columns.map((column) => (
-                        <td key={column.key} className="px-3 py-2 text-right align-middle whitespace-nowrap">
-                            {formatStatementValue(row.valuesByColumnKey[column.key], row.valueType, currency)}
-                        </td>
-                    ))}
+                    {grid.columns.map((column) => {
+                        const value = row.valuesByColumnKey[column.key];
+                        const isValueNegative = typeof value === "number" && value < 0;
+                        return (
+                            <td
+                                key={column.key}
+                                className={cn(
+                                    "px-4 py-2.5 text-right align-middle whitespace-nowrap tabular-nums",
+                                    isValueNegative && "text-rose-300"
+                                )}
+                            >
+                                {formatStatementValue(value, row.valueType, currency)}
+                            </td>
+                        );
+                    })}
                 </tr>
             );
 
@@ -99,25 +142,35 @@ export function FinancialStatementTable({ grid, fallbackCurrency }: { grid?: Sta
             return [currentRow, ...childRows];
         });
 
+    const currencyLabel = currency?.toUpperCase() || "report currency";
+    const scaleLabel = displayScale ? ` ${displayScale}` : "";
+
     return (
-        <div className="relative overflow-x-auto">
-            <table className="min-w-full text-sm">
-                <thead>
-                    <tr className="border-b text-muted-foreground">
-                        <th className="sticky left-0 bg-card px-3 py-2 text-left font-normal">Breakdown</th>
-                        {grid.columns.map((column) => (
-                            <th
-                                key={column.key}
-                                className="px-3 py-2 text-right font-normal whitespace-nowrap"
-                                scope="col"
-                            >
-                                {column.label}
-                            </th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>{renderRows(grid.rows)}</tbody>
-            </table>
+        <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+                All values in {currencyLabel}{scaleLabel} unless stated otherwise
+            </p>
+            <div className="overflow-hidden rounded-lg border border-border/60 bg-card shadow-sm">
+                <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                        <thead className="sticky top-0 z-20 bg-card/90 backdrop-blur">
+                            <tr className="border-b border-border/60 text-xs uppercase tracking-wide text-muted-foreground">
+                                <th className="sticky left-0 z-20 bg-card/90 px-4 py-2.5 text-left font-semibold">Breakdown</th>
+                                {grid.columns.map((column) => (
+                                    <th
+                                        key={column.key}
+                                        className="px-4 py-2.5 text-right font-semibold whitespace-nowrap"
+                                        scope="col"
+                                    >
+                                        {column.label}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>{renderRows(grid.rows)}</tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     );
 }
