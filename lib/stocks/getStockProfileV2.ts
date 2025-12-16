@@ -9,6 +9,7 @@ import type {
     FilingsMapperFn,
     ProfileMapperFn,
     RatioMapperFn,
+    StatementGrid,
     StockFinancialRow,
     StockProfileV2Model,
 } from './stockProfileV2.types';
@@ -222,10 +223,396 @@ function mergeFinancialRows(primary: StockFinancialRow[], secondary: StockFinanc
     return sortRows(Array.from(combined.values())).slice(0, limit);
 }
 
+type StatementDefinition = {
+    id: string;
+    label: string;
+    concepts?: string[];
+    statement: 'ic' | 'bs' | 'cf';
+    aggregation?: 'flow' | 'point';
+    valueType?: 'currency' | 'perShare' | 'count';
+    children?: StatementDefinition[];
+};
+
+const INCOME_STATEMENT_DEFINITIONS: StatementDefinition[] = [
+    {
+        id: 'revenue',
+        label: 'Revenue',
+        statement: 'ic',
+        aggregation: 'flow',
+        concepts: ['Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet'],
+    },
+    {
+        id: 'cost-of-revenue',
+        label: 'Cost of Revenue',
+        statement: 'ic',
+        aggregation: 'flow',
+        concepts: ['CostOfRevenue', 'CostOfGoodsAndServicesSold'],
+    },
+    {
+        id: 'gross-profit',
+        label: 'Gross Profit',
+        statement: 'ic',
+        aggregation: 'flow',
+        concepts: ['GrossProfit'],
+    },
+    {
+        id: 'operating-expenses',
+        label: 'Operating Expenses',
+        statement: 'ic',
+        aggregation: 'flow',
+        concepts: ['OperatingExpenses'],
+        children: [
+            {
+                id: 'rnd',
+                label: 'Research & Development',
+                statement: 'ic',
+                aggregation: 'flow',
+                concepts: ['ResearchAndDevelopmentExpense'],
+            },
+            {
+                id: 'sga',
+                label: 'Selling, General & Admin',
+                statement: 'ic',
+                aggregation: 'flow',
+                concepts: ['SellingGeneralAndAdministrativeExpense'],
+            },
+        ],
+    },
+    {
+        id: 'operating-income',
+        label: 'Operating Income',
+        statement: 'ic',
+        aggregation: 'flow',
+        concepts: ['OperatingIncomeLoss'],
+    },
+    {
+        id: 'other-income',
+        label: 'Other Income/Expense',
+        statement: 'ic',
+        aggregation: 'flow',
+        children: [
+            {
+                id: 'interest-income',
+                label: 'Interest Income',
+                statement: 'ic',
+                aggregation: 'flow',
+                concepts: ['InterestIncomeOperating', 'InterestIncomeNonoperating'],
+            },
+            {
+                id: 'interest-expense',
+                label: 'Interest Expense',
+                statement: 'ic',
+                aggregation: 'flow',
+                concepts: ['InterestExpense', 'InterestExpenseNonoperating'],
+            },
+            {
+                id: 'other-nonoperating',
+                label: 'Other',
+                statement: 'ic',
+                aggregation: 'flow',
+                concepts: ['OtherNonoperatingIncomeExpense'],
+            },
+        ],
+    },
+    {
+        id: 'pretax-income',
+        label: 'Pretax Income',
+        statement: 'ic',
+        aggregation: 'flow',
+        concepts: ['IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItems'],
+    },
+    {
+        id: 'tax-provision',
+        label: 'Tax Provision',
+        statement: 'ic',
+        aggregation: 'flow',
+        concepts: ['IncomeTaxExpenseBenefit'],
+    },
+    {
+        id: 'net-income',
+        label: 'Net Income',
+        statement: 'ic',
+        aggregation: 'flow',
+        concepts: ['NetIncomeLoss', 'ProfitLoss'],
+    },
+    {
+        id: 'eps-basic',
+        label: 'EPS (Basic)',
+        statement: 'ic',
+        aggregation: 'flow',
+        valueType: 'perShare',
+        concepts: ['EarningsPerShareBasic'],
+    },
+    {
+        id: 'eps-diluted',
+        label: 'EPS (Diluted)',
+        statement: 'ic',
+        aggregation: 'flow',
+        valueType: 'perShare',
+        concepts: ['EarningsPerShareDiluted'],
+    },
+    {
+        id: 'shares-basic',
+        label: 'Weighted Avg Shares (Basic)',
+        statement: 'ic',
+        aggregation: 'flow',
+        valueType: 'count',
+        concepts: ['WeightedAverageNumberOfSharesOutstandingBasic'],
+    },
+    {
+        id: 'shares-diluted',
+        label: 'Weighted Avg Shares (Diluted)',
+        statement: 'ic',
+        aggregation: 'flow',
+        valueType: 'count',
+        concepts: ['WeightedAverageNumberOfDilutedSharesOutstanding'],
+    },
+];
+
+const BALANCE_SHEET_DEFINITIONS: StatementDefinition[] = [
+    {
+        id: 'total-assets',
+        label: 'Total Assets',
+        statement: 'bs',
+        aggregation: 'point',
+        concepts: ['Assets'],
+    },
+    {
+        id: 'cash',
+        label: 'Cash & Equivalents',
+        statement: 'bs',
+        aggregation: 'point',
+        concepts: ['CashAndCashEquivalentsAtCarryingValue', 'CashCashEquivalentsAndShortTermInvestments'],
+    },
+    {
+        id: 'receivables',
+        label: 'Receivables',
+        statement: 'bs',
+        aggregation: 'point',
+        concepts: ['AccountsReceivableNetCurrent'],
+    },
+    {
+        id: 'inventory',
+        label: 'Inventory',
+        statement: 'bs',
+        aggregation: 'point',
+        concepts: ['InventoryNet'],
+    },
+    {
+        id: 'ppe',
+        label: 'Property, Plant & Equipment',
+        statement: 'bs',
+        aggregation: 'point',
+        concepts: ['PropertyPlantAndEquipmentNet'],
+    },
+    {
+        id: 'intangibles',
+        label: 'Intangibles & Goodwill',
+        statement: 'bs',
+        aggregation: 'point',
+        concepts: ['Goodwill', 'IntangibleAssetsNetExcludingGoodwill'],
+    },
+    {
+        id: 'total-liabilities',
+        label: 'Total Liabilities',
+        statement: 'bs',
+        aggregation: 'point',
+        concepts: ['Liabilities'],
+    },
+    {
+        id: 'debt-current',
+        label: 'Short-term Debt',
+        statement: 'bs',
+        aggregation: 'point',
+        concepts: ['DebtCurrent', 'LongTermDebtCurrent'],
+    },
+    {
+        id: 'debt-long',
+        label: 'Long-term Debt',
+        statement: 'bs',
+        aggregation: 'point',
+        concepts: ['LongTermDebtNoncurrent', 'LongTermDebtAndCapitalLeaseObligations'],
+    },
+    {
+        id: 'total-equity',
+        label: 'Total Equity',
+        statement: 'bs',
+        aggregation: 'point',
+        concepts: [
+            'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest',
+            'StockholdersEquity',
+        ],
+    },
+];
+
+const CASH_FLOW_DEFINITIONS: StatementDefinition[] = [
+    {
+        id: 'operating-cash-flow',
+        label: 'Net Cash from Operating Activities',
+        statement: 'cf',
+        aggregation: 'flow',
+        concepts: [
+            'NetCashProvidedByUsedInOperatingActivities',
+            'NetCashProvidedByUsedInOperatingActivitiesContinuingOperations',
+        ],
+    },
+    {
+        id: 'investing-cash-flow',
+        label: 'Net Cash from Investing Activities',
+        statement: 'cf',
+        aggregation: 'flow',
+        concepts: ['NetCashProvidedByUsedInInvestingActivities'],
+    },
+    {
+        id: 'financing-cash-flow',
+        label: 'Net Cash from Financing Activities',
+        statement: 'cf',
+        aggregation: 'flow',
+        concepts: ['NetCashProvidedByUsedInFinancingActivities'],
+    },
+    {
+        id: 'capex',
+        label: 'Capital Expenditures',
+        statement: 'cf',
+        aggregation: 'flow',
+        concepts: ['PaymentsToAcquirePropertyPlantAndEquipment'],
+    },
+    {
+        id: 'depreciation',
+        label: 'Depreciation & Amortization',
+        statement: 'cf',
+        aggregation: 'flow',
+        concepts: ['DepreciationDepletionAndAmortization'],
+    },
+    {
+        id: 'sbc',
+        label: 'Stock-based Compensation',
+        statement: 'cf',
+        aggregation: 'flow',
+        concepts: ['ShareBasedCompensation'],
+    },
+];
+
+const formatStatementDateLabel = (endDate?: string, year?: number) => {
+    if (endDate) {
+        const parsed = new Date(endDate);
+        if (!Number.isNaN(parsed.getTime())) {
+            return parsed.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+        }
+    }
+    return year ? `FY ${year}` : '—';
+};
+
+const createStatementGrid = ({
+    annualReports,
+    quarterlyReports,
+    statement,
+    definitions,
+    fallbackCurrency,
+    defaultAggregation,
+}: {
+    annualReports?: { endDate?: string; year?: number; report?: any; currency?: string }[];
+    quarterlyReports?: { endDate?: string; report?: any; currency?: string }[];
+    statement: 'ic' | 'bs' | 'cf';
+    definitions: StatementDefinition[];
+    fallbackCurrency?: string;
+    defaultAggregation: 'flow' | 'point';
+}): StatementGrid => {
+    const sortedAnnual = sortReports((annualReports as any[]) || []) as any[];
+    const sortedQuarterly = sortReports((quarterlyReports as any[]) || []) as any[];
+
+    const annualColumns = sortedAnnual.slice(0, 4).map((report, index) => ({
+        key: `annual-${index}`,
+        label: formatStatementDateLabel(report?.endDate, report?.year),
+        date: report?.endDate,
+        type: 'annual' as const,
+        currency: report?.currency,
+        source: report,
+    }));
+
+    const columnsWithSource = [
+        { key: 'ttm', label: 'TTM', type: 'ttm' as const },
+        ...annualColumns,
+    ];
+
+    const columns = columnsWithSource.map(({ source, ...col }) => col);
+
+    const valueFromReport = (report: any, concepts?: string[]) => {
+        if (!report || !concepts || concepts.length === 0) return undefined;
+        const items = report?.report?.[statement];
+        return pickValue(items, concepts);
+    };
+
+    const computeTtmValue = (concepts?: string[], aggregation?: 'flow' | 'point') => {
+        if (!concepts || concepts.length === 0 || sortedQuarterly.length === 0) return undefined;
+        if (aggregation === 'point') {
+            return valueFromReport(sortedQuarterly[0], concepts);
+        }
+
+        const values = sortedQuarterly
+            .slice(0, 4)
+            .map((report) => valueFromReport(report, concepts))
+            .filter((value): value is number => typeof value === 'number');
+
+        if (values.length === 0) return undefined;
+        return values.reduce((sum, value) => sum + value, 0);
+    };
+
+    const buildRows = (defs: StatementDefinition[]): any[] =>
+        defs.map((def) => {
+            const children = def.children ? buildRows(def.children) : undefined;
+            const valuesByColumnKey: Record<string, number | undefined> = {};
+            const aggregation = def.aggregation ?? defaultAggregation;
+
+            columnsWithSource.forEach((column) => {
+                let value: number | undefined;
+                if (column.key === 'ttm') {
+                    value = computeTtmValue(def.concepts, aggregation);
+                } else if ('source' in column) {
+                    value = valueFromReport((column as any).source, def.concepts);
+                }
+
+                if (value === undefined && children && children.length) {
+                    const childValues = children
+                        .map((child) => child.valuesByColumnKey[column.key])
+                        .filter((childValue): childValue is number => typeof childValue === 'number');
+                    if (childValues.length > 0) {
+                        value = childValues.reduce((sum, childValue) => sum + childValue, 0);
+                    }
+                }
+
+                valuesByColumnKey[column.key] = value;
+            });
+
+            return {
+                id: def.id,
+                label: def.label,
+                concept: def.concepts?.[0],
+                valueType: def.valueType,
+                valuesByColumnKey,
+                children,
+            };
+        });
+
+    const currencyCandidate =
+        columnsWithSource.find((col) => 'currency' in col && col.currency)?.currency ||
+        fallbackCurrency ||
+        sortedAnnual[0]?.currency ||
+        sortedQuarterly[0]?.currency;
+
+    return {
+        columns,
+        rows: buildRows(definitions),
+        currency: currencyCandidate,
+    };
+};
+
 const mapFilings: FilingsMapperFn = (filingsResp) => {
     const filings: FilingInfo[] = filingsResp?.filings || [];
     return filings.map((f) => ({
         ...f,
+        description: f.description ?? f.companyName,
+        companyName: f.companyName ?? f.description,
     }));
 };
 
@@ -278,6 +665,9 @@ const mapRatios: RatioMapperFn = (metrics) => {
     };
 };
 
+/**
+ * Fetches stock profile, metrics, filings and financials for the given symbol with provider fallbacks.
+ */
 export async function getStockProfileV2(symbolInput: string): Promise<StockProfileV2Model> {
     const { symbolRaw, finnhubSymbol, tvSymbol, secTicker } = normalizeSymbol(symbolInput);
 
@@ -315,23 +705,43 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
 
     const [profileRes, metricsRes, annualRes, quarterlyRes, quoteRes, filingsRes, secFacts] = await Promise.all([
         profilePromise.catch((e) => {
-            status.push({ source: 'finnhub', level: 'warning', message: e instanceof Error ? e.message : 'Profile fetch failed.' });
+            status.push({
+                source: 'finnhub',
+                level: 'warning',
+                message: e instanceof Error ? e.message : 'Profile fetch failed.',
+            });
             return undefined;
         }),
         metricsPromise.catch((e) => {
-            status.push({ source: 'finnhub', level: 'warning', message: e instanceof Error ? e.message : 'Metrics fetch failed.' });
+            status.push({
+                source: 'finnhub',
+                level: 'warning',
+                message: e instanceof Error ? e.message : 'Metrics fetch failed.',
+            });
             return undefined;
         }),
         annualPromise.catch((e) => {
-            status.push({ source: 'finnhub', level: 'warning', message: e instanceof Error ? e.message : 'Annual financials fetch failed.' });
+            status.push({
+                source: 'finnhub',
+                level: 'warning',
+                message: e instanceof Error ? e.message : 'Annual financials fetch failed.',
+            });
             return undefined;
         }),
         quarterlyPromise.catch((e) => {
-            status.push({ source: 'finnhub', level: 'warning', message: e instanceof Error ? e.message : 'Quarterly financials fetch failed.' });
+            status.push({
+                source: 'finnhub',
+                level: 'warning',
+                message: e instanceof Error ? e.message : 'Quarterly financials fetch failed.',
+            });
             return undefined;
         }),
         quotePromise.catch((e) => {
-            status.push({ source: 'finnhub', level: 'warning', message: e instanceof Error ? e.message : 'Quote fetch failed.' });
+            status.push({
+                source: 'finnhub',
+                level: 'warning',
+                message: e instanceof Error ? e.message : 'Quote fetch failed.',
+            });
             return undefined;
         }),
         secPromise,
@@ -347,6 +757,32 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
     const annual = mergeFinancialRows(annualPrimary, secAnnual, 5);
     const quarterly = mergeFinancialRows(quarterlyPrimary, secQuarterly, 8);
     const filings = mapFilings(filingsRes);
+    const statements = {
+        income: createStatementGrid({
+            annualReports: annualRes?.data,
+            quarterlyReports: quarterlyRes?.data,
+            statement: 'ic',
+            definitions: INCOME_STATEMENT_DEFINITIONS,
+            fallbackCurrency: company.currency,
+            defaultAggregation: 'flow',
+        }),
+        balanceSheet: createStatementGrid({
+            annualReports: annualRes?.data,
+            quarterlyReports: quarterlyRes?.data,
+            statement: 'bs',
+            definitions: BALANCE_SHEET_DEFINITIONS,
+            fallbackCurrency: company.currency,
+            defaultAggregation: 'point',
+        }),
+        cashFlow: createStatementGrid({
+            annualReports: annualRes?.data,
+            quarterlyReports: quarterlyRes?.data,
+            statement: 'cf',
+            definitions: CASH_FLOW_DEFINITIONS,
+            fallbackCurrency: company.currency,
+            defaultAggregation: 'flow',
+        }),
+    } satisfies StockProfileV2Model['financials']['statements'];
 
     const providerErrors = status
         .filter((s) => s.level === 'warning' || s.level === 'error')
@@ -372,6 +808,7 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
         financials: {
             annual,
             quarterly,
+            statements,
         },
         filings,
         providerStatus: status,
