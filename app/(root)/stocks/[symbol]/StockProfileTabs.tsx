@@ -213,8 +213,15 @@ function FinancialsTab({ profile }: { profile: StockProfileV2Model }) {
 
     return (
         <div className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+                Values are in reported currency; figures shown in compact format (K/M/B/T).
+            </p>
             <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex flex-wrap gap-1 rounded-xl border border-border/60 bg-card/60 p-1 text-sm">
+                <div
+                    className="inline-flex flex-wrap gap-1 rounded-2xl border border-border/60 bg-muted/30 p-1 text-sm"
+                    role="tablist"
+                    aria-label="Financial statements"
+                >
                     {financialOptions.map((option) => {
                         const isActive = financialView === option.key;
                         return (
@@ -222,12 +229,14 @@ function FinancialsTab({ profile }: { profile: StockProfileV2Model }) {
                                 key={option.key}
                                 onClick={() => setFinancialView(option.key as typeof financialView)}
                                 className={cn(
-                                    "rounded-lg px-3 py-1.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                                    "rounded-xl px-3 py-1.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                                     isActive
-                                        ? "bg-primary/10 text-foreground shadow-sm ring-1 ring-primary/40"
+                                        ? "bg-primary/10 text-foreground shadow-sm ring-1 ring-primary/50"
                                         : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
                                 )}
                                 type="button"
+                                role="tab"
+                                aria-selected={isActive}
                             >
                                 {option.label}
                             </button>
@@ -307,8 +316,12 @@ export default function StockProfileTabs({ profile }: { profile: StockProfileV2M
     const fundamentalsMissing = companyInfoIncomplete || financialsMissing;
 
     return (
-        <div className="space-y-3">
-            <div className="flex flex-wrap gap-2 border-b pb-2 text-sm font-medium" role="tablist">
+        <div className="space-y-4">
+            <div
+                className="inline-flex flex-wrap gap-2 rounded-2xl border border-border/60 bg-muted/30 p-1 text-sm font-medium"
+                role="tablist"
+                aria-label="Stock profile sections"
+            >
                 {tabList.map((tab) => {
                     const isActive = activeTab === tab.key;
                     const tabId = `${tab.key}-tab`;
@@ -317,12 +330,14 @@ export default function StockProfileTabs({ profile }: { profile: StockProfileV2M
                         <button
                             key={tab.key}
                             onClick={() => setActiveTab(tab.key)}
-                            className={`rounded-md px-3 py-2 transition-colors ${
+                            className={cn(
+                                "rounded-xl px-4 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                                 isActive
-                                    ? "bg-primary/10 text-foreground ring-1 ring-primary"
-                                    : "text-muted-foreground hover:text-foreground"
-                            }`}
+                                    ? "bg-primary/10 text-foreground shadow-sm ring-1 ring-primary/60"
+                                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                            )}
                             role="tab"
+                            type="button"
                             id={tabId}
                             aria-selected={isActive}
                             aria-controls={panelId}
@@ -339,7 +354,7 @@ export default function StockProfileTabs({ profile }: { profile: StockProfileV2M
                 </div>
             )}
 
-            <div className="rounded-lg border bg-card p-4">
+            <div className="rounded-2xl border border-border/60 bg-card/60 p-4 shadow-sm">
                 {tabList.map((tab) => {
                     const isActive = activeTab === tab.key;
                     const panelId = `${tab.key}-panel`;
