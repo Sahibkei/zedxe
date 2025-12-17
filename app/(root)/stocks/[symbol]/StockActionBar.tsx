@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import WatchlistButton from "@/components/WatchlistButton";
 import { Button } from "@/components/ui/button";
 import AlertModal from "@/components/AlertModal";
@@ -27,6 +28,9 @@ const StockActionBar = ({ symbol, company, isInWatchlist, initialAlert }: { symb
     return (
         <div className="flex items-center gap-3">
             <WatchlistButton symbol={symbol} company={company} isInWatchlist={isInWatchlist} />
+            <Button asChild variant="outline">
+                <Link href={`/stocks/${symbol}/options`}>Options Analysis</Link>
+            </Button>
             <Button className="bg-yellow-500 text-black hover:bg-yellow-400" onClick={() => setModalOpen(true)}>
                 {alert ? 'Edit Alert' : 'Create Alert'}
             </Button>
