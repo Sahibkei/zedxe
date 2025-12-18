@@ -225,6 +225,12 @@ const buildSurface = (
     };
 };
 
+const formatIvPercent = (value: number | null | undefined, decimals = 2) => {
+    if (value === null || value === undefined) return "—";
+    if (!Number.isFinite(value)) return "—";
+    return formatPercent(value * 100, decimals);
+};
+
 export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSurfaceProps) {
     const [expiries, setExpiries] = useState<string[]>([]);
     const [selectedExpiry, setSelectedExpiry] = useState<string>("");
@@ -238,7 +244,7 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [surface, setSurface] = useState<SurfaceResult | null>(null);
-    const [cache, setCache] = useState<Record<string, SurfaceResult>>({});
+    const [, setCache] = useState<Record<string, SurfaceResult>>({});
 
     const fetchControllerRef = useRef<AbortController | null>(null);
     const expiryControllerRef = useRef<AbortController | null>(null);
@@ -313,22 +319,28 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
 
     const fetchChainsWithLimit = useCallback(
         async (targets: string[], signal: AbortSignal, limit = 3) => {
-            const results: ChainResponse[] = [];
-            let index = 0;
+            const tasks = targets.map((expiry, idx) => ({ expiry, idx }));
+            const results: { idx: number; chain: ChainResponse }[] = [];
+            let cursor = 0;
 
             const worker = async () => {
-                while (index < targets.length) {
-                    const currentIndex = index;
-                    index += 1;
-                    const expiry = targets[currentIndex];
-                    const chain = await fetchOptionChain(symbol, expiry, signal);
-                    results.push(chain);
+                // eslint-disable-next-line no-constant-condition
+                while (true) {
+                    const current = cursor;
+                    cursor += 1;
+                    if (current >= tasks.length) break;
+                    const task = tasks[current];
+                    const chain = await fetchOptionChain(symbol, task.expiry, signal);
+                    results.push({ idx: task.idx, chain });
                 }
             };
 
-            const workers = Array.from({ length: Math.min(limit, targets.length) }, () => worker());
+            const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
             await Promise.all(workers);
-            return results;
+
+            return results
+                .sort((a, b) => a.idx - b.idx)
+                .map((entry) => entry.chain);
         },
         [symbol]
     );
@@ -337,11 +349,15 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
         async (force = false) => {
             if (resolvedExpiries.length === 0) {
                 setSurface(null);
+                setError(null);
+                setLoading(false);
                 return;
             }
 
             const cachedSurface = cacheRef.current[cacheKey];
             if (!force && cachedSurface) {
+                setError(null);
+                setLoading(false);
                 setSurface(cachedSurface);
                 return;
             }
@@ -357,7 +373,10 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                 if (controller.signal.aborted) return;
                 const surfaceResult = buildSurface(chains, sideView, axisMode, riskFreeRate, dividendYield);
                 setSurface(surfaceResult);
-                setCache((previous) => ({ ...previous, [cacheKey]: surfaceResult }));
+
+                const nextCache = { ...cacheRef.current, [cacheKey]: surfaceResult };
+                cacheRef.current = nextCache;
+                setCache(nextCache);
             } catch (reason) {
                 const isAbort = controller.signal.aborted;
                 if (isAbort) return;
@@ -374,11 +393,7 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
     );
 
     useEffect(() => {
-        cacheRef.current = cache;
-    }, [cache]);
-
-    useEffect(() => {
-        loadSurface();
+        void loadSurface();
         return () => {
             fetchControllerRef.current?.abort();
         };
@@ -397,6 +412,12 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
     );
 
     const tooltip = hoveredCell;
+    const hasWindowExpiries = resolvedExpiries.length > 0;
+    const noWindowExpiries = expiryMode === "multi" && !hasWindowExpiries && expiries.length > 0;
+    const axisLabel = (value: number) => {
+        if (!Number.isFinite(value)) return "--";
+        return axisMode === "strike" ? formatNumber(value, 0) : value.toFixed(3);
+    };
 
     return (
         <div className="rounded-2xl border border-border/60 bg-card/70 p-6 shadow-lg backdrop-blur space-y-4">
@@ -455,11 +476,11 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
             <div className="grid gap-3 md:grid-cols-3">
                 {renderSummaryStat("Expiries Used", surface?.expiriesUsed.length ? surface.expiriesUsed.length.toString() : "—")}
                 {renderSummaryStat("Points Plotted", surface ? surface.stats.pointsPlotted.toString() : "—")}
-                {renderSummaryStat("ATM IV", surface?.stats.atmIv !== null ? formatPercent(surface.stats.atmIv, 2) : "—")}
+                {renderSummaryStat("ATM IV", formatIvPercent(surface?.stats.atmIv, 2))}
             </div>
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                {renderSummaryStat("Min IV", activeMinIv !== null ? formatPercent(activeMinIv, 2) : "—")}
-                {renderSummaryStat("Max IV", activeMaxIv !== null ? formatPercent(activeMaxIv, 2) : "—")}
+                {renderSummaryStat("Min IV", formatIvPercent(activeMinIv, 2))}
+                {renderSummaryStat("Max IV", formatIvPercent(activeMaxIv, 2))}
                 {renderSummaryStat("Side", sideView === "both" ? "Calls & Puts" : sideView === "call" ? "Calls" : "Puts")}
                 {renderSummaryStat("Axis", axisMode === "strike" ? "Strike" : "Moneyness (K/S)")}
             </div>
@@ -571,7 +592,13 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                 </div>
             )}
 
-            {!loading && !surface && !error && (
+            {!loading && !surface && !error && noWindowExpiries && (
+                <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-sm text-muted-foreground">
+                    No expiries in the selected DTE window. Adjust filters.
+                </div>
+            )}
+
+            {!loading && !surface && !error && !noWindowExpiries && (
                 <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-sm text-muted-foreground">
                     {resolvedExpiries.length === 0
                         ? "Select at least one expiry to build the IV surface."
@@ -605,7 +632,7 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                                         key={`x-${value}`}
                                         className="flex h-12 items-center justify-center border-l border-border/40 bg-muted/10 px-2 text-muted-foreground"
                                     >
-                                        {axisMode === "strike" ? formatNumber(value, 0) : value.toFixed(3)}
+                                        {axisLabel(value)}
                                     </div>
                                 ))}
 
@@ -626,6 +653,21 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                                                 ? colorForValue(cell.iv, activeMinIv, activeMaxIv)
                                                 : "transparent";
 
+                                            const labelParts = [
+                                                `Expiry ${row.expiry}`,
+                                                axisMode === "strike"
+                                                    ? `strike ${formatNumber(cell?.strike ?? null, 2)}`
+                                                    : `moneyness ${Number.isFinite(cell?.moneyness ?? null) ? (cell?.moneyness as number).toFixed(3) : "--"}`,
+                                            ];
+
+                                            if (cell) {
+                                                labelParts.push(`IV ${formatIvPercent(cell.iv, 1)}`);
+                                                labelParts.push(`bid ${formatNumber(cell.bid ?? null, 2)}`);
+                                                labelParts.push(`ask ${formatNumber(cell.ask ?? null, 2)}`);
+                                            } else {
+                                                labelParts.push("IV unavailable");
+                                            }
+
                                             return (
                                                 <button
                                                     key={`${row.expiry}-${xValue}`}
@@ -637,8 +679,9 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                                                     style={{ background }}
                                                     onMouseEnter={() => setHoveredCell(cell ?? null)}
                                                     onMouseLeave={() => setHoveredCell(null)}
+                                                    aria-label={labelParts.join(", ")}
                                                 >
-                                                    {cell ? formatPercent(cell.iv, 1) : "—"}
+                                                    {cell ? formatIvPercent(cell.iv, 1) : "—"}
                                                 </button>
                                             );
                                         })}
@@ -658,8 +701,8 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                                 <span className="text-muted-foreground">DTE {tooltip.dte ?? "—"}</span>
                             </div>
                             <div className="mt-2 grid grid-cols-2 gap-1 text-foreground">
-                                <span>{axisMode === "strike" ? "Strike" : "Moneyness"}: {axisMode === "strike" ? formatNumber(tooltip.strike, 2) : tooltip.moneyness.toFixed(3)}</span>
-                                <span>IV: {formatPercent(tooltip.iv, 2)}</span>
+                                <span>{axisMode === "strike" ? "Strike" : "Moneyness"}: {axisLabel(axisMode === "strike" ? tooltip.strike : tooltip.moneyness)}</span>
+                                <span>IV: {formatIvPercent(tooltip.iv, 2)}</span>
                                 <span>Bid / Ask: {formatNumber(tooltip.bid ?? null, 2)} / {formatNumber(tooltip.ask ?? null, 2)}</span>
                                 <span>Mid: {formatNumber(tooltip.mid ?? null, 2)}</span>
                             </div>
