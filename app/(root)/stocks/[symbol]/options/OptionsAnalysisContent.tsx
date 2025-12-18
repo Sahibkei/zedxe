@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -23,10 +23,72 @@ type OptionsAnalysisContentProps = {
     companyName?: string;
 };
 
+type ApiStatus = "pending" | "connected" | "error";
+
 export default function OptionsAnalysisContent({ symbol, companyName }: OptionsAnalysisContentProps) {
     const [activeTab, setActiveTab] = useState<TabKey>("model-setup");
+    const [apiStatus, setApiStatus] = useState<ApiStatus>("pending");
+    const [apiError, setApiError] = useState<string | null>(null);
     const title = companyName ? `Options Analysis for ${companyName} (${symbol})` : `Options Analysis for ${symbol}`;
     const tabList = tabs;
+    const apiStatusStyles: Record<ApiStatus, { container: string; dot: string; label: string }> = {
+        pending: {
+            container: "border-yellow-500/40 bg-yellow-500/10 text-yellow-400",
+            dot: "bg-yellow-400",
+            label: "Pending",
+        },
+        connected: {
+            container: "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
+            dot: "bg-emerald-400",
+            label: "Connected",
+        },
+        error: {
+            container: "border-red-500/40 bg-red-500/10 text-red-400",
+            dot: "bg-red-400",
+            label: "Error",
+        },
+    };
+
+    useEffect(() => {
+        const controller = new AbortController();
+
+        const fetchExpiries = async () => {
+            setApiStatus("pending");
+            setApiError(null);
+
+            try {
+                const response = await fetch(`/api/options/expiries?symbol=${encodeURIComponent(symbol)}`, {
+                    cache: "no-store",
+                    signal: controller.signal,
+                });
+                if (!response.ok) {
+                    const payload = await response.json().catch(() => null);
+                    const message = (payload as { error?: string } | null)?.error ?? "Unable to reach options API";
+                    if (!controller.signal.aborted) {
+                        setApiStatus("error");
+                        setApiError(message);
+                    }
+                    return;
+                }
+
+                if (!controller.signal.aborted) {
+                    setApiStatus("connected");
+                }
+            } catch (error) {
+                const isAbortError = controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError");
+                if (isAbortError) return;
+                setApiStatus("error");
+                setApiError("Unable to reach options API");
+            }
+        };
+
+        fetchExpiries();
+        return () => {
+            controller.abort();
+        };
+    }, [symbol]);
+
+    const apiBadgeStyle = apiStatusStyles[apiStatus];
 
     return (
         <div className="mx-auto w-full max-w-7xl px-4 md:px-6 py-8 space-y-8">
@@ -38,11 +100,22 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                         Configure pricing assumptions, visualize implied volatility, and explore risk scenarios for this symbol.
                     </p>
                 </div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-yellow-500/40 bg-yellow-500/10 px-4 py-2 text-sm font-semibold text-yellow-400 shadow-sm">
-                    <span className="size-2 rounded-full bg-yellow-400" aria-hidden />
-                    <span>API Status: Pending</span>
+                <div
+                    className={cn(
+                        "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold shadow-sm",
+                        apiBadgeStyle.container
+                    )}
+                >
+                    <span className={cn("size-2 rounded-full", apiBadgeStyle.dot)} aria-hidden />
+                    <span>API Status: {apiBadgeStyle.label}</span>
                 </div>
             </div>
+
+            {apiError && (
+                <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                    Unable to load expiries for {symbol}: {apiError}
+                </div>
+            )}
 
             <div className="rounded-2xl border border-border/60 bg-card/80 p-4 shadow-lg backdrop-blur">
                 <div className="flex flex-wrap gap-2" role="tablist" aria-label="Options analysis sections">
