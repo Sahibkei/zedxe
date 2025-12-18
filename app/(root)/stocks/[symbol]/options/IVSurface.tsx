@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import { fetchExpiries, fetchOptionChain } from "@/lib/options/client";
 import { impliedVolBisection, intrinsicValue, moneyness as computeMoneyness } from "@/lib/options/bs";
-import { formatNumber, formatPercent } from "@/lib/options/format";
+import { formatIV, formatNumber } from "@/lib/options/format";
 import type { ChainResponse, OptionContract, OptionSide } from "@/lib/options/types";
 import { cn } from "@/lib/utils";
 
@@ -55,6 +55,12 @@ type IVSurfaceProps = {
     riskFreeRate: number;
     dividendYield: number;
 };
+
+const DEFAULT_MAX_SPREAD_PCT = 10;
+const DEFAULT_MIN_OI = 20;
+const DEFAULT_MONEYNESS_MIN = 0.8;
+const DEFAULT_MONEYNESS_MAX = 1.2;
+const MAX_IV_ALLOWED = 3; // 300%
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -136,11 +142,22 @@ const buildSurface = (
         chain.contracts.forEach((contract) => {
             if (sideView !== "both" && contract.side !== sideView) return;
 
+            // liquidity / quality filters
+            const spreadPct = Number.isFinite(contract.ask) && Number.isFinite(contract.bid)
+                ? ((contract.ask - contract.bid) / ((contract.ask + contract.bid) / 2)) * 100
+                : Number.POSITIVE_INFINITY;
+            if (!isFiniteNumber(spreadPct) || spreadPct > DEFAULT_MAX_SPREAD_PCT) return;
+
+            const openInterest = contract.openInterest ?? 0;
+            if (openInterest < DEFAULT_MIN_OI) return;
+
             const { iv, mid } = deriveIv({ contract, spot: chain.spot, r, q, tYears });
-            if (iv === null || !Number.isFinite(iv)) return;
+            if (iv === null || !Number.isFinite(iv) || iv <= 0 || iv > MAX_IV_ALLOWED) return;
 
             const moneyness = computeMoneyness(chain.spot, contract.strike);
             if (!Number.isFinite(moneyness)) return;
+
+            if (axisMode === "strike" && (moneyness < DEFAULT_MONEYNESS_MIN || moneyness > DEFAULT_MONEYNESS_MAX)) return;
 
             const axisValue = axisMode === "strike" ? contract.strike : moneyness;
             if (!Number.isFinite(axisValue)) return;
@@ -227,12 +244,6 @@ const buildSurface = (
             atmIv,
         },
     };
-};
-
-const formatIvPercent = (value: number | null | undefined, decimals = 2) => {
-    if (value === null || value === undefined) return "—";
-    if (!isFiniteNumber(value)) return "—";
-    return formatPercent(ivToPct(value), decimals);
 };
 
 export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSurfaceProps) {
@@ -482,11 +493,11 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
             <div className="grid gap-3 md:grid-cols-3">
                 {renderSummaryStat("Expiries Used", surface?.expiriesUsed.length ? surface.expiriesUsed.length.toString() : "—")}
                 {renderSummaryStat("Points Plotted", surface ? surface.stats.pointsPlotted.toString() : "—")}
-                {renderSummaryStat("ATM IV", formatIvPercent(surface?.stats.atmIv, 2))}
+                {renderSummaryStat("ATM IV", formatIV(surface?.stats.atmIv, 2))}
             </div>
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                {renderSummaryStat("Min IV", formatIvPercent(activeMinIv, 2))}
-                {renderSummaryStat("Max IV", formatIvPercent(activeMaxIv, 2))}
+                {renderSummaryStat("Min IV", formatIV(activeMinIv, 2))}
+                {renderSummaryStat("Max IV", formatIV(activeMaxIv, 2))}
                 {renderSummaryStat("Side", sideView === "both" ? "Calls & Puts" : sideView === "call" ? "Calls" : "Puts")}
                 {renderSummaryStat("Axis", axisMode === "strike" ? "Strike" : "Moneyness (K/S)")}
             </div>
@@ -667,7 +678,7 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                                             ];
 
                                             if (cell) {
-                                                labelParts.push(`IV ${formatIvPercent(cell.iv, 1)}`);
+                                                labelParts.push(`IV ${formatIV(cell.iv, 1)}`);
                                                 labelParts.push(`bid ${formatNumber(cell.bid ?? null, 2)}`);
                                                 labelParts.push(`ask ${formatNumber(cell.ask ?? null, 2)}`);
                                             } else {
@@ -687,7 +698,7 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                                                     onMouseLeave={() => setHoveredCell(null)}
                                                     aria-label={labelParts.join(", ")}
                                                 >
-                                                    {cell ? formatIvPercent(cell.iv, 1) : "—"}
+                                                    {cell ? formatIV(cell.iv, 1) : "—"}
                                                 </button>
                                             );
                                         })}
@@ -708,7 +719,7 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                             </div>
                             <div className="mt-2 grid grid-cols-2 gap-1 text-foreground">
                                 <span>{axisMode === "strike" ? "Strike" : "Moneyness"}: {axisLabel(axisMode === "strike" ? tooltip.strike : tooltip.moneyness)}</span>
-                                <span>IV: {formatIvPercent(tooltip.iv, 2)}</span>
+                                <span>IV: {formatIV(tooltip.iv, 2)}</span>
                                 <span>Bid / Ask: {formatNumber(tooltip.bid ?? null, 2)} / {formatNumber(tooltip.ask ?? null, 2)}</span>
                                 <span>Mid: {formatNumber(tooltip.mid ?? null, 2)}</span>
                             </div>
