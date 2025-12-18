@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { analyzeOptions, fetchExpiries, fetchOptionChain } from "@/lib/options/client";
 import { formatNumber, formatPercent } from "@/lib/options/format";
+import ImpliedVolatilitySmile from "@/app/(root)/stocks/[symbol]/options/ImpliedVolatilitySmile";
 import type { AnalyzeResponse, ChainResponse, OptionContract } from "@/lib/options/types";
 import { cn } from "@/lib/utils";
 
@@ -230,6 +231,10 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
     const pagedContracts = filteredContracts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
     const isFetchDisabled = !selectedExpiry || loadingExpiries || loadingData;
+    const smileSpot = chain?.spot ?? analysis?.spot ?? null;
+    const smileExpiry = selectedExpiry || chain?.expiry || analysis?.expiry || null;
+    const smileContracts = chain?.contracts ?? [];
+    const smileTYears = analysis?.tYears ?? null;
 
     return (
         <div className="mx-auto w-full max-w-7xl px-4 md:px-6 py-8 space-y-8">
@@ -335,6 +340,16 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                                         setPage={setPage}
                                         onRetry={handleFetchData}
                                         selectedExpiryExists={Boolean(selectedExpiry)}
+                                    />
+                                ) : tab.key === "iv-smile" && isActive ? (
+                                    <ImpliedVolatilitySmile
+                                        symbol={symbol}
+                                        spot={smileSpot}
+                                        expiry={smileExpiry}
+                                        tYears={smileTYears}
+                                        r={riskFreeRate}
+                                        q={dividendYield}
+                                        contracts={smileContracts}
                                     />
                                 ) : (
                                     isActive && (
