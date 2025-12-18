@@ -62,11 +62,17 @@ export function impliedVolBisection(params: {
 
     let low = 1e-6;
     let high = 5;
+    const tolerance = 1e-6;
 
     for (let iteration = 0; iteration < 80; iteration += 1) {
         const mid = (low + high) / 2;
         const theoretical = bsPrice({ side, S, K, r, q, t, sigma: mid });
         if (!Number.isFinite(theoretical)) return null;
+
+        const diff = theoretical - price;
+        if (Math.abs(diff) < tolerance) {
+            return mid;
+        }
 
         if (theoretical > price) {
             high = mid;

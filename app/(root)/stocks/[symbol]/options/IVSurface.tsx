@@ -58,8 +58,12 @@ type IVSurfaceProps = {
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
+const isFiniteNumber = (input: unknown): input is number => typeof input === "number" && Number.isFinite(input);
+
+const ivToPct = (iv: number) => iv * 100;
+
 const colorForValue = (value: number, min: number, max: number) => {
-    if (!Number.isFinite(value)) return "transparent";
+    if (!isFiniteNumber(value) || !isFiniteNumber(min) || !isFiniteNumber(max)) return "transparent";
     const clamped = Math.min(Math.max(value, min), max);
     const range = max - min || 1;
     const ratio = (clamped - min) / range;
@@ -190,7 +194,7 @@ const buildSurface = (
     const xValues = Array.from(xAxisValues).sort((a, b) => a - b);
     const sortedRows = rows.sort((a, b) => (a.dte ?? 0) - (b.dte ?? 0));
 
-    const ivValues = allCells.map((cell) => cell.iv).filter((value) => Number.isFinite(value));
+    const ivValues = allCells.map((cell) => cell.iv).filter((value) => isFiniteNumber(value));
     const minIv = ivValues.length > 0 ? Math.min(...ivValues) : null;
     const maxIv = ivValues.length > 0 ? Math.max(...ivValues) : null;
 
@@ -227,8 +231,8 @@ const buildSurface = (
 
 const formatIvPercent = (value: number | null | undefined, decimals = 2) => {
     if (value === null || value === undefined) return "—";
-    if (!Number.isFinite(value)) return "—";
-    return formatPercent(value * 100, decimals);
+    if (!isFiniteNumber(value)) return "—";
+    return formatPercent(ivToPct(value), decimals);
 };
 
 export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSurfaceProps) {
@@ -374,9 +378,11 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                 const surfaceResult = buildSurface(chains, sideView, axisMode, riskFreeRate, dividendYield);
                 setSurface(surfaceResult);
 
-                const nextCache = { ...cacheRef.current, [cacheKey]: surfaceResult };
-                cacheRef.current = nextCache;
-                setCache(nextCache);
+                setCache((previous) => {
+                    const nextCache = { ...previous, [cacheKey]: surfaceResult };
+                    cacheRef.current = nextCache;
+                    return nextCache;
+                });
             } catch (reason) {
                 const isAbort = controller.signal.aborted;
                 if (isAbort) return;
