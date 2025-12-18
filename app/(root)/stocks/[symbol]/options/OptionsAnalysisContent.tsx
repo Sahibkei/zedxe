@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { analyzeOptions, fetchExpiries, fetchOptionChain } from "@/lib/options/client";
+import { formatNumber, formatPercent } from "@/lib/options/format";
+import type { AnalyzeResponse, ChainResponse, OptionContract } from "@/lib/options/types";
 import { cn } from "@/lib/utils";
 
 const tabs = [
@@ -15,9 +18,6 @@ const tabs = [
 
 type TabKey = (typeof tabs)[number]["key"];
 
-/**
- * Shell UI for the Options Analysis experience. Displays tabs and placeholder sections for future functionality.
- */
 type OptionsAnalysisContentProps = {
     symbol: string;
     companyName?: string;
@@ -25,10 +25,45 @@ type OptionsAnalysisContentProps = {
 
 type ApiStatus = "pending" | "connected" | "error";
 
+type FilterState = {
+    maxSpreadPct: number;
+    minOpenInterest: number;
+    moneynessMin: number;
+    moneynessMax: number;
+};
+
+type SideFilter = "all" | "call" | "put";
+
+const defaultFilters: FilterState = {
+    maxSpreadPct: 5,
+    minOpenInterest: 50,
+    moneynessMin: 0.8,
+    moneynessMax: 1.2,
+};
+
+const PAGE_SIZE = 25;
+
 export default function OptionsAnalysisContent({ symbol, companyName }: OptionsAnalysisContentProps) {
     const [activeTab, setActiveTab] = useState<TabKey>("model-setup");
     const [apiStatus, setApiStatus] = useState<ApiStatus>("pending");
     const [apiError, setApiError] = useState<string | null>(null);
+    const [expiries, setExpiries] = useState<string[]>([]);
+    const [selectedExpiry, setSelectedExpiry] = useState<string>("");
+    const [loadingExpiries, setLoadingExpiries] = useState(false);
+    const [chain, setChain] = useState<ChainResponse | null>(null);
+    const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
+    const [loadingData, setLoadingData] = useState(false);
+    const [chainError, setChainError] = useState<string | null>(null);
+    const [analysisError, setAnalysisError] = useState<string | null>(null);
+    const [riskFreeRate, setRiskFreeRate] = useState(0.05);
+    const [dividendYield, setDividendYield] = useState(0.005);
+    const [filters, setFilters] = useState<FilterState>(defaultFilters);
+    const [showFilters, setShowFilters] = useState(false);
+    const [sideFilter, setSideFilter] = useState<SideFilter>("all");
+    const [strikeSearch, setStrikeSearch] = useState("");
+    const [page, setPage] = useState(1);
+    const fetchControllerRef = useRef<AbortController | null>(null);
+
     const title = companyName ? `Options Analysis for ${companyName} (${symbol})` : `Options Analysis for ${symbol}`;
     const tabList = tabs;
     const apiStatusStyles: Record<ApiStatus, { container: string; dot: string; label: string }> = {
@@ -50,45 +85,151 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
     };
 
     useEffect(() => {
+        setApiStatus("pending");
+        setApiError(null);
+        setExpiries([]);
+        setSelectedExpiry("");
+        setChain(null);
+        setAnalysis(null);
+        setChainError(null);
+        setAnalysisError(null);
+        setRiskFreeRate(0.05);
+        setDividendYield(0.005);
+        setFilters(defaultFilters);
+        setSideFilter("all");
+        setStrikeSearch("");
+        setPage(1);
+
+        fetchControllerRef.current?.abort();
+
         const controller = new AbortController();
+        setLoadingExpiries(true);
 
-        const fetchExpiries = async () => {
-            setApiStatus("pending");
-            setApiError(null);
-
-            try {
-                const response = await fetch(`/api/options/expiries?symbol=${encodeURIComponent(symbol)}`, {
-                    cache: "no-store",
-                    signal: controller.signal,
-                });
-                if (!response.ok) {
-                    const payload = await response.json().catch(() => null);
-                    const message = (payload as { error?: string } | null)?.error ?? "Unable to reach options API";
-                    if (!controller.signal.aborted) {
-                        setApiStatus("error");
-                        setApiError(message);
-                    }
-                    return;
+        fetchExpiries(symbol, controller.signal)
+            .then((response) => {
+                if (controller.signal.aborted) return;
+                setExpiries(response.expiries);
+                if (response.expiries.length > 0) {
+                    setSelectedExpiry(response.expiries[0]);
                 }
-
-                if (!controller.signal.aborted) {
-                    setApiStatus("connected");
-                }
-            } catch (error) {
-                const isAbortError = controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError");
-                if (isAbortError) return;
+                setApiStatus("connected");
+            })
+            .catch((error) => {
+                if (controller.signal.aborted) return;
                 setApiStatus("error");
-                setApiError("Unable to reach options API");
-            }
-        };
+                setApiError(error?.message || "Unable to reach options API");
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) {
+                    setLoadingExpiries(false);
+                }
+            });
 
-        fetchExpiries();
         return () => {
             controller.abort();
+            fetchControllerRef.current?.abort();
         };
     }, [symbol]);
 
+    useEffect(() => {
+        setPage(1);
+    }, [sideFilter, strikeSearch, chain]);
+
+    useEffect(() => {
+        if (expiries.length > 0 && !selectedExpiry) {
+            setSelectedExpiry(expiries[0]);
+        }
+    }, [expiries, selectedExpiry]);
+
     const apiBadgeStyle = apiStatusStyles[apiStatus];
+
+    const handleFilterChange = (key: keyof FilterState, value: number) => {
+        setFilters((prev) => ({ ...prev, [key]: value }));
+    };
+
+    const handleFetchData = async () => {
+        if (!selectedExpiry) {
+            setChainError("Select an expiry to load the option chain.");
+            return;
+        }
+
+        fetchControllerRef.current?.abort();
+        const controller = new AbortController();
+        fetchControllerRef.current = controller;
+        setLoadingData(true);
+        setChainError(null);
+        setAnalysisError(null);
+
+        try {
+            const [chainResponse, analysisResponse] = await Promise.all([
+                fetchOptionChain(symbol, selectedExpiry, controller.signal),
+                analyzeOptions(
+                    {
+                        symbol,
+                        expiry: selectedExpiry,
+                        r: riskFreeRate,
+                        q: dividendYield,
+                        filters,
+                    },
+                    controller.signal
+                ),
+            ]);
+
+            if (controller.signal.aborted) return;
+            setChain(chainResponse);
+            setAnalysis(analysisResponse);
+        } catch (error) {
+            const isAbortError = controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError");
+            if (isAbortError) return;
+
+            const message = error instanceof Error ? error.message : "Unable to fetch option data";
+            setChain(null);
+            setAnalysis(null);
+            setChainError(message);
+            setAnalysisError(message);
+        } finally {
+            if (!controller.signal.aborted) {
+                setLoadingData(false);
+            }
+        }
+    };
+
+    const handleAutoPickExpiry = () => {
+        if (expiries.length > 0) {
+            setSelectedExpiry(expiries[0]);
+        }
+    };
+
+    const sortedContracts = useMemo(() => {
+        if (!chain?.contracts) return [] as OptionContract[];
+        return [...chain.contracts].sort((a, b) => {
+            if (a.strike === b.strike && a.side !== b.side) {
+                return a.side === "call" ? -1 : 1;
+            }
+            return a.strike - b.strike;
+        });
+    }, [chain]);
+
+    const filteredContracts = useMemo(() => {
+        let results = sortedContracts;
+
+        if (sideFilter !== "all") {
+            results = results.filter((contract) => contract.side === sideFilter);
+        }
+
+        const strikeValue = strikeSearch.trim() ? Number(strikeSearch.trim()) : null;
+        if (strikeValue !== null && Number.isFinite(strikeValue)) {
+            results = results.filter((contract) => contract.strike === strikeValue);
+        }
+
+        return results;
+    }, [sideFilter, strikeSearch, sortedContracts]);
+
+    const totalPages = Math.max(1, Math.ceil(filteredContracts.length / PAGE_SIZE));
+    const currentPage = Math.min(page, totalPages);
+    const pagedContracts = filteredContracts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+    const isFetchDisabled = !selectedExpiry || loadingExpiries || loadingData;
 
     return (
         <div className="mx-auto w-full max-w-7xl px-4 md:px-6 py-8 space-y-8">
@@ -161,7 +302,40 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                                 hidden={!isActive}
                             >
                                 {tab.key === "model-setup" && isActive ? (
-                                    <ModelSetupPlaceholder symbol={symbol} />
+                                    <ModelSetup
+                                        symbol={symbol}
+                                        expiries={expiries}
+                                        selectedExpiry={selectedExpiry}
+                                        setSelectedExpiry={setSelectedExpiry}
+                                        riskFreeRate={riskFreeRate}
+                                        setRiskFreeRate={setRiskFreeRate}
+                                        dividendYield={dividendYield}
+                                        setDividendYield={setDividendYield}
+                                        filters={filters}
+                                        onFilterChange={handleFilterChange}
+                                        showFilters={showFilters}
+                                        setShowFilters={setShowFilters}
+                                        loadingExpiries={loadingExpiries}
+                                        loadingData={loadingData}
+                                        onFetchData={handleFetchData}
+                                        onAutoPickExpiry={handleAutoPickExpiry}
+                                        analysis={analysis}
+                                        chain={chain}
+                                        chainError={chainError}
+                                        analysisError={analysisError}
+                                        isFetchDisabled={isFetchDisabled}
+                                        sideFilter={sideFilter}
+                                        setSideFilter={setSideFilter}
+                                        strikeSearch={strikeSearch}
+                                        setStrikeSearch={setStrikeSearch}
+                                        pagedContracts={pagedContracts}
+                                        filteredContractsLength={filteredContracts.length}
+                                        totalPages={totalPages}
+                                        currentPage={currentPage}
+                                        setPage={setPage}
+                                        onRetry={handleFetchData}
+                                        selectedExpiryExists={Boolean(selectedExpiry)}
+                                    />
                                 ) : (
                                     isActive && (
                                         <TabPlaceholder
@@ -194,75 +368,394 @@ function SectionCard({ title, description, children }: { title: string; descript
     );
 }
 
-function PlaceholderTile({ label, value }: { label: string; value: string }) {
-    return (
-        <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-            <p className="text-sm font-semibold text-foreground">{value}</p>
-        </div>
-    );
+function InputLabel({ children }: { children: ReactNode }) {
+    return <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{children}</span>;
 }
 
-function PlaceholderList({ items }: { items: string[] }) {
-    return (
-        <ul className="space-y-2 text-sm text-muted-foreground list-disc pl-5">
-            {items.map((item, index) => (
-                <li key={index}>{item}</li>
-            ))}
-        </ul>
-    );
+function FieldShell({ children }: { children: ReactNode }) {
+    return <div className="flex flex-col gap-1 rounded-xl border border-border/60 bg-muted/20 p-3">{children}</div>;
 }
 
-function ModelSetupPlaceholder({ symbol }: { symbol: string }) {
+function ModelSetup({
+    symbol,
+    expiries,
+    selectedExpiry,
+    setSelectedExpiry,
+    riskFreeRate,
+    setRiskFreeRate,
+    dividendYield,
+    setDividendYield,
+    filters,
+    onFilterChange,
+    showFilters,
+    setShowFilters,
+    loadingExpiries,
+    loadingData,
+    onFetchData,
+    onAutoPickExpiry,
+    analysis,
+    chain,
+    chainError,
+    analysisError,
+    isFetchDisabled,
+    sideFilter,
+    setSideFilter,
+    strikeSearch,
+    setStrikeSearch,
+    pagedContracts,
+    filteredContractsLength,
+    totalPages,
+    currentPage,
+    setPage,
+    onRetry,
+    selectedExpiryExists,
+}: {
+    symbol: string;
+    expiries: string[];
+    selectedExpiry: string;
+    setSelectedExpiry: (value: string) => void;
+    riskFreeRate: number;
+    setRiskFreeRate: (value: number) => void;
+    dividendYield: number;
+    setDividendYield: (value: number) => void;
+    filters: FilterState;
+    onFilterChange: (key: keyof FilterState, value: number) => void;
+    showFilters: boolean;
+    setShowFilters: (value: boolean) => void;
+    loadingExpiries: boolean;
+    loadingData: boolean;
+    onFetchData: () => Promise<void> | void;
+    onAutoPickExpiry: () => void;
+    analysis: AnalyzeResponse | null;
+    chain: ChainResponse | null;
+    chainError: string | null;
+    analysisError: string | null;
+    isFetchDisabled: boolean;
+    sideFilter: SideFilter;
+    setSideFilter: (value: SideFilter) => void;
+    strikeSearch: string;
+    setStrikeSearch: (value: string) => void;
+    pagedContracts: OptionContract[];
+    filteredContractsLength: number;
+    totalPages: number;
+    currentPage: number;
+    setPage: (value: number) => void;
+    onRetry: () => void;
+    selectedExpiryExists: boolean;
+}) {
+    const renderSummary = () => {
+        if (!analysis) return null;
+
+        const summaryItems = [
+            { label: "Spot", value: formatNumber(analysis.spot, 2) },
+            { label: "Expiry", value: analysis.expiry },
+            { label: "DTE", value: formatNumber(analysis.dte, 0) },
+            { label: "Total Contracts", value: formatNumber(analysis.totalCount, 0) },
+            { label: "Filtered Contracts", value: formatNumber(analysis.filteredCount, 0) },
+            { label: "Price Rule", value: analysis.priceRule.toUpperCase() },
+        ];
+
+        return (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {summaryItems.map((item) => (
+                    <div key={item.label} className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">{item.label}</p>
+                        <p className="text-sm font-semibold text-foreground">{item.value}</p>
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
     return (
         <div className="space-y-4">
-            <SectionCard title="Set Core Assumptions and Parameters" description="Define valuation date, pricing model, and core assumptions before running analytics.">
+            <SectionCard
+                title="Set Core Assumptions and Parameters"
+                description="Configure pricing inputs, choose expirations, and pull data before running analytics."
+            >
                 <div className="grid gap-3 sm:grid-cols-2">
-                    <PlaceholderTile label="Symbol" value={symbol} />
-                    <PlaceholderTile label="Valuation Date" value="Today (auto)" />
-                    <PlaceholderTile label="Pricing Model" value="Black-Scholes (placeholder)" />
-                    <PlaceholderTile label="Vol Surface" value="Pending configuration" />
+                    <FieldShell>
+                        <InputLabel>Symbol</InputLabel>
+                        <input
+                            value={symbol}
+                            readOnly
+                            className="h-10 w-full rounded-lg border border-border/60 bg-muted/20 px-3 text-sm font-semibold text-foreground"
+                        />
+                        <p className="text-xs text-muted-foreground">Read-only from the route.</p>
+                    </FieldShell>
+                    <FieldShell>
+                        <div className="flex items-center justify-between gap-2">
+                            <InputLabel>Expiry</InputLabel>
+                            <button
+                                type="button"
+                                onClick={onAutoPickExpiry}
+                                className="text-xs font-semibold text-primary hover:underline"
+                                disabled={loadingExpiries || expiries.length === 0}
+                            >
+                                Auto-pick expiry
+                            </button>
+                        </div>
+                        <select
+                            className="h-10 w-full rounded-lg border border-border/60 bg-background px-3 text-sm"
+                            value={selectedExpiry}
+                            onChange={(event) => setSelectedExpiry(event.target.value)}
+                            disabled={loadingExpiries || expiries.length === 0}
+                        >
+                            {expiries.length === 0 && <option value="">Loading expiries...</option>}
+                            {expiries.map((expiry) => (
+                                <option key={expiry} value={expiry}>
+                                    {expiry}
+                                </option>
+                            ))}
+                        </select>
+                        <p className="text-xs text-muted-foreground">
+                            {loadingExpiries ? "Loading expiries from the options API..." : "Select the contract expiration to analyze."}
+                        </p>
+                    </FieldShell>
                 </div>
-                <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-                    Connect interest rate curves, dividend assumptions, and custom parameters here in the next iteration.
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                    <FieldShell>
+                        <InputLabel>Risk-free rate (r)</InputLabel>
+                        <input
+                            type="number"
+                            step="0.001"
+                            value={riskFreeRate}
+                            onChange={(event) => setRiskFreeRate(Number(event.target.value))}
+                            className="h-10 w-full rounded-lg border border-border/60 bg-background px-3 text-sm"
+                        />
+                        <p className="text-xs text-muted-foreground">Default: 0.05</p>
+                    </FieldShell>
+                    <FieldShell>
+                        <InputLabel>Dividend yield (q)</InputLabel>
+                        <input
+                            type="number"
+                            step="0.001"
+                            value={dividendYield}
+                            onChange={(event) => setDividendYield(Number(event.target.value))}
+                            className="h-10 w-full rounded-lg border border-border/60 bg-background px-3 text-sm"
+                        />
+                        <p className="text-xs text-muted-foreground">Default: 0.005</p>
+                    </FieldShell>
                 </div>
+
+                <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                        <InputLabel>Filters</InputLabel>
+                        <button
+                            type="button"
+                            onClick={() => setShowFilters((previous) => !previous)}
+                            className="text-xs font-semibold text-primary hover:underline"
+                        >
+                            {showFilters ? "Hide filters" : "Show filters"}
+                        </button>
+                    </div>
+                    {showFilters && (
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            <FieldShell>
+                                <InputLabel>Max Spread %</InputLabel>
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    value={filters.maxSpreadPct}
+                                    onChange={(event) => onFilterChange("maxSpreadPct", Number(event.target.value))}
+                                    className="h-10 w-full rounded-lg border border-border/60 bg-background px-3 text-sm"
+                                />
+                            </FieldShell>
+                            <FieldShell>
+                                <InputLabel>Min Open Interest</InputLabel>
+                                <input
+                                    type="number"
+                                    step="1"
+                                    value={filters.minOpenInterest}
+                                    onChange={(event) => onFilterChange("minOpenInterest", Number(event.target.value))}
+                                    className="h-10 w-full rounded-lg border border-border/60 bg-background px-3 text-sm"
+                                />
+                            </FieldShell>
+                            <FieldShell>
+                                <InputLabel>Moneyness Min</InputLabel>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    value={filters.moneynessMin}
+                                    onChange={(event) => onFilterChange("moneynessMin", Number(event.target.value))}
+                                    className="h-10 w-full rounded-lg border border-border/60 bg-background px-3 text-sm"
+                                />
+                            </FieldShell>
+                            <FieldShell>
+                                <InputLabel>Moneyness Max</InputLabel>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    value={filters.moneynessMax}
+                                    onChange={(event) => onFilterChange("moneynessMax", Number(event.target.value))}
+                                    className="h-10 w-full rounded-lg border border-border/60 bg-background px-3 text-sm"
+                                />
+                            </FieldShell>
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                    <button
+                        type="button"
+                        onClick={onFetchData}
+                        disabled={isFetchDisabled}
+                        className={cn(
+                            "inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors",
+                            isFetchDisabled ? "cursor-not-allowed opacity-70" : "hover:bg-primary/90"
+                        )}
+                    >
+                        {loadingData ? "Fetching..." : "Fetch Data"}
+                    </button>
+                    {chain && (
+                        <p className="text-xs text-muted-foreground">
+                            Loaded {chain.contracts.length} contracts for {chain.expiry} at spot {formatNumber(chain.spot, 2)}.
+                        </p>
+                    )}
+                </div>
+
+                {(chainError || analysisError) && (
+                    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        <span>{chainError || analysisError}</span>
+                        <button
+                            type="button"
+                            onClick={onRetry}
+                            className="rounded-lg border border-destructive/40 px-3 py-1 text-xs font-semibold text-destructive hover:bg-destructive/10"
+                        >
+                            Retry
+                        </button>
+                    </div>
+                )}
+
+                {renderSummary()}
             </SectionCard>
 
             <SectionCard
                 title="Pull Underlying Spot and Option Chain Data"
-                description="Link to market data providers and select expirations and strikes for downstream analytics."
+                description="Review the normalized option chain, apply quick filters, and paginate through contracts."
             >
-                <div className="grid gap-3 sm:grid-cols-3">
-                    <PlaceholderTile label="Spot Source" value="Primary Market Data" />
-                    <PlaceholderTile label="Chain Depth" value="Next 6 expirations" />
-                    <PlaceholderTile label="Strikes" value="±20 around ATM" />
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 text-sm">
+                    <div className="flex items-center gap-2">
+                        <InputLabel>Side</InputLabel>
+                        <select
+                            className="h-9 rounded-lg border border-border/60 bg-background px-2 text-sm"
+                            value={sideFilter}
+                            onChange={(event) => setSideFilter(event.target.value as SideFilter)}
+                        >
+                            <option value="all">All</option>
+                            <option value="call">Calls</option>
+                            <option value="put">Puts</option>
+                        </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <InputLabel>Strike</InputLabel>
+                        <input
+                            type="number"
+                            value={strikeSearch}
+                            onChange={(event) => setStrikeSearch(event.target.value)}
+                            className="h-9 w-32 rounded-lg border border-border/60 bg-background px-2 text-sm"
+                            placeholder="Search"
+                        />
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                        {selectedExpiryExists ? `Expiry ${selectedExpiryExists ? selectedExpiry : ""}` : "Select an expiry to view the chain."}
+                    </div>
                 </div>
-                <PlaceholderList
-                    items={[
-                        "Auto-refresh spot and option chain snapshots",
-                        "Normalize calls/puts into unified schema",
-                        "Flag illiquid strikes for downstream filtering",
-                    ]}
-                />
-            </SectionCard>
 
-            <SectionCard
-                title="Pricing Engine"
-                description="Choose calibration approach and stress parameters before running any models."
-            >
-                <div className="grid gap-3 sm:grid-cols-2">
-                    <PlaceholderTile label="Calibration" value="Smile fit queued" />
-                    <PlaceholderTile label="Risk-Free Curve" value="UST (placeholder)" />
-                    <PlaceholderTile label="Dividend Assumptions" value="Forward div yield" />
-                    <PlaceholderTile label="Engine Status" value="Ready to price" />
-                </div>
-                <PlaceholderList
-                    items={[
-                        "Plug in Monte Carlo or tree-based engines",
-                        "Enable scenario sweeps across greeks",
-                        "Generate pricing snapshots for dashboard tiles",
-                    ]}
-                />
+                {!selectedExpiryExists && (
+                    <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                        Select an expiry above to load and view option contracts.
+                    </div>
+                )}
+
+                {selectedExpiryExists && !chain && !loadingData && (
+                    <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                        Click "Fetch Data" to retrieve spot and option chain data for this expiry.
+                    </div>
+                )}
+
+                {loadingData && (
+                    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                        Fetching option chain and analysis for {selectedExpiry}...
+                    </div>
+                )}
+
+                {chain && (
+                    <div className="space-y-3">
+                        <div className="overflow-x-auto rounded-xl border border-border/60">
+                            <table className="min-w-full divide-y divide-border/60 text-sm">
+                                <thead className="bg-muted/40 text-muted-foreground">
+                                    <tr>
+                                        <th className="px-3 py-2 text-left font-semibold">Strike</th>
+                                        <th className="px-3 py-2 text-left font-semibold">Side</th>
+                                        <th className="px-3 py-2 text-left font-semibold">Bid</th>
+                                        <th className="px-3 py-2 text-left font-semibold">Ask</th>
+                                        <th className="px-3 py-2 text-left font-semibold">Mid</th>
+                                        <th className="px-3 py-2 text-left font-semibold">Spread%</th>
+                                        <th className="px-3 py-2 text-left font-semibold">OI</th>
+                                        <th className="px-3 py-2 text-left font-semibold">Volume</th>
+                                        <th className="px-3 py-2 text-left font-semibold">Last</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border/60">
+                                    {pagedContracts.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={9} className="px-3 py-4 text-center text-muted-foreground">
+                                                No option contracts match the current filters.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        pagedContracts.map((contract) => {
+                                            const mid = (contract.bid + contract.ask) / 2;
+                                            const spreadPct = mid > 0 ? ((contract.ask - contract.bid) / mid) * 100 : null;
+                                            return (
+                                                <tr key={`${contract.side}-${contract.strike}`} className="hover:bg-muted/30">
+                                                    <td className="px-3 py-2 font-semibold">{formatNumber(contract.strike, 2)}</td>
+                                                    <td className="px-3 py-2 capitalize">{contract.side}</td>
+                                                    <td className="px-3 py-2">{formatNumber(contract.bid, 2)}</td>
+                                                    <td className="px-3 py-2">{formatNumber(contract.ask, 2)}</td>
+                                                    <td className="px-3 py-2">{formatNumber(mid, 2)}</td>
+                                                    <td className="px-3 py-2">{formatPercent(spreadPct, 2)}</td>
+                                                    <td className="px-3 py-2">{formatNumber(contract.openInterest ?? null, 0)}</td>
+                                                    <td className="px-3 py-2">{formatNumber(contract.volume ?? null, 0)}</td>
+                                                    <td className="px-3 py-2">{formatNumber(contract.last ?? null, 2)}</td>
+                                                </tr>
+                                            );
+                                        })
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+                            <div>
+                                Showing {pagedContracts.length} of {filteredContractsLength} contracts
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setPage(Math.max(1, currentPage - 1))}
+                                    disabled={currentPage === 1}
+                                    className="rounded-lg border border-border/60 px-3 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                    Prev
+                                </button>
+                                <span className="text-xs">
+                                    Page {currentPage} / {totalPages}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+                                    disabled={currentPage === totalPages}
+                                    className="rounded-lg border border-border/60 px-3 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                    Next
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </SectionCard>
         </div>
     );
