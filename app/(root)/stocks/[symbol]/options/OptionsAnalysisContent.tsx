@@ -50,38 +50,41 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
     };
 
     useEffect(() => {
-        let isCancelled = false;
+        const controller = new AbortController();
 
         const fetchExpiries = async () => {
             setApiStatus("pending");
             setApiError(null);
 
             try {
-                const response = await fetch(`/api/options/expiries?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" });
+                const response = await fetch(`/api/options/expiries?symbol=${encodeURIComponent(symbol)}`, {
+                    cache: "no-store",
+                    signal: controller.signal,
+                });
                 if (!response.ok) {
                     const payload = await response.json().catch(() => null);
                     const message = (payload as { error?: string } | null)?.error ?? "Unable to reach options API";
-                    if (!isCancelled) {
+                    if (!controller.signal.aborted) {
                         setApiStatus("error");
                         setApiError(message);
                     }
                     return;
                 }
 
-                if (!isCancelled) {
+                if (!controller.signal.aborted) {
                     setApiStatus("connected");
                 }
             } catch (error) {
-                if (!isCancelled) {
-                    setApiStatus("error");
-                    setApiError("Unable to reach options API");
-                }
+                const isAbortError = controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError");
+                if (isAbortError) return;
+                setApiStatus("error");
+                setApiError("Unable to reach options API");
             }
         };
 
         fetchExpiries();
         return () => {
-            isCancelled = true;
+            controller.abort();
         };
     }, [symbol]);
 

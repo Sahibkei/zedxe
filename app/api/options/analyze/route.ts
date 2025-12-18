@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { buildAnalyzeResponse } from '@/lib/options/mock-data';
+import { isValidIsoDate, normalizeSymbol } from '@/lib/options/validation';
 import type { AnalyzeRequest } from '@/lib/options/types';
 
-const isValidDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 const parseNumber = (value: unknown) => {
     if (typeof value === 'number') return value;
     if (typeof value === 'string') {
@@ -22,17 +22,27 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 });
     }
 
-    const symbol = body?.symbol?.trim();
-    const expiry = body?.expiry?.trim();
+    const rawSymbol = typeof body?.symbol === 'string' ? body.symbol : '';
+    const rawExpiry = typeof body?.expiry === 'string' ? body.expiry : '';
+    const symbol = rawSymbol ? normalizeSymbol(rawSymbol) : null;
+    const expiry = rawExpiry?.trim() || null;
     const r = parseNumber(body?.r);
     const q = parseNumber(body?.q);
 
-    if (!symbol || !expiry || r === null || q === null) {
-        return NextResponse.json({ error: 'symbol, expiry, r, and q are required' }, { status: 400 });
+    if (!symbol) {
+        return NextResponse.json({ error: 'symbol is required' }, { status: 400 });
     }
 
-    if (!isValidDate(expiry)) {
+    if (!expiry) {
+        return NextResponse.json({ error: 'expiry is required' }, { status: 400 });
+    }
+
+    if (!isValidIsoDate(expiry)) {
         return NextResponse.json({ error: 'expiry must be in YYYY-MM-DD format' }, { status: 400 });
+    }
+
+    if (r === null || q === null) {
+        return NextResponse.json({ error: 'symbol, expiry, r, and q are required' }, { status: 400 });
     }
 
     try {
