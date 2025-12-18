@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { analyzeOptions, fetchExpiries, fetchOptionChain } from "@/lib/options/client";
 import { formatNumber, formatPercent } from "@/lib/options/format";
 import ImpliedVolatilitySmile from "@/app/(root)/stocks/[symbol]/options/ImpliedVolatilitySmile";
+import IVSurface from "@/app/(root)/stocks/[symbol]/options/IVSurface";
 import type { AnalyzeResponse, ChainResponse, OptionContract } from "@/lib/options/types";
 import { cn } from "@/lib/utils";
 
@@ -351,6 +352,8 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                                         q={dividendYield}
                                         contracts={smileContracts}
                                     />
+                                ) : tab.key === "iv-surface" && isActive ? (
+                                    <IVSurface symbol={symbol} riskFreeRate={riskFreeRate} dividendYield={dividendYield} />
                                 ) : (
                                     isActive && (
                                         <TabPlaceholder
