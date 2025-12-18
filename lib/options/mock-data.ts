@@ -1,4 +1,5 @@
 import type { AnalyzeRequest, AnalyzeResponse, ChainResponse, ExpiriesResponse, OptionContract, OptionSide } from './types';
+import { fetchLatestSpot } from './spot';
 
 const DEFAULT_EXPIRY_COUNT = 10;
 const SPOT_MIN = 50;
@@ -96,9 +97,24 @@ export const buildExpiriesResponse = (symbol: string, count = DEFAULT_EXPIRY_COU
     return { symbol, expiries };
 };
 
-export const buildChainResponse = (symbol: string, expiry: string): ChainResponse => {
+const resolveSpot = async (symbol: string) => {
+    const latest = await fetchLatestSpot(symbol);
+
+    if (latest && Number.isFinite(latest.spot) && latest.spot > 0) {
+        return latest.spot;
+    }
+
+    const fallback = getSpotForSymbol(symbol);
+    if (fallback <= 0) {
+        throw new Error(`Failed to resolve a positive spot for ${symbol}`);
+    }
+
+    return fallback;
+};
+
+export const buildChainResponse = async (symbol: string, expiry: string): Promise<ChainResponse> => {
     const normalizedSymbol = symbol.toUpperCase();
-    const spot = getSpotForSymbol(normalizedSymbol);
+    const spot = await resolveSpot(normalizedSymbol);
     const strikes = generateStrikes(spot);
 
     const contracts = strikes.flatMap((strike) => [
@@ -145,8 +161,8 @@ const passesFilters = (contract: OptionContract, spot: number, dte: number, filt
     return true;
 };
 
-export const buildAnalyzeResponse = (request: AnalyzeRequest): AnalyzeResponse => {
-    const chain = buildChainResponse(request.symbol, request.expiry);
+export const buildAnalyzeResponse = async (request: AnalyzeRequest): Promise<AnalyzeResponse> => {
+    const chain = await buildChainResponse(request.symbol, request.expiry);
     const dte = calculateDte(request.expiry);
     const filteredContracts = chain.contracts.filter((contract) => passesFilters(contract, chain.spot, dte, request.filters));
 

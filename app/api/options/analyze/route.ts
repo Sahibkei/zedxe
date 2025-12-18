@@ -4,6 +4,9 @@ import { buildAnalyzeResponse } from '@/lib/options/mock-data';
 import { isValidIsoDate, normalizeSymbol } from '@/lib/options/validation';
 import type { AnalyzeRequest } from '@/lib/options/types';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 const parseNumber = (value: unknown) => {
     if (typeof value === 'number') return value;
     if (typeof value === 'string') {
@@ -46,8 +49,10 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-        const response = buildAnalyzeResponse({ ...body, symbol, expiry, r, q });
-        return NextResponse.json(response);
+        const response = await buildAnalyzeResponse({ ...body, symbol, expiry, r, q });
+        const json = NextResponse.json(response);
+        json.headers.set('Cache-Control', 'no-store');
+        return json;
     } catch (error) {
         console.error('POST /api/options/analyze error', error);
         return NextResponse.json({ error: 'Failed to analyze option chain' }, { status: 500 });

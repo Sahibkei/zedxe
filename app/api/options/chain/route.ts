@@ -3,7 +3,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { buildChainResponse } from '@/lib/options/mock-data';
 import { isValidIsoDate, normalizeSymbol, requireQuery } from '@/lib/options/validation';
 
-export function GET(request: NextRequest) {
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const symbolParam = requireQuery(searchParams, 'symbol');
     const expiryParam = requireQuery(searchParams, 'expiry');
@@ -21,8 +24,10 @@ export function GET(request: NextRequest) {
     }
 
     try {
-        const chain = buildChainResponse(normalizeSymbol(symbolParam), expiryParam);
-        return NextResponse.json(chain);
+        const chain = await buildChainResponse(normalizeSymbol(symbolParam), expiryParam);
+        const response = NextResponse.json(chain);
+        response.headers.set('Cache-Control', 'no-store');
+        return response;
     } catch (error) {
         console.error('GET /api/options/chain error', error);
         return NextResponse.json({ error: 'Failed to generate option chain' }, { status: 500 });
