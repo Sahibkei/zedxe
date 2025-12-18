@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -15,6 +15,9 @@ const tabs = [
 
 type TabKey = (typeof tabs)[number]["key"];
 
+/**
+ * Shell UI for the Options Analysis experience. Displays tabs and placeholder sections for future functionality.
+ */
 type OptionsAnalysisContentProps = {
     symbol: string;
     companyName?: string;
@@ -23,8 +26,7 @@ type OptionsAnalysisContentProps = {
 export default function OptionsAnalysisContent({ symbol, companyName }: OptionsAnalysisContentProps) {
     const [activeTab, setActiveTab] = useState<TabKey>("model-setup");
     const title = companyName ? `Options Analysis for ${companyName} (${symbol})` : `Options Analysis for ${symbol}`;
-
-    const tabList = useMemo(() => tabs, []);
+    const tabList = tabs;
 
     return (
         <div className="mx-auto w-full max-w-7xl px-4 md:px-6 py-8 space-y-8">
@@ -36,9 +38,9 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                         Configure pricing assumptions, visualize implied volatility, and explore risk scenarios for this symbol.
                     </p>
                 </div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-green-500/30 bg-green-500/10 px-4 py-2 text-sm font-semibold text-green-400 shadow-sm">
-                    <span className="size-2 rounded-full bg-green-400" aria-hidden />
-                    <span>API Status: Connected</span>
+                <div className="inline-flex items-center gap-2 rounded-full border border-yellow-500/40 bg-yellow-500/10 px-4 py-2 text-sm font-semibold text-yellow-400 shadow-sm">
+                    <span className="size-2 rounded-full bg-yellow-400" aria-hidden />
+                    <span>API Status: Pending</span>
                 </div>
             </div>
 
@@ -46,6 +48,8 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                 <div className="flex flex-wrap gap-2" role="tablist" aria-label="Options analysis sections">
                     {tabList.map((tab) => {
                         const isActive = activeTab === tab.key;
+                        const tabId = `options-tab-${tab.key}`;
+                        const panelId = `options-panel-${tab.key}`;
                         return (
                             <button
                                 key={tab.key}
@@ -58,7 +62,9 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                                 )}
                                 type="button"
                                 role="tab"
+                                id={tabId}
                                 aria-selected={isActive}
+                                aria-controls={panelId}
                             >
                                 {tab.label}
                             </button>
@@ -69,11 +75,30 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
                 <div className="space-y-4 lg:col-span-8">
-                    {activeTab === "model-setup" ? (
-                        <ModelSetupPlaceholder symbol={symbol} />
-                    ) : (
-                        <TabPlaceholder label={tabList.find((tab) => tab.key === activeTab)?.label || ""} />
-                    )}
+                    {tabList.map((tab) => {
+                        const isActive = activeTab === tab.key;
+                        const tabId = `options-tab-${tab.key}`;
+                        const panelId = `options-panel-${tab.key}`;
+                        return (
+                            <div
+                                key={tab.key}
+                                role="tabpanel"
+                                id={panelId}
+                                aria-labelledby={tabId}
+                                hidden={!isActive}
+                            >
+                                {tab.key === "model-setup" && isActive ? (
+                                    <ModelSetupPlaceholder symbol={symbol} />
+                                ) : (
+                                    isActive && (
+                                        <TabPlaceholder
+                                            label={tabList.find((currentTab) => currentTab.key === activeTab)?.label || ""}
+                                        />
+                                    )
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
 
                 <div className="space-y-4 lg:col-span-4">
@@ -108,8 +133,8 @@ function PlaceholderTile({ label, value }: { label: string; value: string }) {
 function PlaceholderList({ items }: { items: string[] }) {
     return (
         <ul className="space-y-2 text-sm text-muted-foreground list-disc pl-5">
-            {items.map((item) => (
-                <li key={item}>{item}</li>
+            {items.map((item, index) => (
+                <li key={index}>{item}</li>
             ))}
         </ul>
     );
