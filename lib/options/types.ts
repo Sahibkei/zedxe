@@ -56,3 +56,32 @@ export type AnalyzeResponse = {
     filteredCount: number;
     totalCount: number;
 };
+
+export type RiskNeutralDistributionStats = {
+    expectedMove: number;
+    expectedMoveUpper: number;
+    expectedMoveLower: number;
+    probabilityAboveSpot: number;
+    probabilityBelowSpot: number;
+};
+
+export type RiskNeutralDistributionGrid = {
+    x: number[];
+    pdf: number[];
+    cdf: number[];
+};
+
+export type RiskNeutralDistributionResponse = {
+    symbol: string;
+    expiry: string;
+    spot: number;
+    forward: number;
+    r: number;
+    q: number;
+    T: number;
+    sigma: number;
+    atmStrike: number;
+    grid: RiskNeutralDistributionGrid;
+    stats: RiskNeutralDistributionStats;
+    warnings?: string[];
+};

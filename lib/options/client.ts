@@ -1,4 +1,10 @@
-import type { AnalyzeRequest, AnalyzeResponse, ChainResponse, ExpiriesResponse } from './types';
+import type {
+    AnalyzeRequest,
+    AnalyzeResponse,
+    ChainResponse,
+    ExpiriesResponse,
+    RiskNeutralDistributionResponse,
+} from './types';
 import { safeFetchJson } from './safeFetchJson';
 
 export async function fetchExpiries(symbol: string, signal?: AbortSignal): Promise<ExpiriesResponse> {
@@ -32,6 +38,31 @@ export async function analyzeOptions(body: AnalyzeRequest, signal?: AbortSignal)
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(body),
+            cache: 'no-store',
+            signal,
+        },
+        { timeoutMs: 12000 }
+    );
+}
+
+export async function fetchRiskNeutralDistribution(
+    symbol: string,
+    expiry: string,
+    r: number,
+    q: number,
+    signal?: AbortSignal
+): Promise<RiskNeutralDistributionResponse> {
+    const params = new URLSearchParams({
+        symbol,
+        expiry,
+        r: String(r),
+        q: String(q),
+        method: 'lognormal',
+    });
+
+    return safeFetchJson<RiskNeutralDistributionResponse>(
+        `/api/options/rnd?${params.toString()}`,
+        {
             cache: 'no-store',
             signal,
         },
