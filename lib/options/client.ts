@@ -3,6 +3,8 @@ import type {
     AnalyzeResponse,
     ChainResponse,
     ExpiriesResponse,
+    OptionChainRequest,
+    OptionChainResponse,
     OptionPriceSource,
     OptionSide,
     RiskNeutralDistributionResponse,
@@ -23,12 +25,34 @@ export async function fetchExpiries(symbol: string, signal?: AbortSignal): Promi
     );
 }
 
-export async function fetchOptionChain(symbol: string, expiry: string, signal?: AbortSignal): Promise<ChainResponse> {
-    return safeFetchJson<ChainResponse>(
-        `/api/options/chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}`,
+export async function fetchOptionChain(symbol: string, expiry: string, signal?: AbortSignal): Promise<ChainResponse>;
+export async function fetchOptionChain(
+    params: OptionChainRequest,
+    options?: { signal?: AbortSignal }
+): Promise<OptionChainResponse>;
+export async function fetchOptionChain(
+    symbolOrParams: string | OptionChainRequest,
+    expiryOrOptions?: string | { signal?: AbortSignal },
+    signalMaybe?: AbortSignal
+): Promise<ChainResponse | OptionChainResponse> {
+    const isLegacy = typeof symbolOrParams === 'string';
+    const params = isLegacy ? { symbol: symbolOrParams, expiry: expiryOrOptions as string } : symbolOrParams;
+    const options = isLegacy ? { signal: signalMaybe } : expiryOrOptions;
+
+    const search = new URLSearchParams({
+        symbol: params.symbol,
+        expiry: params.expiry,
+    });
+    if (params.r !== undefined) search.set('r', String(params.r));
+    if (params.q !== undefined) search.set('q', String(params.q));
+    if (params.priceSource) search.set('priceSource', params.priceSource);
+    if (params.bandPct !== undefined) search.set('bandPct', String(params.bandPct));
+
+    return safeFetchJson<ChainResponse | OptionChainResponse>(
+        `/api/options/chain?${search.toString()}`,
         {
             cache: 'no-store',
-            signal,
+            signal: options?.signal,
         },
         { timeoutMs: 10000 }
     );
