@@ -3,7 +3,10 @@ import type {
     AnalyzeResponse,
     ChainResponse,
     ExpiriesResponse,
+    OptionPriceSource,
+    OptionSide,
     RiskNeutralDistributionResponse,
+    SingleOptionAnalyticsResponse,
 } from './types';
 import { safeFetchJson } from './safeFetchJson';
 
@@ -68,6 +71,39 @@ export async function fetchRiskNeutralDistribution(
         {
             cache: 'no-store',
             signal,
+        },
+        { timeoutMs: 12000 }
+    );
+}
+
+/**
+ * Fetch analytics for a single option contract.
+ */
+export async function fetchSingleOptionAnalytics(
+    symbol: string,
+    expiry: string,
+    type: OptionSide,
+    strike: number,
+    r: number,
+    q: number,
+    priceSource: OptionPriceSource = 'mid',
+    options?: { signal?: AbortSignal }
+): Promise<SingleOptionAnalyticsResponse> {
+    const params = new URLSearchParams({
+        symbol,
+        expiry,
+        type,
+        strike: String(strike),
+        r: String(r),
+        q: String(q),
+        priceSource,
+    });
+
+    return safeFetchJson<SingleOptionAnalyticsResponse>(
+        `/api/options/single?${params.toString()}`,
+        {
+            cache: 'no-store',
+            signal: options?.signal,
         },
         { timeoutMs: 12000 }
     );

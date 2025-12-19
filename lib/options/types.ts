@@ -4,6 +4,8 @@ export type ExpiriesResponse = {
 };
 
 export type OptionSide = 'call' | 'put';
+/** Price source to use when selecting the market premium. */
+export type OptionPriceSource = 'mid' | 'bid' | 'ask' | 'last';
 
 export type OptionContract = {
     symbol: string;
@@ -87,4 +89,61 @@ export type RiskNeutralDistributionResponse = {
     grid: RiskNeutralDistributionGrid;
     stats: RiskNeutralDistributionStats;
     warnings?: string[];
+};
+
+/** Black-Scholes greeks for a single option (per-share). */
+export type OptionGreeks = {
+    delta: number;
+    gamma: number;
+    vega: number;
+    theta: number;
+    rho: number;
+};
+
+/** API response payload for single-option analytics. */
+export type SingleOptionAnalyticsResponse = {
+    inputs: {
+        symbol: string;
+        expiry: string;
+        type: OptionSide;
+        strike: number;
+        r: number;
+        q: number;
+        priceSource: OptionPriceSource;
+        asOf: string;
+    };
+    contract: {
+        symbol: string;
+        expiry: string;
+        strike: number;
+        type: OptionSide;
+    };
+    spot: {
+        spot: number;
+        forward: number;
+        T: number;
+        source?: string;
+        asOf?: string;
+        alternate?: number | null;
+    };
+    market: {
+        bid: number;
+        ask: number;
+        last?: number;
+        mid: number;
+        premium: number;
+        spreadAbs: number;
+        spreadPct: number;
+        volume?: number;
+        openInterest?: number;
+        vendorIV?: number;
+    };
+    model: {
+        ivUsed: number;
+        bsmPrice: number;
+        greeks: OptionGreeks;
+        probITM: number;
+        breakeven: number;
+    };
+    warnings: string[];
 };
