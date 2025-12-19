@@ -6,6 +6,7 @@ import { analyzeOptions, fetchExpiries, fetchOptionChain } from "@/lib/options/c
 import { formatNumber, formatPercent } from "@/lib/options/format";
 import ImpliedVolatilitySmile from "@/app/(root)/stocks/[symbol]/options/ImpliedVolatilitySmile";
 import IVSurface from "@/app/(root)/stocks/[symbol]/options/IVSurface";
+import OptionChain from "@/app/(root)/stocks/[symbol]/options/OptionChain";
 import RiskNeutralDistribution from "@/app/(root)/stocks/[symbol]/options/RiskNeutralDistribution";
 import ScenarioAnalysis from "@/app/(root)/stocks/[symbol]/options/ScenarioAnalysis";
 import SingleOptionAnalytics from "@/app/(root)/stocks/[symbol]/options/SingleOptionAnalytics";
@@ -19,6 +20,7 @@ const tabs = [
     { key: "distribution", label: "Risk-Neutral Distribution" },
     { key: "single-option", label: "Single-Option Analytics" },
     { key: "scenario", label: "Scenario Analysis" },
+    { key: "option-chain", label: "Option Chain" },
 ] as const;
 
 type TabKey = (typeof tabs)[number]["key"];
@@ -393,6 +395,8 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                                         setQ={setDividendYield}
                                         loadingExpiries={loadingExpiries}
                                     />
+                                ) : tab.key === "option-chain" && isActive ? (
+                                    <OptionChain symbol={symbol} />
                                 ) : (
                                     isActive && (
                                         <TabPlaceholder

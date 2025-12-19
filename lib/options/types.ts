@@ -33,6 +33,41 @@ export type ChainResponse = {
     contracts: OptionContract[];
 };
 
+export type OptionChainQuote = {
+    bid: number | null;
+    ask: number | null;
+    last?: number | null;
+    mid: number | null;
+    iv: number | null;
+    delta: number | null;
+    volume?: number | null;
+    openInterest?: number | null;
+};
+
+export type OptionChainRow = {
+    strike: number;
+    call?: OptionChainQuote | null;
+    put?: OptionChainQuote | null;
+};
+
+export type OptionChainResponse = {
+    symbol: string;
+    expiry: string;
+    spot: number;
+    updatedAt: string;
+    rows: OptionChainRow[];
+    warnings?: string[];
+};
+
+export type OptionChainRequest = {
+    symbol: string;
+    expiry: string;
+    r?: number;
+    q?: number;
+    priceSource?: OptionPriceSource;
+    bandPct?: number;
+};
+
 export type AnalyzeRequest = {
     symbol: string;
     expiry: string;
