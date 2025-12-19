@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
         }
 
         if (r === null || q === null) {
-            return NextResponse.json({ error: 'symbol, expiry, r, and q are required', where: 'analyze' }, { status: 400 });
+            return NextResponse.json({ error: 'r and q are required', where: 'analyze' }, { status: 400 });
         }
 
         const response = await buildAnalyzeResponse({ ...body, symbol, expiry, r, q });

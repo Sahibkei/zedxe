@@ -51,32 +51,35 @@ export async function fetchLatestSpot(symbol: string): Promise<SpotResult> {
         const adjCloses = result?.indicators?.adjclose?.[0]?.adjclose ?? [];
 
         const lastClose = pickLast([...closes, ...adjCloses]);
-        const regular = isFiniteNumber(meta.regularMarketPrice) && meta.regularMarketPrice > 0 ? meta.regularMarketPrice : null;
-        const previous = isFiniteNumber(meta.previousClose) && meta.previousClose > 0 ? meta.previousClose : null;
-        const chartPrev = isFiniteNumber(meta.chartPreviousClose) && meta.chartPreviousClose > 0 ? meta.chartPreviousClose : null;
+        const candidates = [
+            { value: meta.regularMarketPrice, source: 'regularMarketPrice' as const },
+            { value: meta.previousClose, source: 'alternate' as const },
+            { value: meta.chartPreviousClose, source: 'alternate' as const },
+            { value: lastClose, source: 'historicalClose' as const },
+        ].filter((candidate) => isFiniteNumber(candidate.value) && candidate.value > 0);
 
-        const primary = regular ?? lastClose ?? previous ?? chartPrev;
-        if (!isFiniteNumber(primary) || primary <= 0) {
+        const primary = candidates[0] ?? null;
+        const alternate = candidates[1] ?? null;
+
+        if (!primary) {
             return {
                 spot: null,
                 source: 'none',
-                alternate: alternate ?? undefined,
                 asOf: new Date().toISOString(),
                 error: 'No valid spot price found',
             };
         }
 
-        const alternate = lastClose ?? previous ?? chartPrev ?? null;
-        if (alternate && Math.abs(primary - alternate) / alternate > 0.1) {
+        if (alternate && Math.abs(primary.value - alternate.value) / alternate.value > 0.1) {
             console.warn(
-                `[options] Spot discrepancy for ${symbol}: primary=${primary.toFixed(2)} alternate=${alternate.toFixed(2)}; using primary`
+                `[options] Spot discrepancy for ${symbol}: primary=${primary.value.toFixed(2)} alternate=${alternate.value.toFixed(2)}; using primary`
             );
         }
 
         return {
-            spot: primary,
-            source: regular ? 'regularMarketPrice' : lastClose ? 'historicalClose' : 'alternate',
-            alternate: alternate ?? undefined,
+            spot: primary.value,
+            source: primary.source,
+            alternate: alternate?.value,
             asOf: new Date().toISOString(),
         };
     } catch (error) {
