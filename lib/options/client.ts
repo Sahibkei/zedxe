@@ -6,6 +6,8 @@ import type {
     OptionPriceSource,
     OptionSide,
     RiskNeutralDistributionResponse,
+    ScenarioAnalysisResponse,
+    ScenarioPriceSource,
     SingleOptionAnalyticsResponse,
 } from './types';
 import { safeFetchJson } from './safeFetchJson';
@@ -101,6 +103,55 @@ export async function fetchSingleOptionAnalytics(
 
     return safeFetchJson<SingleOptionAnalyticsResponse>(
         `/api/options/single?${params.toString()}`,
+        {
+            cache: 'no-store',
+            signal: options?.signal,
+        },
+        { timeoutMs: 12000 }
+    );
+}
+
+/**
+ * Fetch scenario analysis grids for a single option contract.
+ */
+export async function fetchScenarioAnalysis(
+    params: {
+        symbol: string;
+        expiry: string;
+        type: OptionSide;
+        strike: number;
+        r: number;
+        q: number;
+        priceSource: ScenarioPriceSource;
+        horizonDays: number;
+        spotMinPct: number;
+        spotMaxPct: number;
+        spotStepPct: number;
+        ivMinPct: number;
+        ivMaxPct: number;
+        ivStepPct: number;
+    },
+    options?: { signal?: AbortSignal }
+): Promise<ScenarioAnalysisResponse> {
+    const search = new URLSearchParams({
+        symbol: params.symbol,
+        expiry: params.expiry,
+        type: params.type,
+        strike: String(params.strike),
+        r: String(params.r),
+        q: String(params.q),
+        priceSource: params.priceSource,
+        horizonDays: String(params.horizonDays),
+        spotMinPct: String(params.spotMinPct),
+        spotMaxPct: String(params.spotMaxPct),
+        spotStepPct: String(params.spotStepPct),
+        ivMinPct: String(params.ivMinPct),
+        ivMaxPct: String(params.ivMaxPct),
+        ivStepPct: String(params.ivStepPct),
+    });
+
+    return safeFetchJson<ScenarioAnalysisResponse>(
+        `/api/options/scenario?${search.toString()}`,
         {
             cache: 'no-store',
             signal: options?.signal,

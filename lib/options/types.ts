@@ -6,6 +6,8 @@ export type ExpiriesResponse = {
 export type OptionSide = 'call' | 'put';
 /** Price source to use when selecting the market premium. */
 export type OptionPriceSource = 'mid' | 'bid' | 'ask' | 'last';
+/** Price source for scenario analysis (model uses BSM instead of market quotes). */
+export type ScenarioPriceSource = 'mid' | 'bid' | 'ask' | 'model';
 
 export type OptionContract = {
     symbol: string;
@@ -145,5 +147,50 @@ export type SingleOptionAnalyticsResponse = {
         probITM: number;
         breakeven: number;
     };
+    warnings: string[];
+};
+
+export type ScenarioAxis = {
+    spotMovesPct: number[];
+    ivShiftsPct: number[];
+};
+
+export type ScenarioGrid = {
+    price: number[][];
+    pnl: number[][];
+};
+
+export type ScenarioStats = {
+    pnlMin: number;
+    pnlMax: number;
+    pnlBest: {
+        spotMovePct: number;
+        ivShiftPct: number;
+        pnl: number;
+    };
+    pnlWorst: {
+        spotMovePct: number;
+        ivShiftPct: number;
+        pnl: number;
+    };
+};
+
+export type ScenarioAnalysisResponse = {
+    base: {
+        symbol: string;
+        expiry: string;
+        type: OptionSide;
+        strike: number;
+        spot: number;
+        forward: number;
+        basePremium: number;
+        baseSigma: number;
+        dte: number;
+        horizonDays: number;
+        tEff: number;
+    };
+    axes: ScenarioAxis;
+    grids: ScenarioGrid;
+    stats: ScenarioStats;
     warnings: string[];
 };
