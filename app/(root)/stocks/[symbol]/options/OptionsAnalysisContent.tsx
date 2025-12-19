@@ -6,6 +6,7 @@ import { analyzeOptions, fetchExpiries, fetchOptionChain } from "@/lib/options/c
 import { formatNumber, formatPercent } from "@/lib/options/format";
 import ImpliedVolatilitySmile from "@/app/(root)/stocks/[symbol]/options/ImpliedVolatilitySmile";
 import IVSurface from "@/app/(root)/stocks/[symbol]/options/IVSurface";
+import RiskNeutralDistribution from "@/app/(root)/stocks/[symbol]/options/RiskNeutralDistribution";
 import type { AnalyzeResponse, ChainResponse, OptionContract } from "@/lib/options/types";
 import { cn } from "@/lib/utils";
 
@@ -354,6 +355,18 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                                     />
                                 ) : tab.key === "iv-surface" && isActive ? (
                                     <IVSurface symbol={symbol} riskFreeRate={riskFreeRate} dividendYield={dividendYield} />
+                                ) : tab.key === "distribution" && isActive ? (
+                                    <RiskNeutralDistribution
+                                        symbol={symbol}
+                                        expiries={expiries}
+                                        selectedExpiry={selectedExpiry}
+                                        setSelectedExpiry={setSelectedExpiry}
+                                        r={riskFreeRate}
+                                        setR={setRiskFreeRate}
+                                        q={dividendYield}
+                                        setQ={setDividendYield}
+                                        loadingExpiries={loadingExpiries}
+                                    />
                                 ) : (
                                     isActive && (
                                         <TabPlaceholder

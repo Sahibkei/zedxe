@@ -56,3 +56,35 @@ export type AnalyzeResponse = {
     filteredCount: number;
     totalCount: number;
 };
+
+/** Summary statistics for the risk-neutral distribution output. */
+export type RiskNeutralDistributionStats = {
+    expectedMove: number;
+    expectedMoveUpper: number;
+    expectedMoveLower: number;
+    probabilityAboveSpot: number;
+    probabilityBelowSpot: number;
+};
+
+/** Grid arrays for prices, PDF, and CDF values. */
+export type RiskNeutralDistributionGrid = {
+    x: number[];
+    pdf: number[];
+    cdf: number[];
+};
+
+/** API response payload for the risk-neutral distribution endpoint. */
+export type RiskNeutralDistributionResponse = {
+    symbol: string;
+    expiry: string;
+    spot: number;
+    forward: number;
+    r: number;
+    q: number;
+    T: number;
+    sigma: number;
+    atmStrike: number;
+    grid: RiskNeutralDistributionGrid;
+    stats: RiskNeutralDistributionStats;
+    warnings?: string[];
+};
