@@ -21,6 +21,9 @@ export type OptionContract = {
 export type ChainResponse = {
     symbol: string;
     spot: number;
+    spotTimestamp?: string;
+    spotSource?: string;
+    spotAlternate?: number;
     expiry: string;
     fetchedAt: string; // ISO
     contracts: OptionContract[];

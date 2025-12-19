@@ -1,11 +1,10 @@
 import type { AnalyzeRequest, AnalyzeResponse, ChainResponse, ExpiriesResponse, OptionContract, OptionSide } from './types';
 import { fetchLatestSpot } from './spot';
+import { daysToExpiry, timeToExpiryYears } from './time';
 
 const DEFAULT_EXPIRY_COUNT = 10;
 const SPOT_MIN = 50;
 const SPOT_MAX = 350;
-
-const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 const formatDate = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -101,7 +100,7 @@ const resolveSpot = async (symbol: string) => {
     const latest = await fetchLatestSpot(symbol);
 
     if (latest && Number.isFinite(latest.spot) && latest.spot > 0) {
-        return latest.spot;
+        return latest;
     }
 
     const fallback = getSpotForSymbol(symbol);
@@ -109,12 +108,13 @@ const resolveSpot = async (symbol: string) => {
         throw new Error(`Failed to resolve a positive spot for ${symbol}`);
     }
 
-    return fallback;
+    return { spot: fallback, source: 'mock-fallback', asOf: new Date().toISOString() };
 };
 
 export const buildChainResponse = async (symbol: string, expiry: string): Promise<ChainResponse> => {
     const normalizedSymbol = symbol.toUpperCase();
-    const spot = await resolveSpot(normalizedSymbol);
+    const spotInfo = await resolveSpot(normalizedSymbol);
+    const spot = spotInfo.spot;
     const strikes = generateStrikes(spot);
 
     const contracts = strikes.flatMap((strike) => [
@@ -125,19 +125,16 @@ export const buildChainResponse = async (symbol: string, expiry: string): Promis
     return {
         symbol: normalizedSymbol,
         spot,
+        spotTimestamp: spotInfo.asOf,
+        spotSource: spotInfo.source,
+        spotAlternate: spotInfo.alternate,
         expiry,
         fetchedAt: new Date().toISOString(),
         contracts,
     };
 };
 
-export const calculateDte = (expiry: string) => {
-    const today = new Date();
-    const startOfToday = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-    const expiryDate = new Date(`${expiry}T00:00:00Z`);
-    const diff = expiryDate.getTime() - startOfToday;
-    return Math.max(0, Math.round(diff / MS_PER_DAY));
-};
+export const calculateDte = (expiry: string) => daysToExpiry(expiry) ?? 0;
 
 const passesFilters = (contract: OptionContract, spot: number, dte: number, filters?: AnalyzeRequest['filters']) => {
     if (!filters) return true;
@@ -164,6 +161,7 @@ const passesFilters = (contract: OptionContract, spot: number, dte: number, filt
 export const buildAnalyzeResponse = async (request: AnalyzeRequest): Promise<AnalyzeResponse> => {
     const chain = await buildChainResponse(request.symbol, request.expiry);
     const dte = calculateDte(request.expiry);
+    const tYears = timeToExpiryYears(request.expiry);
     const filteredContracts = chain.contracts.filter((contract) => passesFilters(contract, chain.spot, dte, request.filters));
 
     return {
@@ -171,7 +169,7 @@ export const buildAnalyzeResponse = async (request: AnalyzeRequest): Promise<Ana
         spot: chain.spot,
         expiry: chain.expiry,
         dte,
-        tYears: Number((dte / 365).toFixed(6)),
+        tYears: Number((tYears ?? 0).toFixed(6)),
         r: request.r,
         q: request.q,
         priceRule: 'mid',

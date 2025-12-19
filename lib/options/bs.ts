@@ -96,3 +96,16 @@ export function impliedVolBisection(params: {
 
     return (low + high) / 2;
 }
+
+export function impliedVolRecoverySample() {
+    const params = { side: 'call' as const, S: 100, K: 105, r: 0.02, q: 0.0, t: 45 / 365, sigma: 0.25 };
+    const price = bsPrice(params);
+    const recovered = impliedVolBisection({ side: params.side, S: params.S, K: params.K, r: params.r, q: params.q, t: params.t, price });
+    return { ...params, price, recovered };
+}
+
+export function verifyImpliedVolRecovery(tolerance = 1e-3) {
+    const sample = impliedVolRecoverySample();
+    if (sample.recovered === null || !Number.isFinite(sample.recovered)) return false;
+    return Math.abs(sample.recovered - sample.sigma) < tolerance;
+}

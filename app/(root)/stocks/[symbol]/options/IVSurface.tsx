@@ -6,6 +6,7 @@ import { fetchExpiries, fetchOptionChain } from "@/lib/options/client";
 import { impliedVolBisection, intrinsicValue, moneyness as computeMoneyness } from "@/lib/options/bs";
 import { formatIV, formatNumber } from "@/lib/options/format";
 import type { ChainResponse, OptionContract, OptionSide } from "@/lib/options/types";
+import { daysToExpiry, timeToExpiryYears } from "@/lib/options/time";
 import { cn } from "@/lib/utils";
 
 type ExpiryMode = "single" | "multi";
@@ -48,6 +49,9 @@ type SurfaceResult = {
         maxIv: number | null;
         atmIv: number | null;
     };
+    spotSignature: string;
+    spotValue: number | null;
+    spotTimestamp?: string;
 };
 
 type IVSurfaceProps = {
@@ -61,12 +65,9 @@ const DEFAULT_MIN_OI = 20;
 const DEFAULT_MONEYNESS_MIN = 0.8;
 const DEFAULT_MONEYNESS_MAX = 1.2;
 const MAX_IV_ALLOWED = 3; // 300%
-
-const MS_PER_DAY = 1000 * 60 * 60 * 24;
+const DEBUG_DIAGNOSTICS = false;
 
 const isFiniteNumber = (input: unknown): input is number => typeof input === "number" && Number.isFinite(input);
-
-const ivToPct = (iv: number) => iv * 100;
 
 const colorForValue = (value: number, min: number, max: number) => {
     if (!isFiniteNumber(value) || !isFiniteNumber(min) || !isFiniteNumber(max)) return "transparent";
@@ -78,27 +79,14 @@ const colorForValue = (value: number, min: number, max: number) => {
     return `hsl(${hue}deg 75% ${lightness}%)`;
 };
 
-const computeDte = (expiry: string): number | null => {
-    if (!expiry) return null;
-    const today = new Date();
-    const startOfToday = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-    const expiryDate = new Date(`${expiry}T00:00:00Z`);
-    const diff = expiryDate.getTime() - startOfToday;
-    const days = Math.round(diff / MS_PER_DAY);
-    if (!Number.isFinite(days)) return null;
-    return days;
-};
-
-const computeTYears = (expiry: string): number | null => {
-    const dte = computeDte(expiry);
-    if (dte === null || dte <= 0) return null;
-    return Number((dte / 365).toFixed(6));
-};
+const buildCacheKey = (baseKey: string, spotSignature?: string | null) => `${baseKey}::${spotSignature ?? "pending"}`;
 
 const midFromContract = (contract: OptionContract): number | null => {
-    if (!Number.isFinite(contract.bid) || !Number.isFinite(contract.ask)) return null;
-    const mid = (contract.bid + contract.ask) / 2;
-    return Number.isFinite(mid) ? mid : null;
+    const bid = Number(contract.bid);
+    const ask = Number(contract.ask);
+    if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) return null;
+    const mid = (bid + ask) / 2;
+    return Number.isFinite(mid) && mid > 0 ? mid : null;
 };
 
 const deriveIv = (params: {
@@ -107,8 +95,9 @@ const deriveIv = (params: {
     r: number;
     q: number;
     tYears: number;
+    log?: (payload: Record<string, unknown>) => void;
 }): { iv: number | null; mid: number | null } => {
-    const { contract, spot, r, q, tYears } = params;
+    const { contract, spot, r, q, tYears, log } = params;
     const mid = midFromContract(contract);
     if (mid === null || mid <= 0) return { iv: null, mid };
 
@@ -118,6 +107,22 @@ const deriveIv = (params: {
     const iv = impliedVolBisection({ side: contract.side, S: spot, K: contract.strike, r, q, t: tYears, price: mid });
     if (iv === null || !Number.isFinite(iv)) return { iv: null, mid };
 
+    if (DEBUG_DIAGNOSTICS && log) {
+        log({
+            expiry: contract.expiry,
+            strike: contract.strike,
+            side: contract.side,
+            spot,
+            bid: contract.bid,
+            ask: contract.ask,
+            mid,
+            r,
+            q,
+            tYears,
+            iv,
+        });
+    }
+
     return { iv, mid };
 };
 
@@ -126,16 +131,29 @@ const buildSurface = (
     sideView: SideView,
     axisMode: AxisMode,
     r: number,
-    q: number
+    q: number,
+    log?: (payload: Record<string, unknown>) => void
 ): SurfaceResult => {
     const rows: SurfaceRow[] = [];
     const xAxisValues = new Set<number>();
     const allCells: AggregatedCell[] = [];
+    const spotSignature = chains
+        .map((chain) => `${chain.spot}-${chain.spotTimestamp ?? chain.fetchedAt}`)
+        .join("|");
+    const representativeSpot = chains[0]?.spot ?? null;
+    const referenceSpot = representativeSpot;
+    if (DEBUG_DIAGNOSTICS && log && Number.isFinite(referenceSpot)) {
+        const mismatched = chains.filter((chain) => Math.abs(chain.spot - (referenceSpot as number)) / (referenceSpot as number) > 0.1);
+        if (mismatched.length > 0) {
+            log({ type: "spot-mismatch", referenceSpot, mismatched: mismatched.map((entry) => ({ spot: entry.spot, expiry: entry.expiry })) });
+        }
+    }
 
     chains.forEach((chain) => {
-        const tYears = computeTYears(chain.expiry);
-        const dte = computeDte(chain.expiry);
-        if (!Number.isFinite(chain.spot) || !tYears || tYears <= 0) return;
+        const spotForChain = Number.isFinite(referenceSpot) ? referenceSpot : chain.spot;
+        const tYears = timeToExpiryYears(chain.expiry);
+        const dte = daysToExpiry(chain.expiry);
+        if (!Number.isFinite(spotForChain) || !tYears || tYears <= 0) return;
 
         const cellMap: Record<string, AggregatedCell> = {};
 
@@ -151,10 +169,12 @@ const buildSurface = (
             const openInterest = contract.openInterest ?? 0;
             if (openInterest < DEFAULT_MIN_OI) return;
 
-            const { iv, mid } = deriveIv({ contract, spot: chain.spot, r, q, tYears });
+            if (!Number.isFinite(contract.strike) || contract.strike <= 0) return;
+
+            const { iv, mid } = deriveIv({ contract, spot: spotForChain, r, q, tYears, log });
             if (iv === null || !Number.isFinite(iv) || iv <= 0 || iv > MAX_IV_ALLOWED) return;
 
-            const moneyness = computeMoneyness(chain.spot, contract.strike);
+            const moneyness = computeMoneyness(spotForChain, contract.strike);
             if (!Number.isFinite(moneyness)) return;
 
             if (axisMode === "strike" && (moneyness < DEFAULT_MONEYNESS_MIN || moneyness > DEFAULT_MONEYNESS_MAX)) return;
@@ -243,6 +263,9 @@ const buildSurface = (
             maxIv,
             atmIv,
         },
+        spotSignature,
+        spotValue: representativeSpot,
+        spotTimestamp: chains[0]?.spotTimestamp ?? chains[0]?.fetchedAt,
     };
 };
 
@@ -260,10 +283,17 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
     const [error, setError] = useState<string | null>(null);
     const [surface, setSurface] = useState<SurfaceResult | null>(null);
     const [, setCache] = useState<Record<string, SurfaceResult>>({});
+    const diagnosticsRef = useRef<Record<string, unknown>[]>([]);
 
     const fetchControllerRef = useRef<AbortController | null>(null);
     const expiryControllerRef = useRef<AbortController | null>(null);
     const cacheRef = useRef<Record<string, SurfaceResult>>({});
+    const cacheSpotSignatureRef = useRef<string | null>(null);
+
+    const logDiagnostic = useCallback((payload: Record<string, unknown>) => {
+        if (!DEBUG_DIAGNOSTICS) return;
+        diagnosticsRef.current = [...diagnosticsRef.current.slice(-200), payload];
+    }, []);
 
     useEffect(() => {
         setExpiries([]);
@@ -271,6 +301,7 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
         setSurface(null);
         setCache({});
         cacheRef.current = {};
+        cacheSpotSignatureRef.current = null;
         expiryControllerRef.current?.abort();
 
         const controller = new AbortController();
@@ -307,6 +338,10 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
         }
     }, [expiries, selectedExpiry]);
 
+    useEffect(() => {
+        cacheSpotSignatureRef.current = null;
+    }, [cacheKeyBase]);
+
     const resolvedExpiries = useMemo(() => {
         if (expiryMode === "single") {
             return selectedExpiry ? [selectedExpiry] : [];
@@ -321,13 +356,13 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
 
         const normalized = { min: Math.max(0, dteRange.min), max: Math.max(dteRange.min, dteRange.max) };
         return expiries.filter((expiry) => {
-            const dte = computeDte(expiry);
+            const dte = daysToExpiry(expiry);
             if (dte === null) return false;
             return dte >= normalized.min && dte <= normalized.max;
         });
     }, [expiryMode, windowType, selectedExpiry, expiries, expiryCount, dteRange]);
 
-    const cacheKey = useMemo(() => {
+    const cacheKeyBase = useMemo(() => {
         const expiryKey = resolvedExpiries.join("|");
         return [symbol, expiryKey, sideView, axisMode, riskFreeRate, dividendYield].join("::");
     }, [symbol, resolvedExpiries, sideView, axisMode, riskFreeRate, dividendYield]);
@@ -366,10 +401,11 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                 setSurface(null);
                 setError(null);
                 setLoading(false);
+                cacheSpotSignatureRef.current = null;
                 return;
             }
 
-            const cachedSurface = cacheRef.current[cacheKey];
+            const cachedSurface = cacheRef.current[buildCacheKey(cacheKeyBase, cacheSpotSignatureRef.current)];
             if (!force && cachedSurface) {
                 setError(null);
                 setLoading(false);
@@ -386,10 +422,12 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
             try {
                 const chains = await fetchChainsWithLimit(resolvedExpiries, controller.signal, 3);
                 if (controller.signal.aborted) return;
-                const surfaceResult = buildSurface(chains, sideView, axisMode, riskFreeRate, dividendYield);
+                const surfaceResult = buildSurface(chains, sideView, axisMode, riskFreeRate, dividendYield, logDiagnostic);
                 setSurface(surfaceResult);
+                cacheSpotSignatureRef.current = surfaceResult.spotSignature;
 
                 setCache((previous) => {
+                    const cacheKey = buildCacheKey(cacheKeyBase, surfaceResult.spotSignature);
                     const nextCache = { ...previous, [cacheKey]: surfaceResult };
                     cacheRef.current = nextCache;
                     return nextCache;
@@ -406,7 +444,7 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                 }
             }
         },
-        [resolvedExpiries, cacheKey, sideView, axisMode, riskFreeRate, dividendYield, fetchChainsWithLimit]
+        [resolvedExpiries, cacheKeyBase, sideView, axisMode, riskFreeRate, dividendYield, fetchChainsWithLimit, logDiagnostic]
     );
 
     useEffect(() => {
