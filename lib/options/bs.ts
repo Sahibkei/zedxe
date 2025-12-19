@@ -9,6 +9,11 @@ export function normCdf(x: number): number {
     return 0.5 * (1 + sign * erf);
 }
 
+export function normPdf(x: number): number {
+    if (!Number.isFinite(x)) return NaN;
+    return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+}
+
 export function intrinsicValue(side: 'call' | 'put', S: number, K: number): number {
     if (!Number.isFinite(S) || !Number.isFinite(K)) return NaN;
     if (side === 'call') return Math.max(0, S - K);
@@ -43,6 +48,71 @@ export function bsPrice(params: { side: 'call' | 'put'; S: number; K: number; r:
     }
 
     return discountedStrike * normCdf(-d2) - discountedSpot * normCdf(-d1);
+}
+
+type BsD1D2 = {
+    d1: number;
+    d2: number;
+    sqrtT: number;
+    discountedSpot: number;
+    discountedStrike: number;
+};
+
+const computeD1D2 = (params: { S: number; K: number; r: number; q: number; t: number; sigma: number }): BsD1D2 | null => {
+    const { S, K, r, q, t, sigma } = params;
+    if (!Number.isFinite(S) || !Number.isFinite(K) || !Number.isFinite(r) || !Number.isFinite(q) || !Number.isFinite(t) || !Number.isFinite(sigma)) {
+        return null;
+    }
+    if (S <= 0 || K <= 0 || t <= 0 || sigma <= 0) return null;
+
+    const sqrtT = Math.sqrt(t);
+    const denominator = sigma * sqrtT;
+    if (denominator === 0) return null;
+
+    const logMoneyness = Math.log(S / K);
+    const d1 = (logMoneyness + (r - q + 0.5 * sigma * sigma) * t) / denominator;
+    const d2 = d1 - denominator;
+    const discountedSpot = S * Math.exp(-q * t);
+    const discountedStrike = K * Math.exp(-r * t);
+    return { d1, d2, sqrtT, discountedSpot, discountedStrike };
+};
+
+export function bsGreeks(params: {
+    side: 'call' | 'put';
+    S: number;
+    K: number;
+    r: number;
+    q: number;
+    t: number;
+    sigma: number;
+}): { delta: number; gamma: number; vega: number; theta: number; rho: number } | null {
+    const { side, S, K, r, q, t, sigma } = params;
+    const state = computeD1D2({ S, K, r, q, t, sigma });
+    if (!state) return null;
+
+    const { d1, d2, sqrtT, discountedSpot, discountedStrike } = state;
+    const pdf = normPdf(d1);
+    const delta = side === 'call' ? Math.exp(-q * t) * normCdf(d1) : Math.exp(-q * t) * (normCdf(d1) - 1);
+    const gamma = (Math.exp(-q * t) * pdf) / (S * sigma * sqrtT);
+    const vega = discountedSpot * pdf * sqrtT;
+    const thetaBase = -(discountedSpot * pdf * sigma) / (2 * sqrtT);
+    const theta =
+        side === 'call'
+            ? thetaBase - r * discountedStrike * normCdf(d2) + q * discountedSpot * normCdf(d1)
+            : thetaBase + r * discountedStrike * normCdf(-d2) - q * discountedSpot * normCdf(-d1);
+    const rho = side === 'call' ? discountedStrike * t * normCdf(d2) : -discountedStrike * t * normCdf(-d2);
+
+    if (![delta, gamma, vega, theta, rho].every(Number.isFinite)) return null;
+    return { delta, gamma, vega, theta, rho };
+}
+
+export function bsProbITM(params: { side: 'call' | 'put'; S: number; K: number; r: number; q: number; t: number; sigma: number }): number | null {
+    const { side, S, K, r, q, t, sigma } = params;
+    const state = computeD1D2({ S, K, r, q, t, sigma });
+    if (!state) return null;
+    const { d2 } = state;
+    const prob = side === 'call' ? normCdf(d2) : normCdf(-d2);
+    return Number.isFinite(prob) ? prob : null;
 }
 
 export function impliedVolBisection(params: {
