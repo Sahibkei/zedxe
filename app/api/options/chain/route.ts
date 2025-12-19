@@ -1,67 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { bsGreeks, impliedVolBisection } from '@/lib/options/bs';
 import { buildChainResponse } from '@/lib/options/mock-data';
 import { timeToExpiryYears } from '@/lib/options/time';
+import { buildOptionChainQuote, OPTION_PRICE_SOURCES } from '@/lib/options/chainQuote';
 import type { OptionChainQuote, OptionPriceSource } from '@/lib/options/types';
 import { isValidIsoDate, normalizeSymbol, requireQuery } from '@/lib/options/validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const priceSources: OptionPriceSource[] = ['mid', 'bid', 'ask', 'last'];
-
 const parseNumber = (value: string | null) => {
     if (!value) return null;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
-};
-
-const buildQuote = (params: {
-    side: 'call' | 'put';
-    bid: number;
-    ask: number;
-    last?: number;
-    volume?: number;
-    openInterest?: number;
-    impliedVol?: number;
-    priceSource: OptionPriceSource;
-    spot: number;
-    strike: number;
-    r: number;
-    q: number;
-    tYears: number;
-}): OptionChainQuote => {
-    const { bid, ask, last, volume, openInterest, impliedVol, priceSource, spot, strike, r, q, tYears, side } = params;
-    const mid = Number.isFinite(bid) && Number.isFinite(ask) ? (bid + ask) / 2 : NaN;
-    const priceMap: Record<OptionPriceSource, number | undefined> = {
-        mid,
-        bid,
-        ask,
-        last,
-    };
-    let premium = priceMap[priceSource];
-    if (!Number.isFinite(premium ?? NaN)) {
-        premium = mid;
-    }
-
-    let iv = Number.isFinite(impliedVol ?? NaN) ? (impliedVol as number) : null;
-    if (!iv && Number.isFinite(premium ?? NaN) && (premium ?? 0) > 0) {
-        iv = impliedVolBisection({ side, S: spot, K: strike, r, q, t: tYears, price: premium as number });
-    }
-
-    const greeks = iv ? bsGreeks({ side, S: spot, K: strike, r, q, t: tYears, sigma: iv }) : null;
-
-    return {
-        bid: Number.isFinite(bid) ? bid : null,
-        ask: Number.isFinite(ask) ? ask : null,
-        last: Number.isFinite(last ?? NaN) ? last : null,
-        mid: Number.isFinite(mid) ? mid : null,
-        iv: Number.isFinite(iv ?? NaN) ? (iv as number) : null,
-        delta: greeks?.delta ?? null,
-        volume: Number.isFinite(volume ?? NaN) ? volume : null,
-        openInterest: Number.isFinite(openInterest ?? NaN) ? openInterest : null,
-    };
 };
 
 export async function GET(request: NextRequest) {
@@ -86,7 +37,7 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'expiry must be in YYYY-MM-DD format', where: 'chain' }, { status: 400 });
         }
 
-        if (!priceSources.includes(priceSourceParam as OptionPriceSource)) {
+        if (!OPTION_PRICE_SOURCES.includes(priceSourceParam as OptionPriceSource)) {
             return NextResponse.json(
                 { error: 'priceSource must be mid, bid, ask, or last', where: 'chain' },
                 { status: 400 }
@@ -129,7 +80,7 @@ export async function GET(request: NextRequest) {
             }
             const row = rowsByStrike.get(contract.strike);
 
-            const quote = buildQuote({
+            const quote = buildOptionChainQuote({
                 side: contract.side,
                 bid: contract.bid,
                 ask: contract.ask,

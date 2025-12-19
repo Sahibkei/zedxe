@@ -59,6 +59,33 @@ export type OptionChainResponse = {
     warnings?: string[];
 };
 
+export type OptionSurfacePointSource = 'call' | 'put' | 'otm' | 'avg';
+
+export type OptionSurfacePoint = {
+    strike: number;
+    iv: number | null;
+    source: OptionSurfacePointSource;
+};
+
+export type OptionSurfaceChain = {
+    expiry: string;
+    spot: number;
+    spotTimestamp?: string;
+    spotSource?: string;
+    spotAlternate?: number;
+    fetchedAt: string;
+    rows: OptionChainRow[];
+};
+
+export type OptionSurfaceResponse = {
+    symbol: string;
+    priceSource: OptionPriceSource;
+    r: number;
+    q: number;
+    updatedAt: string;
+    chains: OptionSurfaceChain[];
+};
+
 export type OptionChainRequest = {
     symbol: string;
     expiry: string;

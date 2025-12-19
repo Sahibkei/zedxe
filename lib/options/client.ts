@@ -7,6 +7,7 @@ import type {
     OptionChainResponse,
     OptionPriceSource,
     OptionSide,
+    OptionSurfaceResponse,
     RiskNeutralDistributionResponse,
     ScenarioAnalysisResponse,
     ScenarioPriceSource,
@@ -72,6 +73,34 @@ export async function fetchOptionChainV2(
             signal: options?.signal,
         },
         { timeoutMs: 10000 }
+    );
+}
+
+export async function fetchOptionSurface(
+    params: {
+        symbol: string;
+        expiries: string[];
+        r: number;
+        q: number;
+        priceSource: OptionPriceSource;
+    },
+    options?: { signal?: AbortSignal }
+): Promise<OptionSurfaceResponse> {
+    const search = new URLSearchParams({
+        symbol: params.symbol,
+        expiries: params.expiries.join(','),
+        r: String(params.r),
+        q: String(params.q),
+        priceSource: params.priceSource,
+    });
+
+    return safeFetchJson<OptionSurfaceResponse>(
+        `/api/options/surface?${search.toString()}`,
+        {
+            cache: 'no-store',
+            signal: options?.signal,
+        },
+        { timeoutMs: 12000 }
     );
 }
 

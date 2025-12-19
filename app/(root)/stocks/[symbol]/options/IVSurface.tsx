@@ -2,10 +2,10 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { fetchExpiries, fetchOptionChain } from "@/lib/options/client";
-import { impliedVolBisection, intrinsicValue, moneyness as computeMoneyness } from "@/lib/options/bs";
+import { fetchExpiries, fetchOptionSurface } from "@/lib/options/client";
+import { moneyness as computeMoneyness } from "@/lib/options/bs";
 import { formatIV, formatNumber } from "@/lib/options/format";
-import type { ChainResponse, OptionContract, OptionSide } from "@/lib/options/types";
+import type { OptionChainQuote, OptionPriceSource, OptionSide, OptionSurfaceChain, OptionSurfacePointSource } from "@/lib/options/types";
 import { daysToExpiry, timeToExpiryYears } from "@/lib/options/time";
 import { cn } from "@/lib/utils";
 
@@ -26,9 +26,9 @@ type AggregatedCell = {
     mid: number | null;
     count: number;
     side: SideView | OptionSide;
+    source: OptionSurfacePointSource;
     spot: number | null;
     dte: number | null;
-    tYears: number | null;
 };
 
 type SurfaceRow = {
@@ -67,6 +67,7 @@ const DEFAULT_MONEYNESS_MAX = 1.2;
 // Typical large-cap 1D IV is usually tens of %, not 200%+; treat extreme values as a units/inputs signal.
 const MAX_IV_ALLOWED = 3; // 300%
 const DEBUG_DIAGNOSTICS = false;
+const PRICE_SOURCES: OptionPriceSource[] = ["mid", "bid", "ask", "last"];
 
 const isFiniteNumber = (input: unknown): input is number => typeof input === "number" && Number.isFinite(input);
 
@@ -82,57 +83,36 @@ const colorForValue = (value: number, min: number, max: number) => {
 
 const buildCacheKey = (baseKey: string, spotSignature?: string | null) => `${baseKey}::${spotSignature ?? "pending"}`;
 
-const midFromContract = (contract: OptionContract): number | null => {
-    const bid = Number(contract.bid);
-    const ask = Number(contract.ask);
-    if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) return null;
-    const mid = (bid + ask) / 2;
-    return Number.isFinite(mid) && mid > 0 ? mid : null;
+const describeQuote = (params: { quote?: OptionChainQuote | null; source: OptionSurfacePointSource }): {
+    iv: number | null;
+    bid: number | null;
+    ask: number | null;
+    mid: number | null;
+    source: OptionSurfacePointSource;
+} => {
+    const { quote, source } = params;
+    return {
+        iv: Number.isFinite(quote?.iv ?? null) ? (quote?.iv as number) : null,
+        bid: Number.isFinite(quote?.bid ?? null) ? (quote?.bid as number) : null,
+        ask: Number.isFinite(quote?.ask ?? null) ? (quote?.ask as number) : null,
+        mid: Number.isFinite(quote?.mid ?? null) ? (quote?.mid as number) : null,
+        source,
+    };
 };
 
-const deriveIv = (params: {
-    contract: OptionContract;
-    spot: number;
-    r: number;
-    q: number;
-    tYears: number;
-    log?: (payload: Record<string, unknown>) => void;
-}): { iv: number | null; mid: number | null } => {
-    const { contract, spot, r, q, tYears, log } = params;
-    const mid = midFromContract(contract);
-    if (mid === null || mid <= 0) return { iv: null, mid };
-
-    const intrinsic = intrinsicValue(contract.side, spot, contract.strike);
-    if (!Number.isFinite(intrinsic) || mid <= intrinsic) return { iv: null, mid };
-
-    const iv = impliedVolBisection({ side: contract.side, S: spot, K: contract.strike, r, q, t: tYears, price: mid });
-    if (iv === null || !Number.isFinite(iv)) return { iv: null, mid };
-
-    if (DEBUG_DIAGNOSTICS && log) {
-        log({
-            expiry: contract.expiry,
-            strike: contract.strike,
-            side: contract.side,
-            spot,
-            bid: contract.bid,
-            ask: contract.ask,
-            mid,
-            r,
-            q,
-            tYears,
-            iv,
-        });
-    }
-
-    return { iv, mid };
+const averageNumber = (first: number | null | undefined, second: number | null | undefined) => {
+    const left = Number.isFinite(first ?? null) ? (first as number) : null;
+    const right = Number.isFinite(second ?? null) ? (second as number) : null;
+    if (left === null && right === null) return null;
+    if (left === null) return right;
+    if (right === null) return left;
+    return (left + right) / 2;
 };
 
 const buildSurface = (
-    chains: ChainResponse[],
+    chains: OptionSurfaceChain[],
     sideView: SideView,
     axisMode: AxisMode,
-    r: number,
-    q: number,
     log?: (payload: Record<string, unknown>) => void
 ): SurfaceResult => {
     const rows: SurfaceRow[] = [];
@@ -156,37 +136,86 @@ const buildSurface = (
         const dte = daysToExpiry(chain.expiry);
         if (!Number.isFinite(spotForChain) || !tYears || tYears <= 0) return;
 
+        const atmStrike = chain.rows.reduce((closest: number | null, row) => {
+            if (!Number.isFinite(row.strike)) return closest;
+            if (closest === null) return row.strike;
+            return Math.abs(row.strike - spotForChain) < Math.abs(closest - spotForChain) ? row.strike : closest;
+        }, null);
+
         const cellMap: Record<string, AggregatedCell> = {};
 
-        chain.contracts.forEach((contract) => {
-            if (sideView !== "both" && contract.side !== sideView) return;
+        chain.rows.forEach((row) => {
+            if (!Number.isFinite(row.strike) || row.strike <= 0) return;
 
-            // liquidity / quality filters
-            const spreadPct = Number.isFinite(contract.ask) && Number.isFinite(contract.bid)
-                ? ((contract.ask - contract.bid) / ((contract.ask + contract.bid) / 2)) * 100
+            const callQuote = row.call ?? null;
+            const putQuote = row.put ?? null;
+            const isAtm = atmStrike !== null && Math.abs(row.strike - atmStrike) < 1e-6;
+
+            let selectedSide: OptionSide | null = null;
+            let selection = { iv: null as number | null, bid: null as number | null, ask: null as number | null, mid: null as number | null, source: "otm" as OptionSurfacePointSource };
+            let openInterest: number | null = null;
+
+            if (sideView === "call") {
+                selectedSide = "call";
+                selection = describeQuote({ quote: callQuote, source: "call" });
+                openInterest = Number.isFinite(callQuote?.openInterest ?? null) ? (callQuote?.openInterest as number) : null;
+            } else if (sideView === "put") {
+                selectedSide = "put";
+                selection = describeQuote({ quote: putQuote, source: "put" });
+                openInterest = Number.isFinite(putQuote?.openInterest ?? null) ? (putQuote?.openInterest as number) : null;
+            } else if (isAtm) {
+                const callIv = Number.isFinite(callQuote?.iv ?? null) ? (callQuote?.iv as number) : null;
+                const putIv = Number.isFinite(putQuote?.iv ?? null) ? (putQuote?.iv as number) : null;
+                if (callIv !== null && putIv !== null) {
+                    selection = {
+                        iv: (callIv + putIv) / 2,
+                        bid: averageNumber(callQuote?.bid ?? null, putQuote?.bid ?? null),
+                        ask: averageNumber(callQuote?.ask ?? null, putQuote?.ask ?? null),
+                        mid: averageNumber(callQuote?.mid ?? null, putQuote?.mid ?? null),
+                        source: "avg",
+                    };
+                    openInterest = averageNumber(callQuote?.openInterest ?? null, putQuote?.openInterest ?? null);
+                } else if (callIv !== null) {
+                    selectedSide = "call";
+                    selection = describeQuote({ quote: callQuote, source: "call" });
+                    openInterest = Number.isFinite(callQuote?.openInterest ?? null) ? (callQuote?.openInterest as number) : null;
+                } else if (putIv !== null) {
+                    selectedSide = "put";
+                    selection = describeQuote({ quote: putQuote, source: "put" });
+                    openInterest = Number.isFinite(putQuote?.openInterest ?? null) ? (putQuote?.openInterest as number) : null;
+                } else {
+                    return;
+                }
+            } else if (row.strike >= spotForChain) {
+                selectedSide = "call";
+                selection = describeQuote({ quote: callQuote, source: "otm" });
+                openInterest = Number.isFinite(callQuote?.openInterest ?? null) ? (callQuote?.openInterest as number) : null;
+            } else {
+                selectedSide = "put";
+                selection = describeQuote({ quote: putQuote, source: "otm" });
+                openInterest = Number.isFinite(putQuote?.openInterest ?? null) ? (putQuote?.openInterest as number) : null;
+            }
+
+            const { iv, bid, ask, mid, source } = selection;
+            if (iv === null || !Number.isFinite(iv) || iv <= 0 || iv > MAX_IV_ALLOWED) return;
+
+            const spreadPct = Number.isFinite(bid) && Number.isFinite(ask)
+                ? ((ask - bid) / ((ask + bid) / 2)) * 100
                 : Number.POSITIVE_INFINITY;
             if (!isFiniteNumber(spreadPct) || spreadPct > DEFAULT_MAX_SPREAD_PCT) return;
 
-            const openInterest = contract.openInterest ?? 0;
-            if (openInterest < DEFAULT_MIN_OI) return;
+            if ((openInterest ?? 0) < DEFAULT_MIN_OI) return;
 
-            if (!Number.isFinite(contract.strike) || contract.strike <= 0) return;
-
-            const { iv, mid } = deriveIv({ contract, spot: spotForChain, r, q, tYears, log });
-            if (iv === null || !Number.isFinite(iv) || iv <= 0 || iv > MAX_IV_ALLOWED) return;
-
-            const moneyness = computeMoneyness(spotForChain, contract.strike);
+            const moneyness = computeMoneyness(spotForChain, row.strike);
             if (!Number.isFinite(moneyness)) return;
 
             if (axisMode === "strike" && (moneyness < DEFAULT_MONEYNESS_MIN || moneyness > DEFAULT_MONEYNESS_MAX)) return;
 
-            const axisValue = axisMode === "strike" ? contract.strike : moneyness;
+            const axisValue = axisMode === "strike" ? row.strike : moneyness;
             if (!Number.isFinite(axisValue)) return;
 
-            const key = axisMode === "strike" ? contract.strike.toFixed(2) : axisValue.toFixed(3);
+            const key = axisMode === "strike" ? row.strike.toFixed(2) : axisValue.toFixed(3);
             const existing = cellMap[key];
-            const bid = Number.isFinite(contract.bid) ? contract.bid : null;
-            const ask = Number.isFinite(contract.ask) ? contract.ask : null;
 
             if (existing) {
                 const nextCount = existing.count + 1;
@@ -207,7 +236,7 @@ const buildSurface = (
                 cellMap[key] = {
                     key,
                     expiry: chain.expiry,
-                    strike: contract.strike,
+                    strike: row.strike,
                     moneyness,
                     axisValue,
                     iv,
@@ -215,10 +244,10 @@ const buildSurface = (
                     ask,
                     mid,
                     count: 1,
-                    side: sideView === "both" ? contract.side : sideView,
+                    side: selectedSide ?? sideView,
+                    source,
                     spot: chain.spot,
                     dte,
-                    tYears,
                 };
             }
         });
@@ -279,8 +308,10 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
     const [dteRange, setDteRange] = useState<{ min: number; max: number }>({ min: 0, max: 90 });
     const [sideView, setSideView] = useState<SideView>("both");
     const [axisMode, setAxisMode] = useState<AxisMode>("strike");
+    const [priceSource, setPriceSource] = useState<OptionPriceSource>("mid");
     const [loadingExpiries, setLoadingExpiries] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [surface, setSurface] = useState<SurfaceResult | null>(null);
     const [, setCache] = useState<Record<string, SurfaceResult>>({});
@@ -290,6 +321,7 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
     const expiryControllerRef = useRef<AbortController | null>(null);
     const cacheRef = useRef<Record<string, SurfaceResult>>({});
     const cacheSpotSignatureRef = useRef<string | null>(null);
+    const hasDataRef = useRef(false);
 
     const logDiagnostic = useCallback((payload: Record<string, unknown>) => {
         if (!DEBUG_DIAGNOSTICS) return;
@@ -303,6 +335,7 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
         setCache({});
         cacheRef.current = {};
         cacheSpotSignatureRef.current = null;
+        hasDataRef.current = false;
         expiryControllerRef.current?.abort();
 
         const controller = new AbortController();
@@ -361,40 +394,12 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
 
     const cacheKeyBase = useMemo(() => {
         const expiryKey = resolvedExpiries.join("|");
-        return [symbol, expiryKey, sideView, axisMode, riskFreeRate, dividendYield].join("::");
-    }, [symbol, resolvedExpiries, sideView, axisMode, riskFreeRate, dividendYield]);
+        return [symbol, expiryKey, sideView, axisMode, priceSource, riskFreeRate, dividendYield].join("::");
+    }, [symbol, resolvedExpiries, sideView, axisMode, priceSource, riskFreeRate, dividendYield]);
 
     useEffect(() => {
         cacheSpotSignatureRef.current = null;
     }, [cacheKeyBase]);
-
-    const fetchChainsWithLimit = useCallback(
-        async (targets: string[], signal: AbortSignal, limit = 3) => {
-            const tasks = targets.map((expiry, idx) => ({ expiry, idx }));
-            const results: { idx: number; chain: ChainResponse }[] = [];
-            let cursor = 0;
-
-            const worker = async () => {
-                // eslint-disable-next-line no-constant-condition
-                while (true) {
-                    const current = cursor;
-                    cursor += 1;
-                    if (current >= tasks.length) break;
-                    const task = tasks[current];
-                    const chain = await fetchOptionChain(symbol, task.expiry, signal);
-                    results.push({ idx: task.idx, chain });
-                }
-            };
-
-            const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
-            await Promise.all(workers);
-
-            return results
-                .sort((a, b) => a.idx - b.idx)
-                .map((entry) => entry.chain);
-        },
-        [symbol]
-    );
 
     const loadSurface = useCallback(
         async (force = false) => {
@@ -402,7 +407,9 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                 setSurface(null);
                 setError(null);
                 setLoading(false);
+                setIsRefreshing(false);
                 cacheSpotSignatureRef.current = null;
+                hasDataRef.current = false;
                 return;
             }
 
@@ -410,22 +417,38 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
             if (!force && cachedSurface) {
                 setError(null);
                 setLoading(false);
+                setIsRefreshing(false);
                 setSurface(cachedSurface);
+                hasDataRef.current = true;
                 return;
             }
 
             fetchControllerRef.current?.abort();
             const controller = new AbortController();
             fetchControllerRef.current = controller;
-            setLoading(true);
+            if (hasDataRef.current) {
+                setIsRefreshing(true);
+            } else {
+                setLoading(true);
+            }
             setError(null);
 
             try {
-                const chains = await fetchChainsWithLimit(resolvedExpiries, controller.signal, 3);
+                const response = await fetchOptionSurface(
+                    {
+                        symbol,
+                        expiries: resolvedExpiries,
+                        r: riskFreeRate,
+                        q: dividendYield,
+                        priceSource,
+                    },
+                    { signal: controller.signal }
+                );
                 if (controller.signal.aborted) return;
-                const surfaceResult = buildSurface(chains, sideView, axisMode, riskFreeRate, dividendYield, logDiagnostic);
+                const surfaceResult = buildSurface(response.chains, sideView, axisMode, logDiagnostic);
                 setSurface(surfaceResult);
                 cacheSpotSignatureRef.current = surfaceResult.spotSignature;
+                hasDataRef.current = true;
 
                 setCache((previous) => {
                     const cacheKey = buildCacheKey(cacheKeyBase, surfaceResult.spotSignature);
@@ -438,14 +461,17 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                 if (isAbort) return;
                 const message = reason instanceof Error ? reason.message : "Unable to load IV surface";
                 setError(message);
-                setSurface(null);
+                if (!hasDataRef.current) {
+                    setSurface(null);
+                }
             } finally {
                 if (!controller.signal.aborted) {
                     setLoading(false);
+                    setIsRefreshing(false);
                 }
             }
         },
-        [resolvedExpiries, cacheKeyBase, sideView, axisMode, riskFreeRate, dividendYield, fetchChainsWithLimit, logDiagnostic]
+        [resolvedExpiries, cacheKeyBase, sideView, axisMode, riskFreeRate, dividendYield, priceSource, symbol, logDiagnostic]
     );
 
     useEffect(() => {
@@ -503,6 +529,17 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                     </div>
                     <select
                         className="h-9 rounded-lg border border-border/60 bg-muted/30 px-3 text-sm"
+                        value={priceSource}
+                        onChange={(event) => setPriceSource(event.target.value as OptionPriceSource)}
+                    >
+                        {PRICE_SOURCES.map((source) => (
+                            <option key={source} value={source}>
+                                {source.toUpperCase()}
+                            </option>
+                        ))}
+                    </select>
+                    <select
+                        className="h-9 rounded-lg border border-border/60 bg-muted/30 px-3 text-sm"
                         value={sideView}
                         onChange={(event) => setSideView(event.target.value as SideView)}
                     >
@@ -526,6 +563,7 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
                     >
                         Refresh
                     </button>
+                    {isRefreshing && <span className="text-[11px] text-amber-300">Refreshing…</span>}
                 </div>
             </div>
 
