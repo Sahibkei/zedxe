@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { fetchRiskNeutralDistribution } from "@/lib/options/client";
 import { formatIV, formatNumber, formatPercent } from "@/lib/options/format";
@@ -198,11 +198,41 @@ export default function RiskNeutralDistribution({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [warnings, setWarnings] = useState<string[]>([]);
+    const [rInput, setRInput] = useState(() => String(r));
+    const [qInput, setQInput] = useState(() => String(q));
+    const [rError, setRError] = useState<string | null>(null);
+    const [qError, setQError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
+
+    useEffect(() => {
+        setRInput(String(r));
+    }, [r]);
+
+    useEffect(() => {
+        setQInput(String(q));
+    }, [q]);
+
+    useEffect(() => {
+        return () => {
+            abortRef.current?.abort();
+        };
+    }, []);
 
     const handleCompute = async () => {
         if (!selectedExpiry) {
             setError("Select an expiry to compute the distribution.");
+            return;
+        }
+
+        const parsedR = Number.parseFloat(rInput);
+        const parsedQ = Number.parseFloat(qInput);
+        const nextRError = Number.isFinite(parsedR) ? null : "Enter a valid risk-free rate.";
+        const nextQError = Number.isFinite(parsedQ) ? null : "Enter a valid dividend yield.";
+
+        setRError(nextRError);
+        setQError(nextQError);
+
+        if (nextRError || nextQError) {
             return;
         }
 
@@ -213,10 +243,12 @@ export default function RiskNeutralDistribution({
         setError(null);
 
         try {
-            const response = await fetchRiskNeutralDistribution(symbol, selectedExpiry, r, q, controller.signal);
+            const response = await fetchRiskNeutralDistribution(symbol, selectedExpiry, parsedR, parsedQ, controller.signal);
             if (controller.signal.aborted) return;
             setDistribution(response);
             setWarnings(response.warnings ?? []);
+            setR(parsedR);
+            setQ(parsedQ);
         } catch (fetchError) {
             if (controller.signal.aborted) return;
             const message = fetchError instanceof Error ? fetchError.message : "Unable to fetch distribution data.";
@@ -308,22 +340,40 @@ export default function RiskNeutralDistribution({
                         <input
                             type="number"
                             step="0.001"
-                            value={r}
-                            onChange={(event) => setR(Number(event.target.value))}
+                            value={rInput}
+                            onChange={(event) => {
+                                const nextValue = event.target.value;
+                                setRInput(nextValue);
+                                const parsed = Number.parseFloat(nextValue);
+                                if (Number.isFinite(parsed)) {
+                                    setR(parsed);
+                                    setRError(null);
+                                }
+                            }}
                             className="h-10 w-full rounded-lg border border-border/60 bg-background px-3 text-sm"
                         />
                         <span className="text-xs text-muted-foreground">Annualized risk-free rate.</span>
+                        {rError ? <span className="text-xs text-destructive">{rError}</span> : null}
                     </div>
                     <div className="flex flex-col gap-1 rounded-xl border border-border/60 bg-muted/20 p-3">
                         <span className="text-xs uppercase tracking-wide text-muted-foreground">Dividend yield (q)</span>
                         <input
                             type="number"
                             step="0.001"
-                            value={q}
-                            onChange={(event) => setQ(Number(event.target.value))}
+                            value={qInput}
+                            onChange={(event) => {
+                                const nextValue = event.target.value;
+                                setQInput(nextValue);
+                                const parsed = Number.parseFloat(nextValue);
+                                if (Number.isFinite(parsed)) {
+                                    setQ(parsed);
+                                    setQError(null);
+                                }
+                            }}
                             className="h-10 w-full rounded-lg border border-border/60 bg-background px-3 text-sm"
                         />
                         <span className="text-xs text-muted-foreground">Annualized dividend yield.</span>
+                        {qError ? <span className="text-xs text-destructive">{qError}</span> : null}
                     </div>
                     <div className="flex items-end">
                         <button
@@ -362,7 +412,7 @@ export default function RiskNeutralDistribution({
                         <p className="text-xs uppercase tracking-wide text-amber-200/80">Warnings</p>
                         <ul className="list-disc space-y-1 pl-4 text-sm">
                             {warnings.map((warning, index) => (
-                                <li key={`warn-${index}`}>{warning}</li>
+                                <li key={`${warning}-${index}`}>{warning}</li>
                             ))}
                         </ul>
                     </div>
