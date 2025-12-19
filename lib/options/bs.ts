@@ -60,13 +60,32 @@ export function impliedVolBisection(params: {
     const intrinsic = intrinsicValue(side, S, K);
     if (!Number.isFinite(intrinsic) || price <= intrinsic + 1e-6) return null;
 
+    const discountedSpot = S * Math.exp(-q * t);
+    const discountedStrike = K * Math.exp(-r * t);
+    const callLower = Math.max(0, discountedSpot - discountedStrike);
+    const callUpper = discountedSpot;
+    const putLower = Math.max(0, discountedStrike - discountedSpot);
+    const putUpper = discountedStrike;
+    const lowerBound = side === 'call' ? callLower : putLower;
+    const upperBound = side === 'call' ? callUpper : putUpper;
+    const priceTolerance = 1e-6;
+    if (price < lowerBound - priceTolerance || price > upperBound + priceTolerance) return null;
+
     let low = 1e-6;
     let high = 5;
+    const priceTol = 1e-6;
+    const volTol = 1e-6;
+    const maxIter = 80;
 
-    for (let iteration = 0; iteration < 80; iteration += 1) {
+    for (let iteration = 0; iteration < maxIter; iteration += 1) {
         const mid = (low + high) / 2;
         const theoretical = bsPrice({ side, S, K, r, q, t, sigma: mid });
         if (!Number.isFinite(theoretical)) return null;
+
+        const diff = theoretical - price;
+        if (Math.abs(diff) < priceTol || Math.abs(high - low) < volTol) {
+            return mid;
+        }
 
         if (theoretical > price) {
             high = mid;
@@ -76,4 +95,17 @@ export function impliedVolBisection(params: {
     }
 
     return (low + high) / 2;
+}
+
+export function impliedVolRecoverySample() {
+    const params = { side: 'call' as const, S: 100, K: 105, r: 0.02, q: 0.0, t: 45 / 365, sigma: 0.25 };
+    const price = bsPrice(params);
+    const recovered = impliedVolBisection({ side: params.side, S: params.S, K: params.K, r: params.r, q: params.q, t: params.t, price });
+    return { ...params, price, recovered };
+}
+
+export function verifyImpliedVolRecovery(tolerance = 1e-3) {
+    const sample = impliedVolRecoverySample();
+    if (sample.recovered === null || !Number.isFinite(sample.recovered)) return false;
+    return Math.abs(sample.recovered - sample.sigma) < tolerance;
 }

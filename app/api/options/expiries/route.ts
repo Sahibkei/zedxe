@@ -3,19 +3,30 @@ import { NextRequest, NextResponse } from 'next/server';
 import { buildExpiriesResponse } from '@/lib/options/mock-data';
 import { normalizeSymbol, requireQuery } from '@/lib/options/validation';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
         const symbolParam = requireQuery(searchParams, 'symbol');
 
         if (!symbolParam) {
-            return NextResponse.json({ error: 'symbol is required' }, { status: 400 });
+            return NextResponse.json({ error: 'symbol is required', where: 'expiries' }, { status: 400 });
         }
 
         const expiries = buildExpiriesResponse(normalizeSymbol(symbolParam));
-        return NextResponse.json(expiries);
+        const json = NextResponse.json(expiries);
+        json.headers.set('Cache-Control', 'no-store');
+        return json;
     } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
         console.error('GET /api/options/expiries error', error);
-        return NextResponse.json({ error: 'Failed to load expiries' }, { status: 500 });
+        const json = NextResponse.json(
+            { error: 'Failed to load expiries', detail: message, where: 'expiries' },
+            { status: 502 }
+        );
+        json.headers.set('Cache-Control', 'no-store');
+        return json;
     }
 }
