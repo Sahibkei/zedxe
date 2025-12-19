@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { fetchExpiries, fetchOptionChain } from "@/lib/options/client";
+import { fetchExpiries, fetchOptionChainV2 } from "@/lib/options/client";
 import { formatIV, formatNumber } from "@/lib/options/format";
 import type { OptionChainResponse, OptionPriceSource } from "@/lib/options/types";
 import { cn } from "@/lib/utils";
@@ -20,7 +20,7 @@ export default function OptionChain({ symbol }: OptionChainProps) {
     const [loadingExpiries, setLoadingExpiries] = useState(false);
     const [chain, setChain] = useState<OptionChainResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingInitial, setIsLoadingInitial] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [priceSource, setPriceSource] = useState<OptionPriceSource>("mid");
     const [isLive, setIsLive] = useState(true);
@@ -28,6 +28,8 @@ export default function OptionChain({ symbol }: OptionChainProps) {
     const [bandPct, setBandPct] = useState(DEFAULT_BAND_PCT);
     const [lastUpdated, setLastUpdated] = useState<string | null>(null);
     const fetchControllerRef = useRef<AbortController | null>(null);
+    const inFlightRef = useRef(false);
+    const hasDataRef = useRef(false);
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const pendingScrollTop = useRef<number | null>(null);
 
@@ -37,6 +39,7 @@ export default function OptionChain({ symbol }: OptionChainProps) {
         setChain(null);
         setError(null);
         setLastUpdated(null);
+        hasDataRef.current = false;
 
         fetchControllerRef.current?.abort();
         const controller = new AbortController();
@@ -68,24 +71,27 @@ export default function OptionChain({ symbol }: OptionChainProps) {
     }, [symbol]);
 
     const loadChain = useCallback(
-        async (options?: { silent?: boolean }) => {
+        async (options?: { mode?: "poll" | "manual" | "change" }) => {
             if (!selectedExpiry) return;
+
+            const mode = options?.mode ?? "manual";
+            if (mode === "poll" && inFlightRef.current) return;
 
             fetchControllerRef.current?.abort();
             const controller = new AbortController();
             fetchControllerRef.current = controller;
             pendingScrollTop.current = scrollRef.current?.scrollTop ?? null;
+            inFlightRef.current = true;
 
-            const isSilent = options?.silent && chain;
-            if (isSilent) {
+            if (hasDataRef.current && mode !== "change") {
                 setIsRefreshing(true);
             } else {
-                setIsLoading(true);
+                setIsLoadingInitial(true);
             }
             setError(null);
 
             try {
-                const response = await fetchOptionChain(
+                const response = await fetchOptionChainV2(
                     {
                         symbol,
                         expiry: selectedExpiry,
@@ -97,39 +103,54 @@ export default function OptionChain({ symbol }: OptionChainProps) {
                 if (controller.signal.aborted) return;
                 setChain(response);
                 setLastUpdated(response.updatedAt);
+                hasDataRef.current = true;
             } catch (fetchError) {
                 const isAbort = controller.signal.aborted || (fetchError instanceof DOMException && fetchError.name === "AbortError");
                 if (isAbort) return;
                 const message = fetchError instanceof Error ? fetchError.message : "Unable to load option chain";
                 setError(message);
-                setChain(null);
+                if (!hasDataRef.current || mode === "change") {
+                    setChain(null);
+                }
             } finally {
                 if (!controller.signal.aborted) {
-                    setIsLoading(false);
+                    setIsLoadingInitial(false);
                     setIsRefreshing(false);
+                    inFlightRef.current = false;
                 }
             }
         },
-        [bandPct, chain, priceSource, selectedExpiry, symbol]
+        [bandPct, priceSource, selectedExpiry, symbol]
     );
 
     useEffect(() => {
         if (!selectedExpiry) return;
-        loadChain();
+        setChain(null);
+        setLastUpdated(null);
+        hasDataRef.current = false;
+        loadChain({ mode: "change" });
     }, [loadChain, selectedExpiry]);
 
     useEffect(() => {
         if (!isLive || !selectedExpiry) return;
 
         let timer: ReturnType<typeof setTimeout>;
+        let cancelled = false;
         const intervalMs = Math.max(1, pollSeconds) * 1000;
-        const tick = () => {
-            loadChain({ silent: true });
-            timer = setTimeout(tick, intervalMs);
+
+        const schedule = () => {
+            if (cancelled) return;
+            timer = setTimeout(async () => {
+                await loadChain({ mode: "poll" });
+                schedule();
+            }, intervalMs);
         };
 
-        timer = setTimeout(tick, intervalMs);
-        return () => clearTimeout(timer);
+        schedule();
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
     }, [isLive, loadChain, pollSeconds, selectedExpiry]);
 
     useLayoutEffect(() => {
@@ -150,7 +171,17 @@ export default function OptionChain({ symbol }: OptionChainProps) {
 
     const lastUpdatedLabel = lastUpdated ? new Date(lastUpdated).toLocaleTimeString() : "--";
     const expiryStatus = loadingExpiries ? "Loading expiries..." : expiries.length === 0 ? "No expiries available." : "";
-    const showEmptyState = !isLoading && !error && rows.length === 0;
+    const showEmptyState = !isLoadingInitial && !error && rows.length === 0;
+
+    const [maxCallVol, maxPutVol] = useMemo(() => {
+        let callMax = 0;
+        let putMax = 0;
+        rows.forEach((row) => {
+            callMax = Math.max(callMax, row.call?.volume ?? 0);
+            putMax = Math.max(putMax, row.put?.volume ?? 0);
+        });
+        return [callMax, putMax];
+    }, [rows]);
 
     return (
         <div className="space-y-4">
@@ -162,8 +193,9 @@ export default function OptionChain({ symbol }: OptionChainProps) {
                             Browse the live-ish option chain for a selected expiry and filter strikes around the spot price.
                         </p>
                     </div>
-                    <div className="rounded-full border border-border/60 bg-muted/30 px-3 py-1 text-xs font-semibold text-muted-foreground">
-                        Last updated: {lastUpdatedLabel}
+                    <div className="flex items-center gap-2 rounded-full border border-border/60 bg-muted/30 px-3 py-1 text-xs font-semibold text-muted-foreground">
+                        <span>Last updated: {lastUpdatedLabel}</span>
+                        {isRefreshing && <span className="text-[11px] text-amber-300">Updating…</span>}
                     </div>
                 </div>
 
@@ -249,16 +281,15 @@ export default function OptionChain({ symbol }: OptionChainProps) {
                     </div>
                     <button
                         type="button"
-                        onClick={() => loadChain()}
-                        disabled={isLoading || !selectedExpiry}
+                        onClick={() => loadChain({ mode: "manual" })}
+                        disabled={isLoadingInitial || !selectedExpiry}
                         className={cn(
                             "rounded-lg border border-border/60 px-3 py-2 text-xs font-semibold transition-colors",
-                            isLoading || !selectedExpiry ? "cursor-not-allowed opacity-60" : "hover:bg-muted/40"
+                            isLoadingInitial || !selectedExpiry ? "cursor-not-allowed opacity-60" : "hover:bg-muted/40"
                         )}
                     >
                         Refresh
                     </button>
-                    {isRefreshing && <span className="text-xs text-muted-foreground">Updating…</span>}
                     <span className="ml-auto text-xs text-muted-foreground">Quotes may be delayed.</span>
                 </div>
 
@@ -285,14 +316,16 @@ export default function OptionChain({ symbol }: OptionChainProps) {
                 </div>
 
                 <div className="overflow-hidden rounded-xl border border-border/60">
-                    <div className="max-h-[480px] overflow-auto" ref={scrollRef}>
+                    <div className="max-h-[560px] overflow-auto" ref={scrollRef}>
                         <table className="min-w-full text-xs tabular-nums">
                             <thead className="sticky top-0 z-10 bg-muted/80 text-muted-foreground backdrop-blur">
                                 <tr>
                                     <th className="px-2 py-2 text-center font-semibold uppercase tracking-wide" colSpan={7}>
                                         Calls
                                     </th>
-                                    <th className="px-2 py-2 text-center font-semibold uppercase tracking-wide">Strike</th>
+                                    <th className="px-2 py-2 text-center font-semibold uppercase tracking-wide bg-muted/70 border-x border-border/60">
+                                        Strike
+                                    </th>
                                     <th className="px-2 py-2 text-center font-semibold uppercase tracking-wide" colSpan={7}>
                                         Puts
                                     </th>
@@ -305,7 +338,7 @@ export default function OptionChain({ symbol }: OptionChainProps) {
                                     <th className="px-2 py-2 text-right font-semibold">Mid</th>
                                     <th className="px-2 py-2 text-right font-semibold">IV</th>
                                     <th className="px-2 py-2 text-right font-semibold">Δ</th>
-                                    <th className="px-2 py-2 text-center font-semibold">Strike</th>
+                                    <th className="px-2 py-2 text-center font-semibold bg-muted/70 border-x border-border/60">Strike</th>
                                     <th className="px-2 py-2 text-right font-semibold">Δ</th>
                                     <th className="px-2 py-2 text-right font-semibold">IV</th>
                                     <th className="px-2 py-2 text-right font-semibold">Mid</th>
@@ -323,7 +356,7 @@ export default function OptionChain({ symbol }: OptionChainProps) {
                                         </td>
                                     </tr>
                                 )}
-                                {isLoading && (
+                                {isLoadingInitial && (
                                     <tr>
                                         <td colSpan={15} className="px-3 py-6 text-center text-muted-foreground">
                                             Loading option chain...
@@ -334,29 +367,52 @@ export default function OptionChain({ symbol }: OptionChainProps) {
                                     const call = row.call;
                                     const put = row.put;
                                     const isAtm = atmStrike !== null && Math.abs(row.strike - atmStrike) < 1e-6;
+                                    const callVolWidth = maxCallVol > 0 ? Math.min(100, ((call?.volume ?? 0) / maxCallVol) * 100) : 0;
+                                    const putVolWidth = maxPutVol > 0 ? Math.min(100, ((put?.volume ?? 0) / maxPutVol) * 100) : 0;
                                     return (
                                         <tr
                                             key={row.strike}
                                             className={cn(
                                                 "transition-colors hover:bg-muted/30",
-                                                isAtm && "bg-primary/10 text-foreground"
+                                                isAtm && "bg-primary/15 text-foreground"
                                             )}
                                         >
-                                            <td className="px-2 py-2 text-right">{formatNumber(call?.volume ?? null, 0)}</td>
+                                            <td className="px-2 py-2 text-right">
+                                                <div className="relative">
+                                                    <div
+                                                        className="absolute inset-y-0 left-0 rounded-sm bg-primary/20"
+                                                        style={{ width: `${callVolWidth}%` }}
+                                                    />
+                                                    <span className="relative">{formatNumber(call?.volume ?? null, 0)}</span>
+                                                </div>
+                                            </td>
                                             <td className="px-2 py-2 text-right">{formatNumber(call?.openInterest ?? null, 0)}</td>
                                             <td className="px-2 py-2 text-right">{formatNumber(call?.bid ?? null, 2)}</td>
                                             <td className="px-2 py-2 text-right">{formatNumber(call?.ask ?? null, 2)}</td>
                                             <td className="px-2 py-2 text-right">{formatNumber(call?.mid ?? null, 2)}</td>
                                             <td className="px-2 py-2 text-right">{formatIV(call?.iv ?? null, 2)}</td>
                                             <td className="px-2 py-2 text-right">{formatNumber(call?.delta ?? null, 3)}</td>
-                                            <td className="px-2 py-2 text-center font-semibold">{formatNumber(row.strike, 2)}</td>
+                                            <td className="px-2 py-2 text-center font-semibold bg-muted/40 border-x border-border/60">
+                                                <div className="flex items-center justify-center gap-2">
+                                                    <span>{formatNumber(row.strike, 2)}</span>
+                                                    {isAtm && <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px]">Spot</span>}
+                                                </div>
+                                            </td>
                                             <td className="px-2 py-2 text-right">{formatNumber(put?.delta ?? null, 3)}</td>
                                             <td className="px-2 py-2 text-right">{formatIV(put?.iv ?? null, 2)}</td>
                                             <td className="px-2 py-2 text-right">{formatNumber(put?.mid ?? null, 2)}</td>
                                             <td className="px-2 py-2 text-right">{formatNumber(put?.ask ?? null, 2)}</td>
                                             <td className="px-2 py-2 text-right">{formatNumber(put?.bid ?? null, 2)}</td>
                                             <td className="px-2 py-2 text-right">{formatNumber(put?.openInterest ?? null, 0)}</td>
-                                            <td className="px-2 py-2 text-right">{formatNumber(put?.volume ?? null, 0)}</td>
+                                            <td className="px-2 py-2 text-right">
+                                                <div className="relative">
+                                                    <div
+                                                        className="absolute inset-y-0 left-0 rounded-sm bg-primary/20"
+                                                        style={{ width: `${putVolWidth}%` }}
+                                                    />
+                                                    <span className="relative">{formatNumber(put?.volume ?? null, 0)}</span>
+                                                </div>
+                                            </td>
                                         </tr>
                                     );
                                 })}

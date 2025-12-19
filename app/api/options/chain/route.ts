@@ -128,7 +128,6 @@ export async function GET(request: NextRequest) {
                 rowsByStrike.set(contract.strike, { strike: contract.strike });
             }
             const row = rowsByStrike.get(contract.strike);
-            if (!row) return;
 
             const quote = buildQuote({
                 side: contract.side,
