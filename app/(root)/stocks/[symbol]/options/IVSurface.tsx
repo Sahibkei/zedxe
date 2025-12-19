@@ -670,7 +670,7 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
 
             {surface && surface.xValues.length === 0 && !loading && (
                 <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-sm text-muted-foreground">
-                    No valid implied vol points were available for the current configuration.
+                    No surface points returned. Adjust filters and refresh.
                 </div>
             )}
 

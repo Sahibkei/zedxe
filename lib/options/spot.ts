@@ -53,9 +53,9 @@ export async function fetchLatestSpot(symbol: string): Promise<SpotResult> {
         const lastClose = pickLast([...closes, ...adjCloses]);
         const candidates = [
             { value: meta.regularMarketPrice, source: 'regularMarketPrice' as const },
+            { value: lastClose, source: 'historicalClose' as const },
             { value: meta.previousClose, source: 'alternate' as const },
             { value: meta.chartPreviousClose, source: 'alternate' as const },
-            { value: lastClose, source: 'historicalClose' as const },
         ].filter((candidate) => isFiniteNumber(candidate.value) && candidate.value > 0);
 
         const primary = candidates[0] ?? null;
