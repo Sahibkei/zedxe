@@ -64,6 +64,7 @@ const DEFAULT_MAX_SPREAD_PCT = 10;
 const DEFAULT_MIN_OI = 20;
 const DEFAULT_MONEYNESS_MIN = 0.8;
 const DEFAULT_MONEYNESS_MAX = 1.2;
+// Typical large-cap 1D IV is usually tens of %, not 200%+; treat extreme values as a units/inputs signal.
 const MAX_IV_ALLOWED = 3; // 300%
 const DEBUG_DIAGNOSTICS = false;
 
@@ -338,10 +339,6 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
         }
     }, [expiries, selectedExpiry]);
 
-    useEffect(() => {
-        cacheSpotSignatureRef.current = null;
-    }, [cacheKeyBase]);
-
     const resolvedExpiries = useMemo(() => {
         if (expiryMode === "single") {
             return selectedExpiry ? [selectedExpiry] : [];
@@ -366,6 +363,10 @@ export default function IVSurface({ symbol, riskFreeRate, dividendYield }: IVSur
         const expiryKey = resolvedExpiries.join("|");
         return [symbol, expiryKey, sideView, axisMode, riskFreeRate, dividendYield].join("::");
     }, [symbol, resolvedExpiries, sideView, axisMode, riskFreeRate, dividendYield]);
+
+    useEffect(() => {
+        cacheSpotSignatureRef.current = null;
+    }, [cacheKeyBase]);
 
     const fetchChainsWithLimit = useCallback(
         async (targets: string[], signal: AbortSignal, limit = 3) => {

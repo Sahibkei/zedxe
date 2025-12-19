@@ -108,7 +108,13 @@ const resolveSpot = async (symbol: string) => {
         throw new Error(`Failed to resolve a positive spot for ${symbol}`);
     }
 
-    return { spot: fallback, source: 'mock-fallback', asOf: new Date().toISOString() };
+    return {
+        spot: fallback,
+        source: 'alternate',
+        asOf: new Date().toISOString(),
+        alternate: latest?.alternate,
+        error: latest?.error ? `Upstream spot unavailable: ${latest.error}` : 'Upstream spot unavailable',
+    };
 };
 
 export const buildChainResponse = async (symbol: string, expiry: string): Promise<ChainResponse> => {

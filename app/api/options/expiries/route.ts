@@ -12,7 +12,7 @@ export function GET(request: NextRequest) {
         const symbolParam = requireQuery(searchParams, 'symbol');
 
         if (!symbolParam) {
-            return NextResponse.json({ error: 'symbol is required' }, { status: 400 });
+            return NextResponse.json({ error: 'symbol is required', where: 'expiries' }, { status: 400 });
         }
 
         const expiries = buildExpiriesResponse(normalizeSymbol(symbolParam));
@@ -20,7 +20,13 @@ export function GET(request: NextRequest) {
         json.headers.set('Cache-Control', 'no-store');
         return json;
     } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
         console.error('GET /api/options/expiries error', error);
-        return NextResponse.json({ error: 'Failed to load expiries' }, { status: 500 });
+        const json = NextResponse.json(
+            { error: 'Failed to load expiries', detail: message, where: 'expiries' },
+            { status: 502 }
+        );
+        json.headers.set('Cache-Control', 'no-store');
+        return json;
     }
 }
