@@ -4,6 +4,7 @@ export type ExpiriesResponse = {
 };
 
 export type OptionSide = 'call' | 'put';
+/** Price source to use when selecting the market premium. */
 export type OptionPriceSource = 'mid' | 'bid' | 'ask' | 'last';
 
 export type OptionContract = {
@@ -90,6 +91,7 @@ export type RiskNeutralDistributionResponse = {
     warnings?: string[];
 };
 
+/** Black-Scholes greeks for a single option (per-share). */
 export type OptionGreeks = {
     delta: number;
     gamma: number;
@@ -98,6 +100,7 @@ export type OptionGreeks = {
     rho: number;
 };
 
+/** API response payload for single-option analytics. */
 export type SingleOptionAnalyticsResponse = {
     inputs: {
         symbol: string;

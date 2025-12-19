@@ -9,6 +9,9 @@ import { isValidIsoDate, normalizeSymbol, requireQuery } from '@/lib/options/val
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+/**
+ * Parse a query param into a finite number, returning null if invalid.
+ */
 const parseNumber = (value: string | null) => {
     if (!value) return null;
     const parsed = Number(value);
@@ -17,6 +20,10 @@ const parseNumber = (value: string | null) => {
 
 const priceSources: OptionPriceSource[] = ['mid', 'bid', 'ask', 'last'];
 
+/**
+ * GET /api/options/single
+ * Resolve a single option contract and compute BSM analytics.
+ */
 export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);

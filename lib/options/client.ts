@@ -76,6 +76,9 @@ export async function fetchRiskNeutralDistribution(
     );
 }
 
+/**
+ * Fetch analytics for a single option contract.
+ */
 export async function fetchSingleOptionAnalytics(
     symbol: string,
     expiry: string,

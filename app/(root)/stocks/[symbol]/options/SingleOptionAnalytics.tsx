@@ -406,8 +406,8 @@ export default function SingleOptionAnalytics({
                 <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
                     <p className="text-xs font-semibold uppercase tracking-wide text-amber-100">Warnings</p>
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-amber-100">
-                        {warnings.map((warning) => (
-                            <li key={warning}>{warning}</li>
+                        {warnings.map((warning, index) => (
+                            <li key={`${index}-${warning}`}>{warning}</li>
                         ))}
                     </ul>
                 </div>
