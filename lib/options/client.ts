@@ -45,6 +45,9 @@ export async function analyzeOptions(body: AnalyzeRequest, signal?: AbortSignal)
     );
 }
 
+/**
+ * Fetch a risk-neutral distribution surface for a symbol and expiry.
+ */
 export async function fetchRiskNeutralDistribution(
     symbol: string,
     expiry: string,

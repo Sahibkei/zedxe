@@ -10,6 +10,8 @@ import { isValidIsoDate, normalizeSymbol, requireQuery } from "@/lib/options/val
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const ALLOWED_METHODS = ["lognormal"] as const;
+const ALLOWED_METHOD_SET = new Set<string>(ALLOWED_METHODS);
 const DEFAULT_SIGMA = 0.25;
 const GRID_POINTS = 260;
 const GRID_LOW_MULTIPLIER = 0.25;
@@ -120,6 +122,9 @@ const buildDistributionGrid = (spot: number, r: number, q: number, tYears: numbe
     return { x, pdf, cdf };
 };
 
+/**
+ * Returns a lognormal risk-neutral distribution for the requested symbol/expiry.
+ */
 export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
@@ -127,7 +132,8 @@ export async function GET(request: NextRequest) {
         const expiryParam = requireQuery(searchParams, "expiry");
         const rParam = requireQuery(searchParams, "r");
         const qParam = requireQuery(searchParams, "q");
-        const methodParam = requireQuery(searchParams, "method") ?? "lognormal";
+        const methodParam = requireQuery(searchParams, "method");
+        const method = methodParam ?? "lognormal";
 
         if (!symbolParam) {
             return NextResponse.json({ error: "symbol is required", where: "rnd" }, { status: 400 });
@@ -141,8 +147,11 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "expiry must be in YYYY-MM-DD format", where: "rnd" }, { status: 400 });
         }
 
-        if (methodParam !== "lognormal") {
-            return NextResponse.json({ error: "unsupported method", where: "rnd" }, { status: 400 });
+        if (methodParam && !ALLOWED_METHOD_SET.has(method)) {
+            return NextResponse.json(
+                { error: `method must be one of: ${ALLOWED_METHODS.join(", ")}`, where: "rnd" },
+                { status: 400 }
+            );
         }
 
         const r = rParam ? Number(rParam) : NaN;

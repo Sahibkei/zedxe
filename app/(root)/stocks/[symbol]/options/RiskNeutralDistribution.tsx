@@ -180,6 +180,9 @@ function LineChart({
     );
 }
 
+/**
+ * Render the risk-neutral distribution tab UI and charts.
+ */
 export default function RiskNeutralDistribution({
     symbol,
     expiries,
@@ -358,8 +361,8 @@ export default function RiskNeutralDistribution({
                     <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
                         <p className="text-xs uppercase tracking-wide text-amber-200/80">Warnings</p>
                         <ul className="list-disc space-y-1 pl-4 text-sm">
-                            {warnings.map((warning) => (
-                                <li key={warning}>{warning}</li>
+                            {warnings.map((warning, index) => (
+                                <li key={`warn-${index}`}>{warning}</li>
                             ))}
                         </ul>
                     </div>
