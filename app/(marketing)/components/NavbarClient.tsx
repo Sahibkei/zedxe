@@ -13,24 +13,25 @@ type NavbarClientProps = {
 
 const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
     const [isOpen, setIsOpen] = useState(false);
-    const [isLoggingOut, setIsLoggingOut] = useState(false);
-    const [logoutError, setLogoutError] = useState<string | null>(null);
+    const [isSigningOut, setIsSigningOut] = useState(false);
+    const [signOutError, setSignOutError] = useState<string | null>(null);
     const router = useRouter();
 
     const handleLogout = async () => {
-        setIsLoggingOut(true);
-        setLogoutError(null);
+        if (isSigningOut) {
+            return;
+        }
+        setIsSigningOut(true);
+        setSignOutError(null);
         try {
-            const result = await signOut();
-            if (result && "success" in result && result.success === false) {
-                throw new Error(result.error || "Unable to sign out.");
-            }
+            await signOut();
             router.push("/");
+            router.refresh();
         } catch (error) {
-            console.error("Sign out failed", error);
-            setLogoutError("Unable to sign out. Please try again.");
+            console.error("Sign out failed:", error);
+            setSignOutError("Logout failed. Please try again.");
         } finally {
-            setIsLoggingOut(false);
+            setIsSigningOut(false);
         }
     };
 
@@ -69,9 +70,9 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                                     type="button"
                                     onClick={handleLogout}
                                     className="btn-glow inline-flex items-center gap-2 rounded-full bg-teal-400 px-4 py-2 text-sm font-semibold text-gray-900 disabled:cursor-not-allowed disabled:opacity-70"
-                                    disabled={isLoggingOut}
+                                    disabled={isSigningOut}
                                 >
-                                    {isLoggingOut ? "Logging out..." : "Logout"}
+                                    {isSigningOut ? "Logging out..." : "Logout"}
                                 </button>
                             </>
                         ) : (
@@ -123,9 +124,9 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                                             setIsOpen(false);
                                         }}
                                         className="text-left transition hover:text-white"
-                                        disabled={isLoggingOut}
+                                        disabled={isSigningOut}
                                     >
-                                        {isLoggingOut ? "Logging out..." : "Logout"}
+                                        {isSigningOut ? "Logging out..." : "Logout"}
                                     </button>
                                 </>
                             ) : (
@@ -145,8 +146,8 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                         </div>
                     </div>
                 ) : null}
-                {logoutError ? (
-                    <p className="mt-3 text-xs text-red-300 md:text-sm">{logoutError}</p>
+                {signOutError ? (
+                    <p className="mt-3 text-xs text-red-300 md:text-sm">{signOutError}</p>
                 ) : null}
             </div>
         </header>
