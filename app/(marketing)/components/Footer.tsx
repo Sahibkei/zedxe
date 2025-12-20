@@ -9,8 +9,8 @@ const Footer = () => {
                     <Link href="#product" className="transition hover:text-white">
                         Product
                     </Link>
-                    <Link href="#security" className="transition hover:text-white">
-                        Security
+                    <Link href="#features" className="transition hover:text-white">
+                        Features
                     </Link>
                 </div>
                 <span>© {new Date().getFullYear()} ZedXe. All rights reserved.</span>
