@@ -8,6 +8,7 @@ import type {
     OptionPriceSource,
     OptionSide,
     OptionSurfaceResponse,
+    OptionPremiumSource,
     RiskNeutralDistributionResponse,
     ScenarioAnalysisResponse,
     ScenarioPriceSource,
@@ -41,6 +42,8 @@ const buildOptionChainSearch = (params: OptionChainRequest) => {
     if (params.priceSource) search.set('priceSource', params.priceSource);
     if (params.bandPct !== undefined) search.set('bandPct', String(params.bandPct));
     if (params.ivSource) search.set('ivSource', params.ivSource);
+    if (params.premiumSource) search.set('premiumSource', params.premiumSource);
+    if (params.debug) search.set('debug', '1');
     return search;
 };
 
@@ -110,8 +113,29 @@ export type SmileResponse = {
     expiry: string;
     spot: number;
     tYears: number;
+    dteDays: number;
+    nowIso: string;
+    expiryIso: string | null;
+    spotUsed: number;
+    rUsed: number;
+    qUsed: number;
+    premiumSource: OptionPremiumSource;
     ivSource: 'mid' | 'yahoo';
     updatedAt: string;
+    atmDiagnostics?: {
+        strike: number;
+        side: OptionSide;
+        bid?: number | null;
+        ask?: number | null;
+        mid?: number | null;
+        last?: number | null;
+        premiumUsed?: number | null;
+        iv?: number | null;
+        iv_mid?: number | null;
+        iv_yahoo?: number | null;
+        modelPriceFromIvMid?: number | null;
+        pricingErrorMid?: number | null;
+    };
     points: Array<{
         strike: number;
         side: OptionSide;
@@ -122,6 +146,12 @@ export type SmileResponse = {
         bid?: number | null;
         ask?: number | null;
         last?: number | null;
+        premiumUsed?: number | null;
+        premiumSource?: OptionPremiumSource;
+        modelPriceFromIvMid?: number | null;
+        modelPriceFromIvYahoo?: number | null;
+        pricingErrorMid?: number | null;
+        pricingErrorYahoo?: number | null;
     }>;
 };
 
@@ -132,7 +162,9 @@ export async function fetchOptionSmile(
         r: number;
         q: number;
         ivSource: 'mid' | 'yahoo';
+        premiumSource: OptionPremiumSource;
         side?: 'call' | 'put' | 'both';
+        debug?: boolean;
     },
     options?: { signal?: AbortSignal }
 ): Promise<SmileResponse> {
@@ -142,9 +174,13 @@ export async function fetchOptionSmile(
         r: String(params.r),
         q: String(params.q),
         ivSource: params.ivSource,
+        premiumSource: params.premiumSource,
     });
     if (params.side) {
         search.set('side', params.side);
+    }
+    if (params.debug) {
+        search.set('debug', '1');
     }
 
     return safeFetchJson<SmileResponse>(

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { buildOptionChain } from '@/lib/options/chainBuilder';
-import type { OptionChainQuote, OptionIvSource, OptionSurfaceResponse } from '@/lib/options/types';
+import type { OptionChainQuote, OptionIvSource, OptionPremiumSource, OptionSurfaceResponse } from '@/lib/options/types';
 import { isValidIsoDate, normalizeSymbol, requireQuery } from '@/lib/options/validation';
 
 export const runtime = 'nodejs';
@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
         const { searchParams } = new URL(request.url);
         const symbolParam = requireQuery(searchParams, 'symbol');
         const ivSourceParam = (requireQuery(searchParams, 'ivSource') ?? 'mid').toLowerCase();
+        const premiumSourceParam = (requireQuery(searchParams, 'premiumSource') ?? 'mid').toLowerCase();
         const rParam = requireQuery(searchParams, 'r');
         const qParam = requireQuery(searchParams, 'q');
         const expiries = parseExpiries(searchParams);
@@ -65,6 +66,13 @@ export async function GET(request: NextRequest) {
             );
         }
 
+        if (!['mid', 'last'].includes(premiumSourceParam)) {
+            return NextResponse.json(
+                { error: 'premiumSource must be mid or last', where: 'surface' },
+                { status: 400 }
+            );
+        }
+
         const r = rParam === null ? 0.05 : parseNumber(rParam);
         const q = qParam === null ? 0.005 : parseNumber(qParam);
 
@@ -74,11 +82,12 @@ export async function GET(request: NextRequest) {
 
         const symbol = normalizeSymbol(symbolParam);
         const ivSource = ivSourceParam as OptionIvSource;
+        const premiumSource = premiumSourceParam as OptionPremiumSource;
         const priceSource = 'mid';
 
         const chains = await Promise.all(
             expiries.map(async (expiry) => {
-                const chain = await buildOptionChain({ symbol, expiry, r, q, ivSource });
+                const chain = await buildOptionChain({ symbol, expiry, r, q, ivSource, premiumSource });
                 const spot = chain.spot;
                 if (!Number.isFinite(spot) || spot <= 0) {
                     throw new Error(`Unable to resolve spot price for ${expiry}`);

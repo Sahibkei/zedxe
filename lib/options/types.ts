@@ -8,6 +8,7 @@ export type OptionSide = 'call' | 'put';
 export type OptionPriceSource = 'mid' | 'bid' | 'ask' | 'last';
 /** Price source for scenario analysis (model uses BSM instead of market quotes). */
 export type ScenarioPriceSource = 'mid' | 'bid' | 'ask' | 'model';
+export type OptionPremiumSource = 'mid' | 'last';
 
 export type OptionContract = {
     symbol: string;
@@ -26,10 +27,16 @@ export type OptionIvSource = 'mid' | 'yahoo';
 
 export type OptionChainContract = OptionContract & {
     mid?: number | null;
+    premiumUsed?: number | null;
+    premiumSource?: OptionPremiumSource;
     iv_yahoo?: number | null;
     iv_mid?: number | null;
     iv?: number | null;
     delta?: number | null;
+    modelPriceFromIvMid?: number | null;
+    modelPriceFromIvYahoo?: number | null;
+    pricingErrorMid?: number | null;
+    pricingErrorYahoo?: number | null;
 };
 
 export type ChainResponse = {
@@ -42,7 +49,14 @@ export type ChainResponse = {
     fetchedAt: string; // ISO
     contracts: OptionChainContract[];
     tYears?: number;
+    dteDays?: number;
+    nowIso?: string;
+    expiryIso?: string | null;
     ivSource?: OptionIvSource;
+    premiumSource?: OptionPremiumSource;
+    spotUsed?: number;
+    rUsed?: number;
+    qUsed?: number;
 };
 
 export type OptionChainQuote = {
@@ -50,12 +64,18 @@ export type OptionChainQuote = {
     ask: number | null;
     last?: number | null;
     mid: number | null;
+    premiumUsed?: number | null;
+    premiumSource?: OptionPremiumSource;
     iv: number | null;
     iv_yahoo?: number | null;
     iv_mid?: number | null;
     delta: number | null;
     volume?: number | null;
     openInterest?: number | null;
+    modelPriceFromIvMid?: number | null;
+    modelPriceFromIvYahoo?: number | null;
+    pricingErrorMid?: number | null;
+    pricingErrorYahoo?: number | null;
 };
 
 export type OptionChainRow = {
@@ -72,7 +92,14 @@ export type OptionChainResponse = {
     rows: OptionChainRow[];
     warnings?: string[];
     tYears?: number;
+    dteDays?: number;
+    nowIso?: string;
+    expiryIso?: string | null;
     ivSource?: OptionIvSource;
+    premiumSource?: OptionPremiumSource;
+    spotUsed?: number;
+    rUsed?: number;
+    qUsed?: number;
     spotTimestamp?: string;
     spotSource?: string;
     spotAlternate?: number;
@@ -116,6 +143,8 @@ export type OptionChainRequest = {
     priceSource?: OptionPriceSource;
     bandPct?: number;
     ivSource?: OptionIvSource;
+    premiumSource?: OptionPremiumSource;
+    debug?: boolean;
 };
 
 export type AnalyzeRequest = {

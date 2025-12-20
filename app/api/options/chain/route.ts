@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { buildOptionChain } from '@/lib/options/chainBuilder';
-import type { OptionIvSource } from '@/lib/options/types';
+import type { OptionIvSource, OptionPremiumSource } from '@/lib/options/types';
 import { isValidIsoDate, normalizeSymbol, requireQuery } from '@/lib/options/validation';
 
 export const runtime = 'nodejs';
@@ -21,6 +21,8 @@ export async function GET(request: NextRequest) {
         const rParam = requireQuery(searchParams, 'r');
         const qParam = requireQuery(searchParams, 'q');
         const ivSourceParam = (requireQuery(searchParams, 'ivSource') ?? 'mid').toLowerCase();
+        const premiumSourceParam = (requireQuery(searchParams, 'premiumSource') ?? 'mid').toLowerCase();
+        const debugParam = requireQuery(searchParams, 'debug');
         const bandParam = requireQuery(searchParams, 'bandPct');
 
         if (!symbolParam) {
@@ -42,9 +44,17 @@ export async function GET(request: NextRequest) {
             );
         }
 
+        if (!['mid', 'last'].includes(premiumSourceParam)) {
+            return NextResponse.json(
+                { error: 'premiumSource must be mid or last', where: 'chain' },
+                { status: 400 }
+            );
+        }
+
         const r = rParam === null ? 0.05 : parseNumber(rParam);
         const q = qParam === null ? 0.005 : parseNumber(qParam);
         const bandPct = bandParam === null ? 0.2 : parseNumber(bandParam);
+        const debug = debugParam === '1';
 
         if (r === null || q === null || bandPct === null || bandPct <= 0) {
             return NextResponse.json(
@@ -55,7 +65,8 @@ export async function GET(request: NextRequest) {
 
         const symbol = normalizeSymbol(symbolParam);
         const ivSource = ivSourceParam as OptionIvSource;
-        const chain = await buildOptionChain({ symbol, expiry: expiryParam, r, q, ivSource });
+        const premiumSource = premiumSourceParam as OptionPremiumSource;
+        const chain = await buildOptionChain({ symbol, expiry: expiryParam, r, q, ivSource, premiumSource });
         const spot = chain.spot;
 
         if (!Number.isFinite(spot) || spot <= 0) {
@@ -68,7 +79,24 @@ export async function GET(request: NextRequest) {
 
         const lowerBound = spot * (1 - bandPct);
         const upperBound = spot * (1 + bandPct);
-        const rows = chain.rows.filter((row) => row.strike >= lowerBound && row.strike <= upperBound);
+        const rows = chain.rows
+            .filter((row) => row.strike >= lowerBound && row.strike <= upperBound)
+            .map((row) => {
+                if (debug) return row;
+                const pruneQuote = (quote?: typeof row.call | typeof row.put) => {
+                    if (!quote) return quote;
+                    const { modelPriceFromIvMid, modelPriceFromIvYahoo, pricingErrorMid, pricingErrorYahoo, ...rest } = quote;
+                    return rest;
+                };
+                return {
+                    strike: row.strike,
+                    call: pruneQuote(row.call),
+                    put: pruneQuote(row.put),
+                };
+            });
+        const contracts = debug
+            ? chain.contracts
+            : chain.contracts.map(({ modelPriceFromIvMid, modelPriceFromIvYahoo, pricingErrorMid, pricingErrorYahoo, ...rest }) => rest);
         const warnings: string[] = [];
         if (chain.spotSource === 'alternate') {
             warnings.push('Spot price sourced from alternate data.');
@@ -82,12 +110,19 @@ export async function GET(request: NextRequest) {
             rows,
             warnings: warnings.length ? warnings : undefined,
             tYears: chain.tYears,
+            dteDays: chain.dteDays,
+            nowIso: chain.nowIso,
+            expiryIso: chain.expiryIso,
             ivSource,
+            premiumSource,
+            spotUsed: chain.spotUsed,
+            rUsed: chain.rUsed,
+            qUsed: chain.qUsed,
             spotTimestamp: chain.spotTimestamp,
             spotSource: chain.spotSource,
             spotAlternate: chain.spotAlternate,
             fetchedAt: chain.fetchedAt,
-            contracts: chain.contracts,
+            contracts,
         });
         response.headers.set('Cache-Control', 'no-store');
         return response;

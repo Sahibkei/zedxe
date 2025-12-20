@@ -4,18 +4,29 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { fetchExpiries, fetchOptionChainV2 } from "@/lib/options/client";
 import { formatIV, formatNumber } from "@/lib/options/format";
-import type { OptionChainResponse, OptionIvSource, OptionPriceSource } from "@/lib/options/types";
+import type { OptionChainResponse, OptionIvSource, OptionPremiumSource, OptionPriceSource } from "@/lib/options/types";
 import { cn } from "@/lib/utils";
 
 type OptionChainProps = {
     symbol: string;
     ivSource: OptionIvSource;
+    premiumSource: OptionPremiumSource;
+    diagnosticsEnabled: boolean;
+    selectedStrike: number | null;
+    onSelectStrike: (strike: number | null) => void;
 };
 
 const DEFAULT_POLL_SECONDS = 5;
 const DEFAULT_BAND_PCT = 20;
 
-export default function OptionChain({ symbol, ivSource }: OptionChainProps) {
+export default function OptionChain({
+    symbol,
+    ivSource,
+    premiumSource,
+    diagnosticsEnabled,
+    selectedStrike,
+    onSelectStrike,
+}: OptionChainProps) {
     const [expiries, setExpiries] = useState<string[]>([]);
     const [selectedExpiry, setSelectedExpiry] = useState("");
     const [loadingExpiries, setLoadingExpiries] = useState(false);
@@ -99,6 +110,8 @@ export default function OptionChain({ symbol, ivSource }: OptionChainProps) {
                         priceSource,
                         bandPct: bandPct / 100,
                         ivSource,
+                        premiumSource,
+                        debug: diagnosticsEnabled,
                     },
                     { signal: controller.signal }
                 );
@@ -122,7 +135,7 @@ export default function OptionChain({ symbol, ivSource }: OptionChainProps) {
                 }
             }
         },
-        [bandPct, ivSource, priceSource, selectedExpiry, symbol]
+        [bandPct, diagnosticsEnabled, ivSource, premiumSource, priceSource, selectedExpiry, symbol]
     );
 
     useEffect(() => {
@@ -131,7 +144,8 @@ export default function OptionChain({ symbol, ivSource }: OptionChainProps) {
         setLastUpdated(null);
         hasDataRef.current = false;
         loadChain({ mode: "change" });
-    }, [loadChain, selectedExpiry]);
+        onSelectStrike(null);
+    }, [loadChain, onSelectStrike, selectedExpiry]);
 
     useEffect(() => {
         if (!isLive || !selectedExpiry) return;
@@ -170,7 +184,8 @@ export default function OptionChain({ symbol, ivSource }: OptionChainProps) {
             return Math.abs(row.strike - spot) < Math.abs(closest - spot) ? row.strike : closest;
         }, null as number | null);
     }, [rows, spot]);
-
+    const selectedRow = useMemo(() => rows.find((row) => row.strike === selectedStrike) ?? null, [rows, selectedStrike]);
+    const atmRow = useMemo(() => rows.find((row) => row.strike === atmStrike) ?? null, [rows, atmStrike]);
     const lastUpdatedLabel = lastUpdated ? new Date(lastUpdated).toLocaleTimeString() : "--";
     const expiryStatus = loadingExpiries ? "Loading expiries..." : expiries.length === 0 ? "No expiries available." : "";
     const showEmptyState = !isLoadingInitial && !error && rows.length === 0;
@@ -317,6 +332,90 @@ export default function OptionChain({ symbol, ivSource }: OptionChainProps) {
                     <div>{rows.length ? `Loaded ${rows.length} strikes` : "No strikes loaded yet."}</div>
                 </div>
 
+                {diagnosticsEnabled && chain && (
+                    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-xs text-muted-foreground space-y-3">
+                        <div className="grid gap-2 md:grid-cols-2">
+                            <div>
+                                <div className="font-semibold text-foreground">Timing</div>
+                                <div>Now: {chain.nowIso ?? "—"}</div>
+                                <div>Expiry: {chain.expiryIso ?? "—"}</div>
+                                <div>T: {chain.tYears !== undefined ? chain.tYears.toFixed(6) : "—"} years</div>
+                                <div>DTE: {chain.dteDays ?? "—"} days</div>
+                            </div>
+                            <div>
+                                <div className="font-semibold text-foreground">Inputs</div>
+                                <div>Spot: {formatNumber(chain.spotUsed ?? null, 4)}</div>
+                                <div>r: {formatNumber(chain.rUsed ?? null, 4)}</div>
+                                <div>q: {formatNumber(chain.qUsed ?? null, 4)}</div>
+                                <div>Premium source: {chain.premiumSource ?? premiumSource}</div>
+                            </div>
+                        </div>
+                        <div className="grid gap-2 md:grid-cols-2">
+                            <div>
+                                <div className="font-semibold text-foreground">ATM Diagnostics</div>
+                                {atmRow ? (
+                                    <div className="space-y-2">
+                                        <div className="text-[11px] text-muted-foreground">Strike {formatNumber(atmRow.strike, 2)}</div>
+                                        {(["call", "put"] as const).map((side) => {
+                                            const quote = side === "call" ? atmRow.call : atmRow.put;
+                                            if (!quote) return null;
+                                            return (
+                                                <div key={`atm-${side}`} className="space-y-1">
+                                                    <div className="font-medium text-foreground">{side.toUpperCase()}</div>
+                                                    <div>
+                                                        Bid/Ask: {formatNumber(quote.bid ?? null, 2)} / {formatNumber(quote.ask ?? null, 2)}
+                                                    </div>
+                                                    <div>Mid: {formatNumber(quote.mid ?? null, 2)}</div>
+                                                    <div>Last: {formatNumber(quote.last ?? null, 2)}</div>
+                                                    <div>Premium used: {formatNumber(quote.premiumUsed ?? null, 2)}</div>
+                                                    <div>IV (mid): {quote.iv_mid ? `${(quote.iv_mid * 100).toFixed(2)}%` : "—"}</div>
+                                                    <div>IV (yahoo): {quote.iv_yahoo ? `${(quote.iv_yahoo * 100).toFixed(2)}%` : "—"}</div>
+                                                    <div>Model price (IV mid): {formatNumber(quote.modelPriceFromIvMid ?? null, 4)}</div>
+                                                    <div>Pricing error (mid): {formatNumber(quote.pricingErrorMid ?? null, 4)}</div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div>No ATM diagnostics available.</div>
+                                )}
+                            </div>
+                            <div>
+                                <div className="font-semibold text-foreground">Selected Strike</div>
+                                {selectedRow ? (
+                                    <div className="space-y-2">
+                                        <div className="text-[11px] text-muted-foreground">Strike {formatNumber(selectedRow.strike, 2)}</div>
+                                        {(["call", "put"] as const).map((side) => {
+                                            const quote = side === "call" ? selectedRow.call : selectedRow.put;
+                                            if (!quote) return null;
+                                            return (
+                                                <div key={`selected-${side}`} className="space-y-1">
+                                                    <div className="font-medium text-foreground">{side.toUpperCase()}</div>
+                                                    <div>
+                                                        Bid/Ask: {formatNumber(quote.bid ?? null, 2)} / {formatNumber(quote.ask ?? null, 2)}
+                                                    </div>
+                                                    <div>Mid: {formatNumber(quote.mid ?? null, 2)}</div>
+                                                    <div>Last: {formatNumber(quote.last ?? null, 2)}</div>
+                                                    <div>Premium used: {formatNumber(quote.premiumUsed ?? null, 2)}</div>
+                                                    <div>IV (mid): {quote.iv_mid ? `${(quote.iv_mid * 100).toFixed(2)}%` : "—"}</div>
+                                                    <div>IV (yahoo): {quote.iv_yahoo ? `${(quote.iv_yahoo * 100).toFixed(2)}%` : "—"}</div>
+                                                    <div>Model price (IV mid): {formatNumber(quote.modelPriceFromIvMid ?? null, 4)}</div>
+                                                    <div>Pricing error (mid): {formatNumber(quote.pricingErrorMid ?? null, 4)}</div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div>Click a strike row to inspect diagnostics.</div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="text-[11px]">
+                            Hint: If IV source = Mid, pricingErrorMid should be near 0. If not, T/premium inputs are inconsistent.
+                        </div>
+                    </div>
+                )}
+
                 <div className="overflow-hidden rounded-xl border border-border/60">
                     <div className="max-h-[560px] overflow-auto" ref={scrollRef}>
                         <table className="min-w-full text-xs tabular-nums">
@@ -369,15 +468,18 @@ export default function OptionChain({ symbol, ivSource }: OptionChainProps) {
                                     const call = row.call;
                                     const put = row.put;
                                     const isAtm = atmStrike !== null && Math.abs(row.strike - atmStrike) < 1e-6;
+                                    const isSelected = selectedStrike !== null && Math.abs(row.strike - selectedStrike) < 1e-6;
                                     const callVolWidth = maxCallVol > 0 ? Math.min(100, ((call?.volume ?? 0) / maxCallVol) * 100) : 0;
                                     const putVolWidth = maxPutVol > 0 ? Math.min(100, ((put?.volume ?? 0) / maxPutVol) * 100) : 0;
                                     return (
                                         <tr
                                             key={row.strike}
                                             className={cn(
-                                                "transition-colors hover:bg-muted/30",
-                                                isAtm && "bg-primary/15 text-foreground"
+                                                "transition-colors hover:bg-muted/30 cursor-pointer",
+                                                isAtm && "bg-primary/15 text-foreground",
+                                                isSelected && "bg-amber-500/15"
                                             )}
+                                            onClick={() => onSelectStrike(isSelected ? null : row.strike)}
                                         >
                                             <td className="px-2 py-2 text-right">
                                                 <div className="relative">
@@ -398,6 +500,7 @@ export default function OptionChain({ symbol, ivSource }: OptionChainProps) {
                                                 <div className="flex items-center justify-center gap-2">
                                                     <span>{formatNumber(row.strike, 2)}</span>
                                                     {isAtm && <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px]">Spot</span>}
+                                                    {isSelected && <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px]">Selected</span>}
                                                 </div>
                                             </td>
                                             <td className="px-2 py-2 text-right">{formatNumber(put?.delta ?? null, 3)}</td>

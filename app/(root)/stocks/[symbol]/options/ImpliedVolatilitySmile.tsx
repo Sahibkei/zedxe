@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { moneyness as moneynessRatio } from "@/lib/options/bs";
 import { formatNumber } from "@/lib/options/format";
-import type { OptionIvSource, OptionSide } from "@/lib/options/types";
+import type { OptionIvSource, OptionPremiumSource, OptionSide } from "@/lib/options/types";
 import { cn } from "@/lib/utils";
 
 type ImpliedVolatilitySmileProps = {
@@ -15,14 +15,41 @@ type ImpliedVolatilitySmileProps = {
     r: number;
     q: number;
     ivSource: OptionIvSource;
+    premiumSource: OptionPremiumSource;
+    diagnosticsEnabled: boolean;
+    selectedStrike: number | null;
     fetchSmile: (params: {
         symbol: string;
         expiry: string;
         r: number;
         q: number;
         ivSource: OptionIvSource;
+        premiumSource: OptionPremiumSource;
         side?: "call" | "put" | "both";
+        debug?: boolean;
     }) => Promise<{
+        nowIso: string;
+        expiryIso: string | null;
+        tYears: number;
+        dteDays: number;
+        spotUsed: number;
+        rUsed: number;
+        qUsed: number;
+        premiumSource: OptionPremiumSource;
+        atmDiagnostics?: {
+            strike: number;
+            side: OptionSide;
+            bid?: number | null;
+            ask?: number | null;
+            mid?: number | null;
+            last?: number | null;
+            premiumUsed?: number | null;
+            iv?: number | null;
+            iv_mid?: number | null;
+            iv_yahoo?: number | null;
+            modelPriceFromIvMid?: number | null;
+            pricingErrorMid?: number | null;
+        };
         points: Array<{
             strike: number;
             side: OptionSide;
@@ -33,6 +60,12 @@ type ImpliedVolatilitySmileProps = {
             ask?: number | null;
             mid?: number | null;
             last?: number | null;
+            premiumUsed?: number | null;
+            premiumSource?: OptionPremiumSource;
+            modelPriceFromIvMid?: number | null;
+            modelPriceFromIvYahoo?: number | null;
+            pricingErrorMid?: number | null;
+            pricingErrorYahoo?: number | null;
         }>;
     }>;
     onIvSourceChange: (value: OptionIvSource) => void;
@@ -70,13 +103,67 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
     );
 }
 
-export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r, q, ivSource, fetchSmile, onIvSourceChange }: ImpliedVolatilitySmileProps) {
+export default function ImpliedVolatilitySmile({
+    symbol,
+    spot,
+    expiry,
+    tYears,
+    r,
+    q,
+    ivSource,
+    premiumSource,
+    diagnosticsEnabled,
+    selectedStrike,
+    fetchSmile,
+    onIvSourceChange,
+}: ImpliedVolatilitySmileProps) {
     const [sideView, setSideView] = useState<"both" | OptionSide>("both");
     const [xAxis, setXAxis] = useState<"strike" | "moneyness">("strike");
     const [refreshTick, setRefreshTick] = useState(0);
     const [points, setPoints] = useState<ChartPoint[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [diagnostics, setDiagnostics] = useState<{
+        nowIso: string;
+        expiryIso: string | null;
+        tYears: number;
+        dteDays: number;
+        spotUsed: number;
+        rUsed: number;
+        qUsed: number;
+        premiumSource: OptionPremiumSource;
+        atmDiagnostics?: {
+            strike: number;
+            side: OptionSide;
+            bid?: number | null;
+            ask?: number | null;
+            mid?: number | null;
+            last?: number | null;
+            premiumUsed?: number | null;
+            iv?: number | null;
+            iv_mid?: number | null;
+            iv_yahoo?: number | null;
+            modelPriceFromIvMid?: number | null;
+            pricingErrorMid?: number | null;
+        };
+    } | null>(null);
+    const [pointDiagnostics, setPointDiagnostics] = useState<
+        | {
+              strike: number;
+              side: OptionSide;
+              bid?: number | null;
+              ask?: number | null;
+              mid?: number | null;
+              last?: number | null;
+              premiumUsed?: number | null;
+              iv?: number | null;
+              iv_mid?: number | null;
+              iv_yahoo?: number | null;
+              modelPriceFromIvMid?: number | null;
+              pricingErrorMid?: number | null;
+          }
+        | null
+    >(null);
 
     const resolvedTime = useMemo(() => tYears ?? null, [tYears]);
     const resolvedSpot = useMemo(() => (Number.isFinite(spot ?? NaN) && (spot ?? 0) > 0 ? (spot as number) : null), [spot]);
@@ -92,9 +179,42 @@ export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r
         setIsLoading(true);
         setLoadError(null);
 
-        fetchSmile({ symbol, expiry, r, q, ivSource, side: sideView })
+        fetchSmile({ symbol, expiry, r, q, ivSource, premiumSource, side: sideView, debug: diagnosticsEnabled })
             .then((response) => {
                 if (!isActive) return;
+                setDiagnostics({
+                    nowIso: response.nowIso,
+                    expiryIso: response.expiryIso,
+                    tYears: response.tYears,
+                    dteDays: response.dteDays,
+                    spotUsed: response.spotUsed,
+                    rUsed: response.rUsed,
+                    qUsed: response.qUsed,
+                    premiumSource: response.premiumSource,
+                    atmDiagnostics: response.atmDiagnostics,
+                });
+                const selectedPoint =
+                    selectedStrike !== null
+                        ? response.points.find((point) => point.strike === selectedStrike) ?? null
+                        : null;
+                setPointDiagnostics(
+                    selectedPoint
+                        ? {
+                              strike: selectedPoint.strike,
+                              side: selectedPoint.side,
+                              bid: selectedPoint.bid ?? null,
+                              ask: selectedPoint.ask ?? null,
+                              mid: selectedPoint.mid ?? null,
+                              last: selectedPoint.last ?? null,
+                              premiumUsed: selectedPoint.premiumUsed ?? null,
+                              iv: selectedPoint.iv ?? null,
+                              iv_mid: selectedPoint.iv_mid ?? null,
+                              iv_yahoo: selectedPoint.iv_yahoo ?? null,
+                              modelPriceFromIvMid: selectedPoint.modelPriceFromIvMid ?? null,
+                              pricingErrorMid: selectedPoint.pricingErrorMid ?? null,
+                          }
+                        : null
+                );
                 const nextPoints = response.points
                     .map((point) => {
                         if (!resolvedSpot) return null;
@@ -118,6 +238,8 @@ export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r
                 const message = error instanceof Error ? error.message : "Unable to load IV smile";
                 setLoadError(message);
                 setPoints([]);
+                setDiagnostics(null);
+                setPointDiagnostics(null);
             })
             .finally(() => {
                 if (isActive) {
@@ -128,7 +250,7 @@ export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r
         return () => {
             isActive = false;
         };
-    }, [expiry, fetchSmile, ivSource, q, r, refreshTick, resolvedSpot, sideView, symbol]);
+    }, [expiry, fetchSmile, ivSource, premiumSource, diagnosticsEnabled, q, r, refreshTick, resolvedSpot, sideView, symbol, selectedStrike]);
 
     const allPoints = useMemo(() => points, [points]);
 
@@ -267,6 +389,79 @@ export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r
                 <SummaryStat label="Points Plotted" value={plottedPoints.length.toString()} />
                 <SummaryStat label="Expiry" value={expiry || "—"} />
             </div>
+
+            {diagnosticsEnabled && diagnostics && (
+                <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-xs text-muted-foreground space-y-3">
+                    <div className="grid gap-2 md:grid-cols-2">
+                        <div>
+                            <div className="font-semibold text-foreground">Timing</div>
+                            <div>Now: {diagnostics.nowIso}</div>
+                            <div>Expiry: {diagnostics.expiryIso ?? "—"}</div>
+                            <div>T: {diagnostics.tYears.toFixed(6)} years</div>
+                            <div>DTE: {diagnostics.dteDays} days</div>
+                        </div>
+                        <div>
+                            <div className="font-semibold text-foreground">Inputs</div>
+                            <div>Spot: {formatNumber(diagnostics.spotUsed, 4)}</div>
+                            <div>r: {formatNumber(diagnostics.rUsed, 4)}</div>
+                            <div>q: {formatNumber(diagnostics.qUsed, 4)}</div>
+                            <div>Premium source: {diagnostics.premiumSource}</div>
+                        </div>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                        <div>
+                            <div className="font-semibold text-foreground">ATM Diagnostics</div>
+                            {diagnostics.atmDiagnostics ? (
+                                <div className="space-y-1">
+                                    <div>
+                                        Strike {formatNumber(diagnostics.atmDiagnostics.strike, 2)} •{" "}
+                                        {diagnostics.atmDiagnostics.side.toUpperCase()}
+                                    </div>
+                                    <div>
+                                        Bid/Ask: {formatNumber(diagnostics.atmDiagnostics.bid ?? null, 2)} /{" "}
+                                        {formatNumber(diagnostics.atmDiagnostics.ask ?? null, 2)}
+                                    </div>
+                                    <div>Mid: {formatNumber(diagnostics.atmDiagnostics.mid ?? null, 2)}</div>
+                                    <div>Last: {formatNumber(diagnostics.atmDiagnostics.last ?? null, 2)}</div>
+                                    <div>Premium used: {formatNumber(diagnostics.atmDiagnostics.premiumUsed ?? null, 2)}</div>
+                                    <div>IV (mid): {diagnostics.atmDiagnostics.iv_mid ? `${toPercent(diagnostics.atmDiagnostics.iv_mid).toFixed(2)}%` : "—"}</div>
+                                    <div>IV (yahoo): {diagnostics.atmDiagnostics.iv_yahoo ? `${toPercent(diagnostics.atmDiagnostics.iv_yahoo).toFixed(2)}%` : "—"}</div>
+                                    <div>Model price (IV mid): {formatNumber(diagnostics.atmDiagnostics.modelPriceFromIvMid ?? null, 4)}</div>
+                                    <div>Pricing error (mid): {formatNumber(diagnostics.atmDiagnostics.pricingErrorMid ?? null, 4)}</div>
+                                </div>
+                            ) : (
+                                <div>No ATM diagnostics available.</div>
+                            )}
+                        </div>
+                        <div>
+                            <div className="font-semibold text-foreground">Selected Strike</div>
+                            {pointDiagnostics ? (
+                                <div className="space-y-1">
+                                    <div>
+                                        Strike {formatNumber(pointDiagnostics.strike, 2)} • {pointDiagnostics.side.toUpperCase()}
+                                    </div>
+                                    <div>
+                                        Bid/Ask: {formatNumber(pointDiagnostics.bid ?? null, 2)} /{" "}
+                                        {formatNumber(pointDiagnostics.ask ?? null, 2)}
+                                    </div>
+                                    <div>Mid: {formatNumber(pointDiagnostics.mid ?? null, 2)}</div>
+                                    <div>Last: {formatNumber(pointDiagnostics.last ?? null, 2)}</div>
+                                    <div>Premium used: {formatNumber(pointDiagnostics.premiumUsed ?? null, 2)}</div>
+                                    <div>IV (mid): {pointDiagnostics.iv_mid ? `${toPercent(pointDiagnostics.iv_mid).toFixed(2)}%` : "—"}</div>
+                                    <div>IV (yahoo): {pointDiagnostics.iv_yahoo ? `${toPercent(pointDiagnostics.iv_yahoo).toFixed(2)}%` : "—"}</div>
+                                    <div>Model price (IV mid): {formatNumber(pointDiagnostics.modelPriceFromIvMid ?? null, 4)}</div>
+                                    <div>Pricing error (mid): {formatNumber(pointDiagnostics.pricingErrorMid ?? null, 4)}</div>
+                                </div>
+                            ) : (
+                                <div>No selected strike.</div>
+                            )}
+                        </div>
+                    </div>
+                    <div className="text-[11px]">
+                        Hint: If IV source = Mid, pricingErrorMid should be near 0. If not, T/premium inputs are inconsistent.
+                    </div>
+                </div>
+            )}
 
             {loadError && (
                 <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">

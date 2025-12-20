@@ -10,7 +10,7 @@ import OptionChain from "@/app/(root)/stocks/[symbol]/options/OptionChain";
 import RiskNeutralDistribution from "@/app/(root)/stocks/[symbol]/options/RiskNeutralDistribution";
 import ScenarioAnalysis from "@/app/(root)/stocks/[symbol]/options/ScenarioAnalysis";
 import SingleOptionAnalytics from "@/app/(root)/stocks/[symbol]/options/SingleOptionAnalytics";
-import type { AnalyzeResponse, ChainResponse, OptionContract, OptionIvSource } from "@/lib/options/types";
+import type { AnalyzeResponse, ChainResponse, OptionContract, OptionIvSource, OptionPremiumSource } from "@/lib/options/types";
 import { cn } from "@/lib/utils";
 
 const tabs = [
@@ -65,6 +65,9 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
     const [riskFreeRate, setRiskFreeRate] = useState(0.05);
     const [dividendYield, setDividendYield] = useState(0.005);
     const [ivSource, setIvSource] = useState<OptionIvSource>("mid");
+    const [premiumSource, setPremiumSource] = useState<OptionPremiumSource>("mid");
+    const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(false);
+    const [selectedStrike, setSelectedStrike] = useState<number | null>(null);
     const [filters, setFilters] = useState<FilterState>(defaultFilters);
     const [showFilters, setShowFilters] = useState(false);
     const [sideFilter, setSideFilter] = useState<SideFilter>("all");
@@ -108,6 +111,9 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
         setStrikeSearch("");
         setPage(1);
         setIvSource("mid");
+        setPremiumSource("mid");
+        setDiagnosticsEnabled(false);
+        setSelectedStrike(null);
 
         fetchControllerRef.current?.abort();
 
@@ -171,7 +177,18 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
 
         try {
             const [chainResponse, analysisResponse] = await Promise.all([
-                fetchOptionChain({ symbol, expiry: selectedExpiry, r: riskFreeRate, q: dividendYield, ivSource }, { signal: controller.signal }),
+                fetchOptionChain(
+                    {
+                        symbol,
+                        expiry: selectedExpiry,
+                        r: riskFreeRate,
+                        q: dividendYield,
+                        ivSource,
+                        premiumSource,
+                        debug: diagnosticsEnabled,
+                    },
+                    { signal: controller.signal }
+                ),
                 analyzeOptions(
                     {
                         symbol,
@@ -310,6 +327,24 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                         <option value="mid">Mid (recommended)</option>
                         <option value="yahoo">Yahoo</option>
                     </select>
+                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Premium</span>
+                    <select
+                        className="h-9 rounded-lg border border-border/60 bg-background px-3 text-sm"
+                        value={premiumSource}
+                        onChange={(event) => setPremiumSource(event.target.value as OptionPremiumSource)}
+                    >
+                        <option value="mid">Mid</option>
+                        <option value="last">Last</option>
+                    </select>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <input
+                            type="checkbox"
+                            checked={diagnosticsEnabled}
+                            onChange={(event) => setDiagnosticsEnabled(event.target.checked)}
+                            className="h-4 w-4 accent-primary"
+                        />
+                        Diagnostics
+                    </label>
                     <span className="text-xs text-muted-foreground">Used by ladder and IV smile.</span>
                 </div>
             </div>
@@ -372,6 +407,9 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                                         r={riskFreeRate}
                                         q={dividendYield}
                                         ivSource={ivSource}
+                                        premiumSource={premiumSource}
+                                        diagnosticsEnabled={diagnosticsEnabled}
+                                        selectedStrike={selectedStrike}
                                         fetchSmile={fetchOptionSmile}
                                         onIvSourceChange={setIvSource}
                                     />
@@ -414,7 +452,14 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                                         loadingExpiries={loadingExpiries}
                                     />
                                 ) : tab.key === "option-chain" && isActive ? (
-                                    <OptionChain symbol={symbol} ivSource={ivSource} />
+                                    <OptionChain
+                                        symbol={symbol}
+                                        ivSource={ivSource}
+                                        premiumSource={premiumSource}
+                                        diagnosticsEnabled={diagnosticsEnabled}
+                                        selectedStrike={selectedStrike}
+                                        onSelectStrike={setSelectedStrike}
+                                    />
                                 ) : (
                                     isActive && (
                                         <TabPlaceholder
