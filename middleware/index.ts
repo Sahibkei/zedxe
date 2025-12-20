@@ -5,7 +5,7 @@ export async function middleware(request: NextRequest) {
     const sessionCookie = getSessionCookie(request);
     const { pathname } = request.nextUrl;
 
-    const publicRoutes = ["/", "/pricing", "/features", "/security", "/sign-in", "/sign-up"];
+    const publicRoutes = ["/", "/security", "/sign-in", "/sign-up"];
     const isPublicRoute =
         pathname === "/" ||
         publicRoutes.some((route) => route !== "/" && (pathname === route || pathname.startsWith(`${route}/`)));

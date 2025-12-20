@@ -13,12 +13,6 @@ const Navbar = () => {
                         <Link href="#product" className="transition hover:text-white">
                             Product
                         </Link>
-                        <Link href="#features" className="transition hover:text-white">
-                            Features
-                        </Link>
-                        <Link href="#pricing" className="transition hover:text-white">
-                            Pricing
-                        </Link>
                         <Link href="#security" className="transition hover:text-white">
                             Security
                         </Link>

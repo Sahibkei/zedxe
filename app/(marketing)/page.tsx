@@ -1,8 +1,6 @@
 import Navbar from "@/app/(marketing)/components/Navbar";
 import Hero from "@/app/(marketing)/components/Hero";
-import FeaturesGrid from "@/app/(marketing)/components/FeaturesGrid";
 import Workflow from "@/app/(marketing)/components/Workflow";
-import Pricing from "@/app/(marketing)/components/Pricing";
 import Security from "@/app/(marketing)/components/Security";
 import WaitlistCTA from "@/app/(marketing)/components/WaitlistCTA";
 import Footer from "@/app/(marketing)/components/Footer";
@@ -16,9 +14,7 @@ export default function MarketingPage() {
             </div>
             <Navbar />
             <Hero />
-            <FeaturesGrid />
             <Workflow />
-            <Pricing />
             <Security />
             <WaitlistCTA />
             <Footer />

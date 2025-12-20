@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowUpRight, BarChart3, Radar, Sparkles } from "lucide-react";
+import StockFlipTicker from "@/app/(marketing)/components/StockFlipTicker";
 
 const Hero = () => {
     return (
@@ -43,27 +44,8 @@ const Hero = () => {
                         </div>
                     </div>
                 </div>
-                <div className="glass-card rounded-3xl p-6 md:p-8">
-                    <div className="flex items-center justify-between text-sm text-gray-300">
-                        <span>Live Market Pulse</span>
-                        <span className="rounded-full bg-teal-400/20 px-3 py-1 text-xs text-teal-200">+12% today</span>
-                    </div>
-                    <div className="mt-6 space-y-4">
-                        {[
-                            { label: "Macro sentiment", value: "Bullish", color: "text-teal-300" },
-                            { label: "Volatility radar", value: "Stable", color: "text-blue-300" },
-                            { label: "Smart alerts", value: "5 active", color: "text-purple-300" },
-                        ].map((item) => (
-                            <div key={item.label} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                                <span className="text-sm text-gray-300">{item.label}</span>
-                                <span className={`text-sm font-semibold ${item.color}`}>{item.value}</span>
-                            </div>
-                        ))}
-                    </div>
-                    <div className="mt-6 rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-4 text-sm text-gray-200">
-                        "ZedXe turns chaotic data into a clean, actionable story."
-                        <p className="mt-3 text-xs text-gray-400">— Private beta trader</p>
-                    </div>
+                <div className="min-h-[360px] lg:min-h-[420px]">
+                    <StockFlipTicker />
                 </div>
             </div>
         </section>
