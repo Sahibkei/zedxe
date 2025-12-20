@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { buildOptionChainQuote, OPTION_PRICE_SOURCES } from '@/lib/options/chainQuote';
-import { buildChainResponse } from '@/lib/options/mock-data';
-import { timeToExpiryYears } from '@/lib/options/time';
-import type { OptionChainQuote, OptionPriceSource, OptionSurfaceResponse } from '@/lib/options/types';
+import { buildOptionChain } from '@/lib/options/chainBuilder';
+import type { OptionChainQuote, OptionIvSource, OptionSurfaceResponse } from '@/lib/options/types';
 import { isValidIsoDate, normalizeSymbol, requireQuery } from '@/lib/options/validation';
 
 export const runtime = 'nodejs';
@@ -39,7 +37,7 @@ export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
         const symbolParam = requireQuery(searchParams, 'symbol');
-        const priceSourceParam = (requireQuery(searchParams, 'priceSource') ?? 'mid').toLowerCase();
+        const ivSourceParam = (requireQuery(searchParams, 'ivSource') ?? 'mid').toLowerCase();
         const rParam = requireQuery(searchParams, 'r');
         const qParam = requireQuery(searchParams, 'q');
         const expiries = parseExpiries(searchParams);
@@ -60,9 +58,9 @@ export async function GET(request: NextRequest) {
             );
         }
 
-        if (!OPTION_PRICE_SOURCES.includes(priceSourceParam as OptionPriceSource)) {
+        if (!['mid', 'yahoo'].includes(ivSourceParam)) {
             return NextResponse.json(
-                { error: 'priceSource must be mid, bid, ask, or last', where: 'surface' },
+                { error: 'ivSource must be mid or yahoo', where: 'surface' },
                 { status: 400 }
             );
         }
@@ -75,21 +73,20 @@ export async function GET(request: NextRequest) {
         }
 
         const symbol = normalizeSymbol(symbolParam);
-        const priceSource = priceSourceParam as OptionPriceSource;
+        const ivSource = ivSourceParam as OptionIvSource;
+        const priceSource = 'mid';
 
         const chains = await Promise.all(
             expiries.map(async (expiry) => {
-                const chain = await buildChainResponse(symbol, expiry);
+                const chain = await buildOptionChain({ symbol, expiry, r, q, ivSource });
                 const spot = chain.spot;
                 if (!Number.isFinite(spot) || spot <= 0) {
                     throw new Error(`Unable to resolve spot price for ${expiry}`);
                 }
 
-                const tYears = timeToExpiryYears(expiry);
-                if (tYears === null || tYears <= 0) {
+                if (!Number.isFinite(chain.tYears) || chain.tYears <= 0) {
                     throw new Error(`Expiry ${expiry} is too close or invalid for pricing`);
                 }
-
                 const rowsByStrike = new Map<number, { strike: number; call?: OptionChainQuote; put?: OptionChainQuote }>();
 
                 chain.contracts.forEach((contract) => {
@@ -98,21 +95,18 @@ export async function GET(request: NextRequest) {
                     }
                     const row = rowsByStrike.get(contract.strike);
 
-                    const quote = buildOptionChainQuote({
-                        side: contract.side,
-                        bid: contract.bid,
-                        ask: contract.ask,
-                        last: contract.last,
-                        volume: contract.volume,
-                        openInterest: contract.openInterest,
-                        impliedVol: contract.impliedVol,
-                        priceSource,
-                        spot,
-                        strike: contract.strike,
-                        r,
-                        q,
-                        tYears,
-                    });
+                    const quote: OptionChainQuote = {
+                        bid: Number.isFinite(contract.bid) ? contract.bid : null,
+                        ask: Number.isFinite(contract.ask) ? contract.ask : null,
+                        last: Number.isFinite(contract.last ?? NaN) ? contract.last ?? null : null,
+                        mid: Number.isFinite(contract.mid ?? NaN) ? contract.mid ?? null : null,
+                        iv: Number.isFinite(contract.iv ?? NaN) ? contract.iv ?? null : null,
+                        iv_mid: Number.isFinite(contract.iv_mid ?? NaN) ? contract.iv_mid ?? null : null,
+                        iv_yahoo: Number.isFinite(contract.iv_yahoo ?? NaN) ? contract.iv_yahoo ?? null : null,
+                        delta: Number.isFinite(contract.delta ?? NaN) ? contract.delta ?? null : null,
+                        volume: Number.isFinite(contract.volume ?? NaN) ? contract.volume ?? null : null,
+                        openInterest: Number.isFinite(contract.openInterest ?? NaN) ? contract.openInterest ?? null : null,
+                    };
 
                     if (contract.side === 'call') {
                         row.call = quote;
@@ -138,6 +132,7 @@ export async function GET(request: NextRequest) {
         const response: OptionSurfaceResponse = {
             symbol,
             priceSource,
+            ivSource,
             r,
             q,
             updatedAt: new Date().toISOString(),

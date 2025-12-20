@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { analyzeOptions, fetchExpiries, fetchOptionChain } from "@/lib/options/client";
+import { analyzeOptions, fetchExpiries, fetchOptionChain, fetchOptionSmile } from "@/lib/options/client";
 import { formatNumber, formatPercent } from "@/lib/options/format";
 import ImpliedVolatilitySmile from "@/app/(root)/stocks/[symbol]/options/ImpliedVolatilitySmile";
 import IVSurface from "@/app/(root)/stocks/[symbol]/options/IVSurface";
@@ -10,7 +10,7 @@ import OptionChain from "@/app/(root)/stocks/[symbol]/options/OptionChain";
 import RiskNeutralDistribution from "@/app/(root)/stocks/[symbol]/options/RiskNeutralDistribution";
 import ScenarioAnalysis from "@/app/(root)/stocks/[symbol]/options/ScenarioAnalysis";
 import SingleOptionAnalytics from "@/app/(root)/stocks/[symbol]/options/SingleOptionAnalytics";
-import type { AnalyzeResponse, ChainResponse, OptionContract } from "@/lib/options/types";
+import type { AnalyzeResponse, ChainResponse, OptionContract, OptionIvSource } from "@/lib/options/types";
 import { cn } from "@/lib/utils";
 
 const tabs = [
@@ -64,6 +64,7 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
     const [analysisError, setAnalysisError] = useState<string | null>(null);
     const [riskFreeRate, setRiskFreeRate] = useState(0.05);
     const [dividendYield, setDividendYield] = useState(0.005);
+    const [ivSource, setIvSource] = useState<OptionIvSource>("mid");
     const [filters, setFilters] = useState<FilterState>(defaultFilters);
     const [showFilters, setShowFilters] = useState(false);
     const [sideFilter, setSideFilter] = useState<SideFilter>("all");
@@ -106,6 +107,7 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
         setSideFilter("all");
         setStrikeSearch("");
         setPage(1);
+        setIvSource("mid");
 
         fetchControllerRef.current?.abort();
 
@@ -169,7 +171,7 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
 
         try {
             const [chainResponse, analysisResponse] = await Promise.all([
-                fetchOptionChain(symbol, selectedExpiry, controller.signal),
+                fetchOptionChain({ symbol, expiry: selectedExpiry, r: riskFreeRate, q: dividendYield, ivSource }, { signal: controller.signal }),
                 analyzeOptions(
                     {
                         symbol,
@@ -239,8 +241,7 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
     const isFetchDisabled = !selectedExpiry || loadingExpiries || loadingData;
     const smileSpot = chain?.spot ?? analysis?.spot ?? null;
     const smileExpiry = selectedExpiry || chain?.expiry || analysis?.expiry || null;
-    const smileContracts = chain?.contracts ?? [];
-    const smileTYears = analysis?.tYears ?? null;
+    const smileTYears = chain?.tYears ?? analysis?.tYears ?? null;
 
     return (
         <div className="mx-auto w-full max-w-7xl px-4 md:px-6 py-8 space-y-8">
@@ -270,7 +271,7 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
             )}
 
             <div className="rounded-2xl border border-border/60 bg-card/80 p-4 shadow-lg backdrop-blur">
-                <div className="flex flex-wrap gap-2" role="tablist" aria-label="Options analysis sections">
+            <div className="flex flex-wrap gap-2" role="tablist" aria-label="Options analysis sections">
                     {tabList.map((tab) => {
                         const isActive = activeTab === tab.key;
                         const tabId = `options-tab-${tab.key}`;
@@ -295,6 +296,21 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                             </button>
                         );
                     })}
+                </div>
+            </div>
+
+            <div className="rounded-2xl border border-border/60 bg-card/80 p-4 shadow-lg backdrop-blur">
+                <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">IV Source</span>
+                    <select
+                        className="h-9 rounded-lg border border-border/60 bg-background px-3 text-sm"
+                        value={ivSource}
+                        onChange={(event) => setIvSource(event.target.value as OptionIvSource)}
+                    >
+                        <option value="mid">Mid (recommended)</option>
+                        <option value="yahoo">Yahoo</option>
+                    </select>
+                    <span className="text-xs text-muted-foreground">Used by ladder and IV smile.</span>
                 </div>
             </div>
 
@@ -355,7 +371,9 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                                         tYears={smileTYears}
                                         r={riskFreeRate}
                                         q={dividendYield}
-                                        contracts={smileContracts}
+                                        ivSource={ivSource}
+                                        fetchSmile={fetchOptionSmile}
+                                        onIvSourceChange={setIvSource}
                                     />
                                 ) : tab.key === "iv-surface" && isActive ? (
                                     <IVSurface symbol={symbol} riskFreeRate={riskFreeRate} dividendYield={dividendYield} />
@@ -396,7 +414,7 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
                                         loadingExpiries={loadingExpiries}
                                     />
                                 ) : tab.key === "option-chain" && isActive ? (
-                                    <OptionChain symbol={symbol} />
+                                    <OptionChain symbol={symbol} ivSource={ivSource} />
                                 ) : (
                                     isActive && (
                                         <TabPlaceholder

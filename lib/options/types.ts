@@ -22,6 +22,16 @@ export type OptionContract = {
     impliedVol?: number; // optional for now
 };
 
+export type OptionIvSource = 'mid' | 'yahoo';
+
+export type OptionChainContract = OptionContract & {
+    mid?: number | null;
+    iv_yahoo?: number | null;
+    iv_mid?: number | null;
+    iv?: number | null;
+    delta?: number | null;
+};
+
 export type ChainResponse = {
     symbol: string;
     spot: number;
@@ -30,7 +40,9 @@ export type ChainResponse = {
     spotAlternate?: number;
     expiry: string;
     fetchedAt: string; // ISO
-    contracts: OptionContract[];
+    contracts: OptionChainContract[];
+    tYears?: number;
+    ivSource?: OptionIvSource;
 };
 
 export type OptionChainQuote = {
@@ -39,6 +51,8 @@ export type OptionChainQuote = {
     last?: number | null;
     mid: number | null;
     iv: number | null;
+    iv_yahoo?: number | null;
+    iv_mid?: number | null;
     delta: number | null;
     volume?: number | null;
     openInterest?: number | null;
@@ -57,6 +71,13 @@ export type OptionChainResponse = {
     updatedAt: string;
     rows: OptionChainRow[];
     warnings?: string[];
+    tYears?: number;
+    ivSource?: OptionIvSource;
+    spotTimestamp?: string;
+    spotSource?: string;
+    spotAlternate?: number;
+    fetchedAt?: string;
+    contracts?: OptionChainContract[];
 };
 
 export type OptionSurfacePointSource = 'call' | 'put' | 'otm' | 'avg';
@@ -80,6 +101,7 @@ export type OptionSurfaceChain = {
 export type OptionSurfaceResponse = {
     symbol: string;
     priceSource: OptionPriceSource;
+    ivSource?: OptionIvSource;
     r: number;
     q: number;
     updatedAt: string;
@@ -93,6 +115,7 @@ export type OptionChainRequest = {
     q?: number;
     priceSource?: OptionPriceSource;
     bandPct?: number;
+    ivSource?: OptionIvSource;
 };
 
 export type AnalyzeRequest = {

@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { impliedVolBisection, moneyness as moneynessRatio } from "@/lib/options/bs";
-import { formatNumber, formatPercent } from "@/lib/options/format";
-import type { OptionContract, OptionSide } from "@/lib/options/types";
+import { moneyness as moneynessRatio } from "@/lib/options/bs";
+import { formatNumber } from "@/lib/options/format";
+import type { OptionIvSource, OptionSide } from "@/lib/options/types";
 import { cn } from "@/lib/utils";
 
 type ImpliedVolatilitySmileProps = {
@@ -14,7 +14,28 @@ type ImpliedVolatilitySmileProps = {
     tYears: number | null;
     r: number;
     q: number;
-    contracts: OptionContract[];
+    ivSource: OptionIvSource;
+    fetchSmile: (params: {
+        symbol: string;
+        expiry: string;
+        r: number;
+        q: number;
+        ivSource: OptionIvSource;
+        side?: "call" | "put" | "both";
+    }) => Promise<{
+        points: Array<{
+            strike: number;
+            side: OptionSide;
+            iv: number | null;
+            iv_mid?: number | null;
+            iv_yahoo?: number | null;
+            bid?: number | null;
+            ask?: number | null;
+            mid?: number | null;
+            last?: number | null;
+        }>;
+    }>;
+    onIvSourceChange: (value: OptionIvSource) => void;
 };
 
 type ChartPoint = {
@@ -22,9 +43,9 @@ type ChartPoint = {
     moneyness: number;
     iv: number;
     side: OptionSide;
-    bid: number;
-    ask: number;
-    mid: number;
+    bid: number | null;
+    ask: number | null;
+    mid: number | null;
     last?: number | null;
 };
 
@@ -38,32 +59,7 @@ const X_AXIS_LABELS: Record<"strike" | "moneyness", string> = {
     moneyness: "Moneyness (K/S)",
 };
 
-const MS_PER_DAY = 1000 * 60 * 60 * 24;
-
-function computeTimeToExpiryYears(expiry: string | null): number | null {
-    if (!expiry) return null;
-    const today = new Date();
-    const startOfToday = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-    const expiryDate = new Date(`${expiry}T00:00:00Z`);
-    const diff = expiryDate.getTime() - startOfToday;
-    const days = diff / MS_PER_DAY;
-    if (!Number.isFinite(days) || days <= 0) return null;
-    return Number((days / 365).toFixed(6));
-}
-
-function getMidPrice(contract: OptionContract): number | null {
-    const hasBidAsk = Number.isFinite(contract.bid) && Number.isFinite(contract.ask);
-    if (hasBidAsk) {
-        const mid = (contract.bid + contract.ask) / 2;
-        return Number.isFinite(mid) ? mid : null;
-    }
-
-    if (Number.isFinite(contract.last ?? NaN)) {
-        return contract.last ?? null;
-    }
-
-    return null;
-}
+const toPercent = (value: number) => value * 100;
 
 function SummaryStat({ label, value }: { label: string; value: string }) {
     return (
@@ -74,59 +70,67 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
     );
 }
 
-export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r, q, contracts }: ImpliedVolatilitySmileProps) {
+export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r, q, ivSource, fetchSmile, onIvSourceChange }: ImpliedVolatilitySmileProps) {
     const [sideView, setSideView] = useState<"both" | OptionSide>("both");
     const [xAxis, setXAxis] = useState<"strike" | "moneyness">("strike");
     const [refreshTick, setRefreshTick] = useState(0);
+    const [points, setPoints] = useState<ChartPoint[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
-    const resolvedTime = useMemo(() => tYears ?? computeTimeToExpiryYears(expiry), [expiry, tYears]);
+    const resolvedTime = useMemo(() => tYears ?? null, [tYears]);
     const resolvedSpot = useMemo(() => (Number.isFinite(spot ?? NaN) && (spot ?? 0) > 0 ? (spot as number) : null), [spot]);
 
-    const derived = useMemo(() => {
-        if (!contracts?.length) return { calls: [] as ChartPoint[], puts: [] as ChartPoint[] };
-        if (!resolvedSpot || !resolvedTime || resolvedTime <= 0) return { calls: [] as ChartPoint[], puts: [] as ChartPoint[] };
+    useEffect(() => {
+        if (!expiry) {
+            setPoints([]);
+            setLoadError(null);
+            return;
+        }
 
-        const calls: ChartPoint[] = [];
-        const puts: ChartPoint[] = [];
+        let isActive = true;
+        setIsLoading(true);
+        setLoadError(null);
 
-        contracts.forEach((contract) => {
-            const mid = getMidPrice(contract);
-            if (mid === null || mid <= 0) return;
-
-            const iv = impliedVolBisection({
-                side: contract.side,
-                S: resolvedSpot,
-                K: contract.strike,
-                r,
-                q,
-                t: resolvedTime,
-                price: mid,
+        fetchSmile({ symbol, expiry, r, q, ivSource, side: sideView })
+            .then((response) => {
+                if (!isActive) return;
+                const nextPoints = response.points
+                    .map((point) => {
+                        if (!resolvedSpot) return null;
+                        if (point.iv === null || !Number.isFinite(point.iv)) return null;
+                        return {
+                            strike: point.strike,
+                            moneyness: moneynessRatio(resolvedSpot, point.strike),
+                            iv: point.iv,
+                            side: point.side,
+                            bid: point.bid ?? null,
+                            ask: point.ask ?? null,
+                            mid: point.mid ?? null,
+                            last: point.last ?? null,
+                        } as ChartPoint;
+                    })
+                    .filter((point): point is ChartPoint => Boolean(point));
+                setPoints(nextPoints);
+            })
+            .catch((error) => {
+                if (!isActive) return;
+                const message = error instanceof Error ? error.message : "Unable to load IV smile";
+                setLoadError(message);
+                setPoints([]);
+            })
+            .finally(() => {
+                if (isActive) {
+                    setIsLoading(false);
+                }
             });
 
-            if (iv === null || !Number.isFinite(iv)) return;
+        return () => {
+            isActive = false;
+        };
+    }, [expiry, fetchSmile, ivSource, q, r, refreshTick, resolvedSpot, sideView, symbol]);
 
-            const point: ChartPoint = {
-                strike: contract.strike,
-                moneyness: moneynessRatio(resolvedSpot, contract.strike),
-                iv,
-                side: contract.side,
-                bid: contract.bid,
-                ask: contract.ask,
-                mid,
-                last: contract.last ?? null,
-            };
-
-            if (contract.side === "call") {
-                calls.push(point);
-            } else {
-                puts.push(point);
-            }
-        });
-
-        return { calls, puts };
-    }, [contracts, resolvedSpot, resolvedTime, r, q, refreshTick]);
-
-    const allPoints = useMemo(() => [...derived.calls, ...derived.puts], [derived.calls, derived.puts]);
+    const allPoints = useMemo(() => points, [points]);
 
     const atmIv = useMemo(() => {
         if (!resolvedSpot || allPoints.length === 0) return null;
@@ -147,24 +151,19 @@ export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r
         return closest?.iv ?? null;
     }, [allPoints, resolvedSpot]);
 
-    const filteredPoints = useMemo(() => {
-        if (sideView === "both") return allPoints;
-        return allPoints.filter((point) => point.side === sideView);
-    }, [allPoints, sideView]);
-
-    const plottedPoints: PlotPoint[] = useMemo(() => {
-        return filteredPoints
+    const plottedPoints = useMemo<PlotPoint[]>(() => {
+        return allPoints
             .map((point) => {
                 const xValue = xAxis === "strike" ? point.strike : point.moneyness;
                 if (!Number.isFinite(xValue)) return null;
                 return { ...point, xValue } as PlotPoint;
             })
             .filter((point): point is PlotPoint => Boolean(point));
-    }, [filteredPoints, xAxis]);
+    }, [allPoints, xAxis]);
 
     const yMax = useMemo(() => {
         if (plottedPoints.length === 0) return 1;
-        const maxValue = Math.max(...plottedPoints.map((point) => point.iv));
+        const maxValue = Math.max(...plottedPoints.map((point) => toPercent(point.iv)));
         const padded = maxValue > 0 ? maxValue * 1.15 : 1;
         return Number.isFinite(padded) ? padded : 1;
     }, [plottedPoints]);
@@ -199,11 +198,11 @@ export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r
 
     const renderPolyline = (points: PlotPoint[], color: string) => {
         if (points.length === 0) return null;
-        const path = points.map((point) => `${projectX(point.xValue)},${projectY(point.iv)}`).join(" ");
+        const path = points.map((point) => `${projectX(point.xValue)},${projectY(toPercent(point.iv))}`).join(" ");
         return <polyline fill="none" stroke={color} strokeWidth={1.5} points={path} opacity={0.6} />;
     };
 
-    if (!contracts || contracts.length === 0) {
+    if (!expiry) {
         return (
             <div className="rounded-2xl border border-border/60 bg-card/70 p-6 shadow-lg backdrop-blur">
                 <div className="space-y-2">
@@ -222,9 +221,20 @@ export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r
                 <div className="space-y-1">
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Volatility • {symbol}</p>
                     <h3 className="text-xl font-semibold text-foreground">Implied Volatility Smile</h3>
-                    <p className="text-sm text-muted-foreground">Computed from mid prices via Black–Scholes–Merton.</p>
+                    <p className="text-sm text-muted-foreground">
+                        Using {ivSource === "mid" ? "mid-derived" : "Yahoo"} implied volatility values.
+                    </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">IV Source</span>
+                    <select
+                        className="h-9 rounded-lg border border-border/60 bg-muted/30 px-3 text-sm"
+                        value={ivSource}
+                        onChange={(event) => onIvSourceChange(event.target.value as OptionIvSource)}
+                    >
+                        <option value="mid">Mid (recommended)</option>
+                        <option value="yahoo">Yahoo</option>
+                    </select>
                     <select
                         className="h-9 rounded-lg border border-border/60 bg-muted/30 px-3 text-sm"
                         value={sideView}
@@ -253,12 +263,22 @@ export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r
             </div>
 
             <div className="grid gap-3 md:grid-cols-3">
-                <SummaryStat label="ATM IV" value={atmIv ? formatPercent(atmIv, 2) : "—"} />
+                <SummaryStat label="ATM IV" value={atmIv ? `${toPercent(atmIv).toFixed(2)}%` : "—"} />
                 <SummaryStat label="Points Plotted" value={plottedPoints.length.toString()} />
                 <SummaryStat label="Expiry" value={expiry || "—"} />
             </div>
 
-            {plottedPoints.length === 0 ? (
+            {loadError && (
+                <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                    {loadError}
+                </div>
+            )}
+
+            {isLoading ? (
+                <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-sm text-muted-foreground">
+                    Loading IV smile data...
+                </div>
+            ) : plottedPoints.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-sm text-muted-foreground">
                     {resolvedSpot && resolvedTime
                         ? "No implied volatilities could be derived from the current option chain."
@@ -281,7 +301,7 @@ export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r
                                         className="text-[10px] fill-muted-foreground"
                                         textAnchor="end"
                                     >
-                                        {formatPercent(value, 0)}
+                                        {`${value.toFixed(0)}%`}
                                     </text>
                                 </g>
                             );
@@ -320,7 +340,7 @@ export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r
 
                         {plottedPoints.map((point, index) => {
                             const cx = projectX(point.xValue);
-                            const cy = projectY(point.iv);
+                            const cy = projectY(toPercent(point.iv));
                             const color = point.side === "call" ? CALL_COLOR : PUT_COLOR;
                             return (
                                 <circle
@@ -347,7 +367,7 @@ export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r
                             {X_AXIS_LABELS[xAxis]}
                         </text>
                         <text x={16} y={padding - 20} className="text-xs fill-muted-foreground" textAnchor="start">
-                            IV (σ)
+                            IV (%)
                         </text>
                     </svg>
 
@@ -363,7 +383,7 @@ export default function ImpliedVolatilitySmile({ symbol, spot, expiry, tYears, r
                                 <span className="text-muted-foreground">Strike {formatNumber(hovered.strike, 2)}</span>
                             </div>
                             <div className="mt-1 grid grid-cols-2 gap-1 text-foreground">
-                                <span>IV: {formatPercent(hovered.iv, 2)}</span>
+                                <span>IV: {`${toPercent(hovered.iv).toFixed(2)}%`}</span>
                                 <span>Mid: {formatNumber(hovered.mid, 2)}</span>
                                 <span>Bid/Ask: {formatNumber(hovered.bid, 2)} / {formatNumber(hovered.ask, 2)}</span>
                                 <span>Last: {formatNumber(hovered.last ?? null, 2)}</span>

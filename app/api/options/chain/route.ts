@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { buildChainResponse } from '@/lib/options/mock-data';
-import { timeToExpiryYears } from '@/lib/options/time';
-import { buildOptionChainQuote, OPTION_PRICE_SOURCES } from '@/lib/options/chainQuote';
-import type { OptionChainQuote, OptionPriceSource } from '@/lib/options/types';
+import { buildOptionChain } from '@/lib/options/chainBuilder';
+import type { OptionIvSource } from '@/lib/options/types';
 import { isValidIsoDate, normalizeSymbol, requireQuery } from '@/lib/options/validation';
 
 export const runtime = 'nodejs';
@@ -22,7 +20,7 @@ export async function GET(request: NextRequest) {
         const expiryParam = requireQuery(searchParams, 'expiry');
         const rParam = requireQuery(searchParams, 'r');
         const qParam = requireQuery(searchParams, 'q');
-        const priceSourceParam = (requireQuery(searchParams, 'priceSource') ?? 'mid').toLowerCase();
+        const ivSourceParam = (requireQuery(searchParams, 'ivSource') ?? 'mid').toLowerCase();
         const bandParam = requireQuery(searchParams, 'bandPct');
 
         if (!symbolParam) {
@@ -37,9 +35,9 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'expiry must be in YYYY-MM-DD format', where: 'chain' }, { status: 400 });
         }
 
-        if (!OPTION_PRICE_SOURCES.includes(priceSourceParam as OptionPriceSource)) {
+        if (!['mid', 'yahoo'].includes(ivSourceParam)) {
             return NextResponse.json(
-                { error: 'priceSource must be mid, bid, ask, or last', where: 'chain' },
+                { error: 'ivSource must be mid or yahoo', where: 'chain' },
                 { status: 400 }
             );
         }
@@ -56,54 +54,21 @@ export async function GET(request: NextRequest) {
         }
 
         const symbol = normalizeSymbol(symbolParam);
-        const chain = await buildChainResponse(symbol, expiryParam);
+        const ivSource = ivSourceParam as OptionIvSource;
+        const chain = await buildOptionChain({ symbol, expiry: expiryParam, r, q, ivSource });
         const spot = chain.spot;
 
         if (!Number.isFinite(spot) || spot <= 0) {
             return NextResponse.json({ error: 'Unable to resolve spot price', where: 'chain' }, { status: 422 });
         }
 
-        const tYears = timeToExpiryYears(expiryParam);
-        if (tYears === null || tYears <= 0) {
+        if (!Number.isFinite(chain.tYears) || chain.tYears <= 0) {
             return NextResponse.json({ error: 'Expiry is too close or invalid for pricing', where: 'chain' }, { status: 422 });
         }
 
-        const priceSource = priceSourceParam as OptionPriceSource;
         const lowerBound = spot * (1 - bandPct);
         const upperBound = spot * (1 + bandPct);
-        const rowsByStrike = new Map<number, { strike: number; call?: OptionChainQuote; put?: OptionChainQuote }>();
-
-        chain.contracts.forEach((contract) => {
-            if (contract.strike < lowerBound || contract.strike > upperBound) return;
-            if (!rowsByStrike.has(contract.strike)) {
-                rowsByStrike.set(contract.strike, { strike: contract.strike });
-            }
-            const row = rowsByStrike.get(contract.strike);
-
-            const quote = buildOptionChainQuote({
-                side: contract.side,
-                bid: contract.bid,
-                ask: contract.ask,
-                last: contract.last,
-                volume: contract.volume,
-                openInterest: contract.openInterest,
-                impliedVol: contract.impliedVol,
-                priceSource,
-                spot,
-                strike: contract.strike,
-                r,
-                q,
-                tYears,
-            });
-
-            if (contract.side === 'call') {
-                row.call = quote;
-            } else {
-                row.put = quote;
-            }
-        });
-
-        const rows = Array.from(rowsByStrike.values()).sort((a, b) => a.strike - b.strike);
+        const rows = chain.rows.filter((row) => row.strike >= lowerBound && row.strike <= upperBound);
         const warnings: string[] = [];
         if (chain.spotSource === 'alternate') {
             warnings.push('Spot price sourced from alternate data.');
@@ -116,6 +81,8 @@ export async function GET(request: NextRequest) {
             updatedAt: new Date().toISOString(),
             rows,
             warnings: warnings.length ? warnings : undefined,
+            tYears: chain.tYears,
+            ivSource,
             spotTimestamp: chain.spotTimestamp,
             spotSource: chain.spotSource,
             spotAlternate: chain.spotAlternate,

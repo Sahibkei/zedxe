@@ -40,6 +40,7 @@ const buildOptionChainSearch = (params: OptionChainRequest) => {
     if (params.q !== undefined) search.set('q', String(params.q));
     if (params.priceSource) search.set('priceSource', params.priceSource);
     if (params.bandPct !== undefined) search.set('bandPct', String(params.bandPct));
+    if (params.ivSource) search.set('ivSource', params.ivSource);
     return search;
 };
 
@@ -96,6 +97,58 @@ export async function fetchOptionSurface(
 
     return safeFetchJson<OptionSurfaceResponse>(
         `/api/options/surface?${search.toString()}`,
+        {
+            cache: 'no-store',
+            signal: options?.signal,
+        },
+        { timeoutMs: 12000 }
+    );
+}
+
+export type SmileResponse = {
+    symbol: string;
+    expiry: string;
+    spot: number;
+    tYears: number;
+    ivSource: 'mid' | 'yahoo';
+    updatedAt: string;
+    points: Array<{
+        strike: number;
+        side: OptionSide;
+        iv: number | null;
+        iv_mid?: number | null;
+        iv_yahoo?: number | null;
+        mid?: number | null;
+        bid?: number | null;
+        ask?: number | null;
+        last?: number | null;
+    }>;
+};
+
+export async function fetchOptionSmile(
+    params: {
+        symbol: string;
+        expiry: string;
+        r: number;
+        q: number;
+        ivSource: 'mid' | 'yahoo';
+        side?: 'call' | 'put' | 'both';
+    },
+    options?: { signal?: AbortSignal }
+): Promise<SmileResponse> {
+    const search = new URLSearchParams({
+        symbol: params.symbol,
+        expiry: params.expiry,
+        r: String(params.r),
+        q: String(params.q),
+        ivSource: params.ivSource,
+    });
+    if (params.side) {
+        search.set('side', params.side);
+    }
+
+    return safeFetchJson<SmileResponse>(
+        `/api/options/smile?${search.toString()}`,
         {
             cache: 'no-store',
             signal: options?.signal,

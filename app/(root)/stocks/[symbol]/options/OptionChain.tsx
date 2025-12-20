@@ -4,17 +4,18 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { fetchExpiries, fetchOptionChainV2 } from "@/lib/options/client";
 import { formatIV, formatNumber } from "@/lib/options/format";
-import type { OptionChainResponse, OptionPriceSource } from "@/lib/options/types";
+import type { OptionChainResponse, OptionIvSource, OptionPriceSource } from "@/lib/options/types";
 import { cn } from "@/lib/utils";
 
 type OptionChainProps = {
     symbol: string;
+    ivSource: OptionIvSource;
 };
 
 const DEFAULT_POLL_SECONDS = 5;
 const DEFAULT_BAND_PCT = 20;
 
-export default function OptionChain({ symbol }: OptionChainProps) {
+export default function OptionChain({ symbol, ivSource }: OptionChainProps) {
     const [expiries, setExpiries] = useState<string[]>([]);
     const [selectedExpiry, setSelectedExpiry] = useState("");
     const [loadingExpiries, setLoadingExpiries] = useState(false);
@@ -97,6 +98,7 @@ export default function OptionChain({ symbol }: OptionChainProps) {
                         expiry: selectedExpiry,
                         priceSource,
                         bandPct: bandPct / 100,
+                        ivSource,
                     },
                     { signal: controller.signal }
                 );
@@ -120,7 +122,7 @@ export default function OptionChain({ symbol }: OptionChainProps) {
                 }
             }
         },
-        [bandPct, priceSource, selectedExpiry, symbol]
+        [bandPct, ivSource, priceSource, selectedExpiry, symbol]
     );
 
     useEffect(() => {
