@@ -7,14 +7,16 @@ const Navbar = () => {
         <header className="sticky top-6 z-50">
             <div className="container">
                 <div className="flex items-center justify-between gap-6 rounded-full px-6 py-3 glass-nav">
-                    <Link href="/" className="flex items-center gap-3">
+                    <Link href="/" className="flex items-center gap-2">
                         <Image
-                            src="/assets/icons/logo.svg"
-                            alt="ZedXe logo"
-                            width={130}
-                            height={30}
-                            className="h-7 w-auto"
+                            src="/assets/icons/zedlogo.svg"
+                            alt="ZedXe"
+                            width={28}
+                            height={28}
+                            priority
+                            className="h-7 w-7"
                         />
+                        <span className="text-sm font-semibold text-white">ZedXe</span>
                     </Link>
                     <nav className="hidden items-center gap-6 text-sm text-gray-300 md:flex">
                         <Link href="#product" className="transition hover:text-white">
