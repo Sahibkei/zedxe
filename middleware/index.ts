@@ -3,9 +3,19 @@ import { getSessionCookie } from "better-auth/cookies";
 
 export async function middleware(request: NextRequest) {
     const sessionCookie = getSessionCookie(request);
+    const { pathname } = request.nextUrl;
+
+    const publicRoutes = ["/", "/pricing", "/features", "/security", "/sign-in", "/sign-up"];
+    const isPublicRoute =
+        pathname === "/" ||
+        publicRoutes.some((route) => route !== "/" && (pathname === route || pathname.startsWith(`${route}/`)));
+
+    if (isPublicRoute) {
+        return NextResponse.next();
+    }
 
     if (!sessionCookie) {
-        return NextResponse.redirect(new URL("/", request.url));
+        return NextResponse.redirect(new URL("/sign-in", request.url));
     }
 
     return NextResponse.next();
@@ -13,6 +23,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
     matcher: [
-        '/((?!api|_next/static|_next/image|favicon.ico|sign-in|sign-up|assets).*)',
+        '/((?!api|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|assets).*)',
     ],
 };
