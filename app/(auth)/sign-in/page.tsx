@@ -6,11 +6,14 @@ import InputField from '@/components/forms/InputField';
 import FooterLink from '@/components/forms/FooterLink';
 import {signInWithEmail, signUpWithEmail} from "@/lib/actions/auth.actions";
 import {toast} from "sonner";
-import {useRouter} from "next/navigation";
+import {useRouter, useSearchParams} from "next/navigation";
+import { safeRedirect } from "@/lib/safeRedirect";
 
 
 const SignIn = () => {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const redirectTo = safeRedirect(searchParams.get("redirect"), "/dashboard");
     const {
         register,
         handleSubmit,
@@ -26,7 +29,7 @@ const SignIn = () => {
     const onSubmit = async (data: SignInFormData) => {
         try {
             const result = await signInWithEmail(data);
-            if(result.success) router.push('/');
+            if(result.success) router.push(redirectTo);
         } catch (e) {
             console.error(e);
             toast.error('Sign in failed', {
