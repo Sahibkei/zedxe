@@ -7,12 +7,13 @@ import FooterLink from '@/components/forms/FooterLink';
 import {signInWithEmail, signUpWithEmail} from "@/lib/actions/auth.actions";
 import {toast} from "sonner";
 import {useRouter, useSearchParams} from "next/navigation";
+import { safeRedirect } from "@/lib/safeRedirect";
 
 
 const SignIn = () => {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const redirectTo = searchParams.get('redirect') || '/app';
+    const redirectTo = safeRedirect(searchParams.get("redirect"), "/dashboard");
     const {
         register,
         handleSubmit,

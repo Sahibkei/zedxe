@@ -9,12 +9,13 @@ import {CountrySelectField} from "@/components/forms/CountrySelectField";
 import FooterLink from "@/components/forms/FooterLink";
 import {signUpWithEmail} from "@/lib/actions/auth.actions";
 import {useRouter, useSearchParams} from "next/navigation";
+import { safeRedirect } from "@/lib/safeRedirect";
 import {toast} from "sonner";
 
 const SignUp = () => {
     const router = useRouter()
     const searchParams = useSearchParams();
-    const redirectTo = searchParams.get('redirect') || '/app';
+    const redirectTo = safeRedirect(searchParams.get("redirect"), "/dashboard");
     const {
         register,
         handleSubmit,

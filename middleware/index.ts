@@ -11,7 +11,7 @@ export async function middleware(request: NextRequest) {
         publicRoutes.some((route) => route !== "/" && (pathname === route || pathname.startsWith(`${route}/`)));
 
     if (sessionCookie && pathname === "/") {
-        return NextResponse.redirect(new URL("/app", request.url));
+        return NextResponse.redirect(new URL("/dashboard", request.url));
     }
 
     if (isPublicRoute) {

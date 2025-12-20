@@ -13,11 +13,25 @@ type NavbarClientProps = {
 
 const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
     const [isOpen, setIsOpen] = useState(false);
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
+    const [logoutError, setLogoutError] = useState<string | null>(null);
     const router = useRouter();
 
     const handleLogout = async () => {
-        await signOut();
-        router.push("/");
+        setIsLoggingOut(true);
+        setLogoutError(null);
+        try {
+            const result = await signOut();
+            if (result && "success" in result && result.success === false) {
+                throw new Error(result.error || "Unable to sign out.");
+            }
+            router.push("/");
+        } catch (error) {
+            console.error("Sign out failed", error);
+            setLogoutError("Unable to sign out. Please try again.");
+        } finally {
+            setIsLoggingOut(false);
+        }
     };
 
     return (
@@ -46,7 +60,7 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                         {isSignedIn ? (
                             <>
                                 <Link
-                                    href="/app"
+                                    href="/dashboard"
                                     className="rounded-full border border-white/20 px-4 py-2 text-sm text-white/80 transition hover:text-white"
                                 >
                                     Dashboard
@@ -54,15 +68,16 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                                 <button
                                     type="button"
                                     onClick={handleLogout}
-                                    className="btn-glow inline-flex items-center gap-2 rounded-full bg-teal-400 px-4 py-2 text-sm font-semibold text-gray-900"
+                                    className="btn-glow inline-flex items-center gap-2 rounded-full bg-teal-400 px-4 py-2 text-sm font-semibold text-gray-900 disabled:cursor-not-allowed disabled:opacity-70"
+                                    disabled={isLoggingOut}
                                 >
-                                    Logout
+                                    {isLoggingOut ? "Logging out..." : "Logout"}
                                 </button>
                             </>
                         ) : (
                             <>
                                 <Link
-                                    href="/sign-in?redirect=/app"
+                                    href={`/sign-in?redirect=${encodeURIComponent("/dashboard")}`}
                                     className="rounded-full border border-white/20 px-4 py-2 text-sm text-white/80 transition hover:text-white"
                                 >
                                     Login
@@ -98,7 +113,7 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                             </Link>
                             {isSignedIn ? (
                                 <>
-                                    <Link href="/app" onClick={() => setIsOpen(false)} className="transition hover:text-white">
+                                    <Link href="/dashboard" onClick={() => setIsOpen(false)} className="transition hover:text-white">
                                         Dashboard
                                     </Link>
                                     <button
@@ -108,13 +123,18 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                                             setIsOpen(false);
                                         }}
                                         className="text-left transition hover:text-white"
+                                        disabled={isLoggingOut}
                                     >
-                                        Logout
+                                        {isLoggingOut ? "Logging out..." : "Logout"}
                                     </button>
                                 </>
                             ) : (
                                 <>
-                                    <Link href="/sign-in?redirect=/app" onClick={() => setIsOpen(false)} className="transition hover:text-white">
+                                    <Link
+                                        href={`/sign-in?redirect=${encodeURIComponent("/dashboard")}`}
+                                        onClick={() => setIsOpen(false)}
+                                        className="transition hover:text-white"
+                                    >
                                         Login
                                     </Link>
                                     <Link href="#waitlist" onClick={() => setIsOpen(false)} className="transition hover:text-white">
@@ -124,6 +144,9 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                             )}
                         </div>
                     </div>
+                ) : null}
+                {logoutError ? (
+                    <p className="mt-3 text-xs text-red-300 md:text-sm">{logoutError}</p>
                 ) : null}
             </div>
         </header>
