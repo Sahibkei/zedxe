@@ -10,6 +10,10 @@ export async function middleware(request: NextRequest) {
         pathname === "/" ||
         publicRoutes.some((route) => route !== "/" && (pathname === route || pathname.startsWith(`${route}/`)));
 
+    if (sessionCookie && pathname === "/") {
+        return NextResponse.redirect(new URL("/app", request.url));
+    }
+
     if (isPublicRoute) {
         return NextResponse.next();
     }

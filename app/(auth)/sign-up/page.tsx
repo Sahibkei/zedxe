@@ -8,11 +8,13 @@ import {INVESTMENT_GOALS, PREFERRED_INDUSTRIES, RISK_TOLERANCE_OPTIONS} from "@/
 import {CountrySelectField} from "@/components/forms/CountrySelectField";
 import FooterLink from "@/components/forms/FooterLink";
 import {signUpWithEmail} from "@/lib/actions/auth.actions";
-import {useRouter} from "next/navigation";
+import {useRouter, useSearchParams} from "next/navigation";
 import {toast} from "sonner";
 
 const SignUp = () => {
     const router = useRouter()
+    const searchParams = useSearchParams();
+    const redirectTo = searchParams.get('redirect') || '/app';
     const {
         register,
         handleSubmit,
@@ -34,7 +36,7 @@ const SignUp = () => {
     const onSubmit = async (data: SignUpFormData) => {
         try {
             const result = await signUpWithEmail(data);
-            if(result.success) router.push('/');
+            if(result.success) router.push(redirectTo);
         } catch (e) {
             console.error(e);
             toast.error('Sign up failed', {
