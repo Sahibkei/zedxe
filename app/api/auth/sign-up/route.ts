@@ -4,6 +4,16 @@ import { auth } from "@/lib/better-auth/auth";
 import { inngest } from "@/lib/inngest/client";
 import { enforceRateLimit } from "@/lib/security/rateLimit";
 
+type SignUpFormData = {
+    fullName: string;
+    email: string;
+    password: string;
+    country: string;
+    investmentGoals: string;
+    riskTolerance: string;
+    preferredIndustry: string;
+};
+
 export const POST = async (request: Request) => {
     const rateLimited = await enforceRateLimit(request, "signup");
     if (rateLimited) return rateLimited;
@@ -23,7 +33,7 @@ export const POST = async (request: Request) => {
 
         return NextResponse.json({ success: true, data: response });
     } catch (error) {
-        console.log("Sign up failed", error);
+        console.error("Sign up failed", error);
         return NextResponse.json({ success: false, error: "Sign up failed" }, { status: 500 });
     }
 };

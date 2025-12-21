@@ -1,43 +1,102 @@
+import { createHash } from "crypto";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
 
-const redis = Redis.fromEnv();
+type RateLimitAction = "signup" | "forgot" | "resend";
+type RateLimiters = Record<RateLimitAction, Ratelimit>;
 
-const rateLimiters = {
-    signup: new Ratelimit({
-        redis,
-        limiter: Ratelimit.fixedWindow(5, "1 h"),
-        prefix: "rate-limit:signup",
-    }),
-    forgot: new Ratelimit({
-        redis,
-        limiter: Ratelimit.fixedWindow(5, "1 h"),
-        prefix: "rate-limit:forgot",
-    }),
-    resend: new Ratelimit({
-        redis,
-        limiter: Ratelimit.fixedWindow(3, "1 h"),
-        prefix: "rate-limit:resend",
-    }),
+let cachedRedis: Redis | null | undefined;
+let cachedLimiters: RateLimiters | null = null;
+let warnedMissingRedis = false;
+
+const getRedisClient = () => {
+    if (cachedRedis !== undefined) return cachedRedis;
+
+    const restUrl = process.env.UPSTASH_REDIS_REST_URL;
+    const restToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+    if (!restUrl || !restToken) {
+        if (!warnedMissingRedis) {
+            console.error("Upstash Redis env vars are missing; rate limiting is disabled.");
+            warnedMissingRedis = true;
+        }
+        cachedRedis = null;
+        return cachedRedis;
+    }
+
+    try {
+        cachedRedis = Redis.fromEnv();
+        return cachedRedis;
+    } catch (error) {
+        if (!warnedMissingRedis) {
+            console.error("Upstash Redis unavailable; rate limiting is disabled.", error);
+            warnedMissingRedis = true;
+        }
+        cachedRedis = null;
+        return cachedRedis;
+    }
+};
+
+const getRateLimiter = (action: RateLimitAction) => {
+    const redis = getRedisClient();
+    if (!redis) return null;
+
+    if (!cachedLimiters) {
+        cachedLimiters = {
+            signup: new Ratelimit({
+                redis,
+                limiter: Ratelimit.fixedWindow(5, "1 h"),
+                prefix: "rate-limit:signup",
+            }),
+            forgot: new Ratelimit({
+                redis,
+                limiter: Ratelimit.fixedWindow(5, "1 h"),
+                prefix: "rate-limit:forgot",
+            }),
+            resend: new Ratelimit({
+                redis,
+                limiter: Ratelimit.fixedWindow(3, "1 h"),
+                prefix: "rate-limit:resend",
+            }),
+        };
+    }
+
+    return cachedLimiters[action];
 };
 
 export const getClientIp = (req: Request): string => {
     const forwardedFor = req.headers.get("x-forwarded-for");
-    if (!forwardedFor) return "unknown";
-    return forwardedFor.split(",")[0]?.trim() || "unknown";
+    if (forwardedFor) {
+        const parsed = forwardedFor.split(",")[0]?.trim();
+        if (parsed) return parsed;
+    }
+
+    const realIp = req.headers.get("x-real-ip");
+    if (realIp) return realIp.trim();
+
+    const userAgent = req.headers.get("user-agent") ?? "unknown";
+    const language = req.headers.get("accept-language") ?? "unknown";
+    const fingerprint = createHash("sha256").update(`${userAgent}|${language}`).digest("hex").slice(0, 16);
+    return `fp:${fingerprint}`;
 };
 
 export const enforceRateLimit = async (
     req: Request,
-    action: "signup" | "forgot" | "resend",
+    action: RateLimitAction,
 ) => {
     const ip = getClientIp(req);
-    const { success } = await rateLimiters[action].limit(`${action}:${ip}`);
+    const limiter = getRateLimiter(action);
+    if (!limiter) return null;
 
-    if (!success) {
-        return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    try {
+        const { success } = await limiter.limit(ip);
+        if (!success) {
+            return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+        }
+    } catch (error) {
+        console.error("Rate limit check failed; allowing request.", error);
+        return null;
     }
-
     return null;
 };
