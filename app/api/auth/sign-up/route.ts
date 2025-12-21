@@ -4,16 +4,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/better-auth/auth";
 import { inngest } from "@/lib/inngest/client";
 import { enforceRateLimit } from "@/lib/security/rateLimit";
-
-type SignUpFormData = {
-    fullName: string;
-    email: string;
-    password: string;
-    country?: string;
-    investmentGoals?: string;
-    riskTolerance?: string;
-    preferredIndustry?: string;
-};
+import type { SignUpFormData } from "@/lib/types/auth";
 
 const signUpSchema = z.object({
     fullName: z.string().min(1),

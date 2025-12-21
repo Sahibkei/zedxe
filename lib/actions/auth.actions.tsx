@@ -1,22 +1,9 @@
 'use server';
 
 import { auth } from "@/lib/better-auth/auth";
+import { enforceRateLimit } from "@/lib/security/rateLimit";
+import type { SignInFormData, SignUpFormData } from "@/lib/types/auth";
 import { headers } from "next/headers";
-
-type SignInFormData = {
-    email: string;
-    password: string;
-};
-
-type SignUpFormData = {
-    fullName: string;
-    email: string;
-    password: string;
-    country: string;
-    investmentGoals: string;
-    riskTolerance: string;
-    preferredIndustry: string;
-};
 
 export const signUpWithEmail = async ({ email, password, fullName, country, investmentGoals, riskTolerance, preferredIndustry }: SignUpFormData) => {
     try {
@@ -63,35 +50,17 @@ export const signUpWithEmail = async ({ email, password, fullName, country, inve
 export const signInWithEmail = async ({ email, password }: SignInFormData) => {
     try {
         const requestHeaders = await headers();
-        const baseUrl =
-            process.env.BETTER_AUTH_URL ??
-            (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ??
-            (() => {
-                const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
-                const protocol = requestHeaders.get("x-forwarded-proto") ?? "https";
-                return host ? `${protocol}://${host}` : null;
-            })();
-        const forwardedFor = requestHeaders.get("x-forwarded-for");
-
-        if (!baseUrl) {
-            return { success: false, error: "Unable to determine base URL for sign-in request" };
+        const rateLimitResponse = await enforceRateLimit(
+            new Request("https://local/signin", { headers: requestHeaders }),
+            "signin",
+        );
+        if (rateLimitResponse) {
+            return { success: false, error: "Too many requests" };
         }
 
-        const response = await fetch(`${baseUrl}/api/auth/sign-in`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
-            },
-            body: JSON.stringify({ email, password }),
-        });
+        const response = await auth.api.signInEmail({ body: { email, password } })
 
-        const payload = await response.json();
-        if (!response.ok) {
-            return { success: false, error: payload?.error ?? "Sign in failed" };
-        }
-
-        return { success: true, data: payload?.data ?? payload };
+        return { success: true, data: response }
     } catch (e) {
         console.error('Sign in failed', e)
         return { success: false, error: 'Sign in failed' }
