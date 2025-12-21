@@ -62,9 +62,36 @@ export const signUpWithEmail = async ({ email, password, fullName, country, inve
 
 export const signInWithEmail = async ({ email, password }: SignInFormData) => {
     try {
-        const response = await auth.api.signInEmail({ body: { email, password } })
+        const requestHeaders = await headers();
+        const baseUrl =
+            process.env.BETTER_AUTH_URL ??
+            (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ??
+            (() => {
+                const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+                const protocol = requestHeaders.get("x-forwarded-proto") ?? "https";
+                return host ? `${protocol}://${host}` : null;
+            })();
+        const forwardedFor = requestHeaders.get("x-forwarded-for");
 
-        return { success: true, data: response }
+        if (!baseUrl) {
+            return { success: false, error: "Unable to determine base URL for sign-in request" };
+        }
+
+        const response = await fetch(`${baseUrl}/api/auth/sign-in`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
+            },
+            body: JSON.stringify({ email, password }),
+        });
+
+        const payload = await response.json();
+        if (!response.ok) {
+            return { success: false, error: payload?.error ?? "Sign in failed" };
+        }
+
+        return { success: true, data: payload?.data ?? payload };
     } catch (e) {
         console.error('Sign in failed', e)
         return { success: false, error: 'Sign in failed' }
