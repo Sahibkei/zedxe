@@ -10,6 +10,7 @@ import {CountrySelectField} from "@/components/forms/CountrySelectField";
 import FooterLink from "@/components/forms/FooterLink";
 import TurnstileWidget from "@/components/auth/TurnstileWidget";
 import {signUpWithEmail} from "@/lib/actions/auth.actions";
+import type { SignUpFormData } from "@/lib/types/auth";
 import {useRouter, useSearchParams} from "next/navigation";
 import { safeRedirect } from "@/lib/safeRedirect";
 import {toast} from "sonner";
@@ -37,6 +38,8 @@ const SignUp = () => {
     }, );
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
     const [turnstileMessage, setTurnstileMessage] = useState<string | null>(null);
+    const [turnstileKey, setTurnstileKey] = useState(0);
+    const turnstileRequired = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
     const handleTurnstileSuccess = useCallback((token: string) => {
         setTurnstileToken(token);
         setTurnstileMessage(null);
@@ -49,19 +52,43 @@ const SignUp = () => {
         setTurnstileToken(null);
         setTurnstileMessage("Verification failed. Please retry.");
     }, []);
+    const getErrorMessage = useCallback((error?: string) => {
+        if (!error) return "Failed to create an account.";
+        switch (error) {
+            case "turnstile_missing":
+                return "Please complete the human verification.";
+            case "turnstile_invalid":
+                return "Human verification failed. Please try again.";
+            case "turnstile_misconfigured":
+                return "Human verification is unavailable. Please try again later.";
+            default:
+                return error;
+        }
+    }, []);
 
     const onSubmit = async (data: SignUpFormData) => {
         try {
+            if (turnstileRequired && !turnstileToken) {
+                setTurnstileMessage("Please complete the human verification.");
+                return;
+            }
             const result = await signUpWithEmail({ ...data, turnstileToken });
             if(result.success) {
                 router.push(redirectTo);
                 return;
             }
+            setTurnstileToken(null);
+            setTurnstileKey((current) => current + 1);
+            if (result.error?.startsWith("turnstile")) {
+                setTurnstileMessage(getErrorMessage(result.error));
+            }
             toast.error('Sign up failed', {
-                description: result.error ?? 'Failed to create an account.',
+                description: getErrorMessage(result.error),
             });
         } catch (e) {
             console.error(e);
+            setTurnstileToken(null);
+            setTurnstileKey((current) => current + 1);
             toast.error('Sign up failed', {
                 description: e instanceof Error ? e.message : 'Failed to create an account.'
             })
@@ -143,12 +170,13 @@ const SignUp = () => {
                     onSuccess={handleTurnstileSuccess}
                     onExpire={handleTurnstileExpire}
                     onError={handleTurnstileError}
+                    resetKey={turnstileKey}
                 />
                 {turnstileMessage ? (
                     <p className="text-xs text-red-400">{turnstileMessage}</p>
                 ) : null}
 
-                 <Button type="submit" disabled={isSubmitting || !turnstileToken} className="blue-btn w-full mt-5 text-white">
+                 <Button type="submit" disabled={isSubmitting || (turnstileRequired && !turnstileToken)} className="blue-btn w-full mt-5 text-white">
                     {isSubmitting ? 'Creating Account' : 'Start Your Investing Journey'}
                 </Button>
 

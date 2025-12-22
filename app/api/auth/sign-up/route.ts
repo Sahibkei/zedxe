@@ -7,6 +7,7 @@ import { enforceRateLimit } from "@/lib/security/rateLimit";
 import { getTurnstileIp, verifyTurnstileToken } from "@/lib/security/turnstile";
 import type { SignUpFormData } from "@/lib/types/auth";
 
+const hasTurnstileSecret = Boolean(process.env.TURNSTILE_SECRET_KEY);
 const signUpSchema = z.object({
     fullName: z.string().min(1),
     email: z.string().email(),
@@ -15,7 +16,7 @@ const signUpSchema = z.object({
     investmentGoals: z.string().optional(),
     riskTolerance: z.string().optional(),
     preferredIndustry: z.string().optional(),
-    turnstileToken: z.string().nullable().optional(),
+    turnstileToken: hasTurnstileSecret ? z.string().min(1) : z.string().nullable().optional(),
 });
 
 export const POST = async (request: Request) => {
@@ -41,7 +42,7 @@ export const POST = async (request: Request) => {
         } =
             parsed.data;
 
-        if (!turnstileToken) {
+        if (hasTurnstileSecret && !turnstileToken) {
             return NextResponse.json({ success: false, error: "turnstile_missing" }, { status: 403 });
         }
 

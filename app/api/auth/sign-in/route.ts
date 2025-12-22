@@ -5,10 +5,11 @@ import { auth } from "@/lib/better-auth/auth";
 import { enforceRateLimit } from "@/lib/security/rateLimit";
 import { getTurnstileIp, verifyTurnstileToken } from "@/lib/security/turnstile";
 
+const hasTurnstileSecret = Boolean(process.env.TURNSTILE_SECRET_KEY);
 const signInSchema = z.object({
     email: z.string().email(),
     password: z.string().min(1),
-    turnstileToken: z.string().nullable().optional(),
+    turnstileToken: hasTurnstileSecret ? z.string().min(1) : z.string().nullable().optional(),
 });
 
 export const POST = async (request: Request) => {
@@ -24,7 +25,7 @@ export const POST = async (request: Request) => {
 
         const { email, password, turnstileToken } = parsed.data;
 
-        if (!turnstileToken) {
+        if (hasTurnstileSecret && !turnstileToken) {
             return NextResponse.json({ success: false, error: "turnstile_missing" }, { status: 403 });
         }
 
@@ -40,9 +41,12 @@ export const POST = async (request: Request) => {
         }
 
         const response = await auth.api.signInEmail({ body: { email, password } });
+        if (response instanceof Response) {
+            return response;
+        }
         if (!response || ("error" in response && response.error)) {
             console.error("Sign in failed", response?.error);
-            return NextResponse.json({ success: false, error: "sign_in_failed" }, { status: 500 });
+            return NextResponse.json({ success: false, error: "invalid_credentials" }, { status: 401 });
         }
 
         return NextResponse.json({ success: true, data: response });

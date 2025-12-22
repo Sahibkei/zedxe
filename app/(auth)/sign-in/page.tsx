@@ -7,6 +7,7 @@ import InputField from '@/components/forms/InputField';
 import FooterLink from '@/components/forms/FooterLink';
 import TurnstileWidget from "@/components/auth/TurnstileWidget";
 import {signInWithEmail} from "@/lib/actions/auth.actions";
+import type { SignInFormData } from "@/lib/types/auth";
 import {toast} from "sonner";
 import {useRouter, useSearchParams} from "next/navigation";
 import { safeRedirect } from "@/lib/safeRedirect";
@@ -29,6 +30,8 @@ const SignIn = () => {
     });
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
     const [turnstileMessage, setTurnstileMessage] = useState<string | null>(null);
+    const [turnstileKey, setTurnstileKey] = useState(0);
+    const turnstileRequired = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
     const handleTurnstileSuccess = useCallback((token: string) => {
         setTurnstileToken(token);
         setTurnstileMessage(null);
@@ -41,19 +44,45 @@ const SignIn = () => {
         setTurnstileToken(null);
         setTurnstileMessage("Verification failed. Please retry.");
     }, []);
+    const getErrorMessage = useCallback((error?: string) => {
+        if (!error) return "Failed to sign in.";
+        switch (error) {
+            case "turnstile_missing":
+                return "Please complete the human verification.";
+            case "turnstile_invalid":
+                return "Human verification failed. Please try again.";
+            case "turnstile_misconfigured":
+                return "Human verification is unavailable. Please try again later.";
+            case "invalid_credentials":
+                return "Invalid email or password.";
+            default:
+                return error;
+        }
+    }, []);
 
     const onSubmit = async (data: SignInFormData) => {
         try {
+            if (turnstileRequired && !turnstileToken) {
+                setTurnstileMessage("Please complete the human verification.");
+                return;
+            }
             const result = await signInWithEmail({ ...data, turnstileToken });
             if(result.success) {
                 router.push(redirectTo);
                 return;
             }
+            setTurnstileToken(null);
+            setTurnstileKey((current) => current + 1);
+            if (result.error?.startsWith("turnstile")) {
+                setTurnstileMessage(getErrorMessage(result.error));
+            }
             toast.error('Sign in failed', {
-                description: result.error ?? 'Failed to sign in.',
+                description: getErrorMessage(result.error),
             });
         } catch (e) {
             console.error(e);
+            setTurnstileToken(null);
+            setTurnstileKey((current) => current + 1);
             toast.error('Sign in failed', {
                 description: e instanceof Error ? e.message : 'Failed to sign in.'
             })
@@ -88,12 +117,13 @@ const SignIn = () => {
                     onSuccess={handleTurnstileSuccess}
                     onExpire={handleTurnstileExpire}
                     onError={handleTurnstileError}
+                    resetKey={turnstileKey}
                 />
                 {turnstileMessage ? (
                     <p className="text-xs text-red-400">{turnstileMessage}</p>
                 ) : null}
 
-                <Button type="submit" disabled={isSubmitting || !turnstileToken} className="blue-btn w-full mt-5 text-white">
+                <Button type="submit" disabled={isSubmitting || (turnstileRequired && !turnstileToken)} className="blue-btn w-full mt-5 text-white">
                     {isSubmitting ? 'Signing In' : 'Sign In'}
                 </Button>
 

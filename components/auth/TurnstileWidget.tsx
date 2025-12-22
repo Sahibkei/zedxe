@@ -7,6 +7,7 @@ type TurnstileWidgetProps = {
     onSuccess: (token: string) => void;
     onExpire?: () => void;
     onError?: () => void;
+    resetKey?: number;
 };
 
 type TurnstileOptions = {
@@ -27,12 +28,21 @@ declare global {
     }
 }
 
-const TurnstileWidget = ({ siteKey, onSuccess, onExpire, onError }: TurnstileWidgetProps) => {
+const TurnstileWidget = ({ siteKey, onSuccess, onExpire, onError, resetKey }: TurnstileWidgetProps) => {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const widgetIdRef = useRef<string | null>(null);
     const scriptLoadedRef = useRef(false);
     const renderRequestedRef = useRef(false);
     const resolvedSiteKey = siteKey ?? process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
+    const successRef = useRef(onSuccess);
+    const expireRef = useRef(onExpire);
+    const errorRef = useRef(onError);
+
+    useEffect(() => {
+        successRef.current = onSuccess;
+        expireRef.current = onExpire;
+        errorRef.current = onError;
+    }, [onSuccess, onExpire, onError]);
 
     useEffect(() => {
         const renderWidget = () => {
@@ -44,9 +54,9 @@ const TurnstileWidget = ({ siteKey, onSuccess, onExpire, onError }: TurnstileWid
             widgetIdRef.current = window.turnstile.render(containerRef.current, {
                 sitekey: resolvedSiteKey,
                 theme: "dark",
-                callback: onSuccess,
-                "expired-callback": onExpire,
-                "error-callback": onError,
+                callback: (token: string) => successRef.current(token),
+                "expired-callback": () => expireRef.current?.(),
+                "error-callback": () => errorRef.current?.(),
             });
         };
 
@@ -85,7 +95,7 @@ const TurnstileWidget = ({ siteKey, onSuccess, onExpire, onError }: TurnstileWid
         return () => {
             script.removeEventListener("load", onLoad);
         };
-    }, [resolvedSiteKey, onSuccess, onExpire, onError]);
+    }, [resolvedSiteKey]);
 
     useEffect(() => {
         return () => {
@@ -98,6 +108,11 @@ const TurnstileWidget = ({ siteKey, onSuccess, onExpire, onError }: TurnstileWid
             }
         };
     }, []);
+
+    useEffect(() => {
+        if (!window.turnstile || !widgetIdRef.current) return;
+        window.turnstile.reset(widgetIdRef.current);
+    }, [resetKey]);
 
     return (
         <div className="space-y-2">

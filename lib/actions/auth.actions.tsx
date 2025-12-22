@@ -82,7 +82,8 @@ export const signInWithEmail = async ({ email, password, turnstileToken }: SignI
             }),
         });
 
-        const payload = await response.json();
+        const contentType = response.headers.get("content-type") ?? "";
+        const payload = contentType.includes("application/json") ? await response.json() : null;
         if (!response.ok) {
             return { success: false, error: payload?.error ?? "Sign in failed" };
         }
