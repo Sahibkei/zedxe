@@ -35,23 +35,34 @@ export const POST = async (request: Request) => {
                 return NextResponse.json({ success: false, error: verification.error }, { status: 500 });
             }
             return NextResponse.json(
-                { success: false, error: "turnstile_invalid" },
+                { success: false, error: verification.error ?? "turnstile_failed" },
                 { status: 403 },
             );
         }
 
-        const response = await auth.api.signInEmail({ body: { email, password } });
+        const response = await auth.api.signInEmail({ body: { email, password }, headers: request.headers });
         if (response instanceof Response) {
             return response;
         }
         if (!response || ("error" in response && response.error)) {
-            console.error("Sign in failed", response?.error);
-            return NextResponse.json({ success: false, error: "invalid_credentials" }, { status: 401 });
+            const errorMessage = typeof response?.error === "string" ? response.error : "";
+            const normalized = errorMessage.toLowerCase();
+            const isInvalid =
+                normalized.includes("invalid") || normalized.includes("credential") || normalized.includes("password");
+            const errorCode = isInvalid ? "invalid_credentials" : "server_error";
+            const status = isInvalid ? 401 : 500;
+            console.error("Sign in failed", errorCode);
+            return NextResponse.json({ success: false, error: errorCode }, { status });
         }
 
         return NextResponse.json({ success: true, data: response });
     } catch (error) {
+        const message = error instanceof Error ? error.message.toLowerCase() : "";
+        if (message.includes("invalid") || message.includes("credential")) {
+            console.error("Sign in failed", "invalid_credentials");
+            return NextResponse.json({ success: false, error: "invalid_credentials" }, { status: 401 });
+        }
         console.error("Sign in failed", error);
-        return NextResponse.json({ success: false, error: "sign_in_failed" }, { status: 500 });
+        return NextResponse.json({ success: false, error: "server_error" }, { status: 500 });
     }
 };

@@ -52,15 +52,26 @@ export const POST = async (request: Request) => {
                 return NextResponse.json({ success: false, error: verification.error }, { status: 500 });
             }
             return NextResponse.json(
-                { success: false, error: "turnstile_invalid" },
+                { success: false, error: verification.error ?? "turnstile_failed" },
                 { status: 403 },
             );
         }
 
-        const response = await auth.api.signUpEmail({ body: { email, password, name: fullName } });
+        const response = await auth.api.signUpEmail({
+            body: { email, password, name: fullName },
+            headers: request.headers,
+        });
+        if (response instanceof Response) {
+            return response;
+        }
         if (!response?.user || ("error" in response && response.error)) {
-            console.error("Sign up failed", response?.error);
-            return NextResponse.json({ success: false, error: "sign_up_failed" }, { status: 500 });
+            const errorMessage = typeof response?.error === "string" ? response.error : "";
+            const normalized = errorMessage.toLowerCase();
+            const isEmailTaken = normalized.includes("exist") || normalized.includes("taken");
+            const errorCode = isEmailTaken ? "email_taken" : "server_error";
+            const status = isEmailTaken ? 409 : 500;
+            console.error("Sign up failed", errorCode);
+            return NextResponse.json({ success: false, error: errorCode }, { status });
         }
 
         if (response?.user) {
@@ -73,6 +84,6 @@ export const POST = async (request: Request) => {
         return NextResponse.json({ success: true, data: response });
     } catch (error) {
         console.error("Sign up failed", error);
-        return NextResponse.json({ success: false, error: "sign_up_failed" }, { status: 500 });
+        return NextResponse.json({ success: false, error: "server_error" }, { status: 500 });
     }
 };
