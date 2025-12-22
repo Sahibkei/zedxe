@@ -62,14 +62,14 @@ const SignUp = () => {
     const handleTurnstileReset = useCallback(() => {
         setTurnstileToken(null);
     }, []);
-    const getErrorMessage = useCallback((status?: number, code?: string) => {
+    const getErrorMessage = useCallback((status?: number, code?: string, message?: string) => {
         if (status === 403 && code === "turnstile_missing") return "Please complete the verification.";
         if (status === 403 && code === "turnstile_failed") return "Verification failed. Please try again.";
         if (status === 500 && code === "turnstile_misconfigured") {
             return "Verification service misconfigured. Please contact support.";
         }
         if (status === 409 && code === "email_taken") return "An account with this email already exists.";
-        return "Failed to create an account.";
+        return message ?? "Failed to create an account.";
     }, []);
     const isProduction = process.env.NODE_ENV === "production";
 
@@ -85,18 +85,18 @@ const SignUp = () => {
                 return;
             }
             const result = await signUpWithEmail({ ...data, turnstileToken });
-            if(result.success) {
+            if(result.ok) {
                 router.push(redirectTo);
                 return;
             }
             setTurnstileToken(null);
             resetTurnstile?.();
-            if (typeof result.error === "string" && result.error.startsWith("turnstile")) {
-                setTurnstileMessage(getErrorMessage(result.status, result.error));
+            if (typeof result.code === "string" && result.code.startsWith("turnstile")) {
+                setTurnstileMessage(getErrorMessage(result.status, result.code, result.message));
             }
-            const debugSuffix = !isProduction && result.error ? ` (${result.error})` : "";
+            const debugSuffix = !isProduction && result.code ? ` (${result.code})` : "";
             toast.error('Sign up failed', {
-                description: `${getErrorMessage(result.status, result.error)}${debugSuffix}`,
+                description: `${getErrorMessage(result.status, result.code, result.message)}${debugSuffix}`,
             });
         } catch (e) {
             console.error(e);

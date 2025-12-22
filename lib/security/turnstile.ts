@@ -48,7 +48,7 @@ export const verifyTurnstile = async (
     token: string | null,
     remoteIp?: string | null,
 ): Promise<TurnstileVerificationResult> => {
-    const secret = process.env.TURNSTILE_SECRET_KEY;
+    const secret = (process.env.TURNSTILE_SECRET_KEY || process.env.CF_TURNSTILE_SECRET_KEY || "").trim();
 
     if (!secret) {
         return { ok: false, code: "turnstile_misconfigured" };
