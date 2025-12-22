@@ -46,7 +46,12 @@ export const signUpWithEmail = async ({
 
         const payload = await response.json();
         if (!response.ok) {
-            return { success: false, error: payload?.error ?? "Sign up failed" };
+            return {
+                success: false,
+                error: payload?.code ?? payload?.error ?? "Sign up failed",
+                status: response.status,
+                message: payload?.message,
+            };
         }
 
         return { success: true, data: payload?.data ?? payload };
@@ -85,7 +90,12 @@ export const signInWithEmail = async ({ email, password, turnstileToken }: SignI
         const contentType = response.headers.get("content-type") ?? "";
         const payload = contentType.includes("application/json") ? await response.json() : null;
         if (!response.ok) {
-            return { success: false, error: payload?.error ?? "Sign in failed" };
+            return {
+                success: false,
+                error: payload?.code ?? payload?.error ?? "Sign in failed",
+                status: response.status,
+                message: payload?.message,
+            };
         }
 
         return { success: true, data: payload?.data ?? payload }

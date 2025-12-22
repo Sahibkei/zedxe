@@ -1,6 +1,7 @@
 type TurnstileVerificationResult = {
     ok: boolean;
-    error?: string;
+    code?: "turnstile_missing" | "turnstile_failed" | "turnstile_misconfigured";
+    cfErrors?: string[];
 };
 
 type TurnstileResponse = {
@@ -29,24 +30,36 @@ export const getTurnstileIp = (req: Request): string | null => {
     return null;
 };
 
-export const verifyTurnstileToken = async (
+const MISCONFIGURED_ERROR_CODES = new Set([
+    "missing-input-secret",
+    "invalid-input-secret",
+    "invalid-or-missing-secret",
+]);
+
+const mapErrorCode = (errors?: string[]) => {
+    if (!errors?.length) {
+        return "turnstile_failed" as const;
+    }
+    const hasMisconfig = errors.some((code) => MISCONFIGURED_ERROR_CODES.has(code));
+    return hasMisconfig ? "turnstile_misconfigured" : "turnstile_failed";
+};
+
+export const verifyTurnstile = async (
     token: string | null,
     remoteIp?: string | null,
 ): Promise<TurnstileVerificationResult> => {
     const secret = process.env.TURNSTILE_SECRET_KEY;
-    const isDevelopment = process.env.NODE_ENV === "development";
 
     if (!secret) {
-        if (isDevelopment) return { ok: true };
-        return { ok: false, error: "turnstile_misconfigured" };
+        return { ok: false, code: "turnstile_misconfigured" };
     }
 
     if (!token) {
-        return { ok: false, error: "turnstile_missing" };
+        return { ok: false, code: "turnstile_missing" };
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), 4000);
 
     try {
         const body = new URLSearchParams();
@@ -65,19 +78,22 @@ export const verifyTurnstileToken = async (
 
         if (!response.ok) {
             console.error("Turnstile verification failed", response.status);
-            return { ok: false, error: "turnstile_failed" };
+            return { ok: false, code: "turnstile_failed", cfErrors: [`http_${response.status}`] };
         }
 
         const payload = (await response.json()) as TurnstileResponse;
         if (!payload.success) {
-            console.error("Turnstile verification unsuccessful", payload["error-codes"]);
-            return { ok: false, error: "turnstile_failed" };
+            const cfErrors = payload["error-codes"];
+            console.error("Turnstile verification unsuccessful", cfErrors);
+            return { ok: false, code: mapErrorCode(cfErrors), cfErrors };
         }
 
         return { ok: true };
     } catch (error) {
+        const isAbort = error instanceof DOMException && error.name === "AbortError";
+        const cfErrors = isAbort ? ["verify_timeout"] : ["verify_error"];
         console.error("Turnstile verification error", error);
-        return { ok: false, error: "turnstile_failed" };
+        return { ok: false, code: "turnstile_failed", cfErrors };
     } finally {
         clearTimeout(timeout);
     }

@@ -3,13 +3,13 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/better-auth/auth";
 import { enforceRateLimit } from "@/lib/security/rateLimit";
-import { getTurnstileIp, verifyTurnstileToken } from "@/lib/security/turnstile";
+import { getTurnstileIp, verifyTurnstile } from "@/lib/security/turnstile";
 
 const hasTurnstileSecret = Boolean(process.env.TURNSTILE_SECRET_KEY);
 const signInSchema = z.object({
     email: z.string().email(),
     password: z.string().min(1),
-    turnstileToken: hasTurnstileSecret ? z.string().min(1) : z.string().nullable().optional(),
+    turnstileToken: z.string().nullable().optional(),
 });
 
 export const POST = async (request: Request) => {
@@ -25,18 +25,29 @@ export const POST = async (request: Request) => {
 
         const { email, password, turnstileToken } = parsed.data;
 
-        if (hasTurnstileSecret && !turnstileToken) {
-            return NextResponse.json({ success: false, error: "turnstile_missing" }, { status: 403 });
+        if (!hasTurnstileSecret) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    code: "turnstile_misconfigured",
+                    message: "Verification service misconfigured.",
+                },
+                { status: 500 },
+            );
         }
 
-        const verification = await verifyTurnstileToken(turnstileToken ?? null, getTurnstileIp(request));
+        const verification = await verifyTurnstile(turnstileToken ?? null, getTurnstileIp(request));
         if (!verification.ok) {
-            if (verification.error === "turnstile_misconfigured") {
-                return NextResponse.json({ success: false, error: verification.error }, { status: 500 });
-            }
+            const status = verification.code === "turnstile_misconfigured" ? 500 : 403;
+            const message =
+                verification.code === "turnstile_missing"
+                    ? "Verification is required."
+                    : verification.code === "turnstile_misconfigured"
+                      ? "Verification service misconfigured."
+                      : "Verification failed.";
             return NextResponse.json(
-                { success: false, error: verification.error ?? "turnstile_failed" },
-                { status: 403 },
+                { success: false, code: verification.code, message, cfErrors: verification.cfErrors },
+                { status },
             );
         }
 
@@ -49,20 +60,37 @@ export const POST = async (request: Request) => {
             const normalized = errorMessage.toLowerCase();
             const isInvalid =
                 normalized.includes("invalid") || normalized.includes("credential") || normalized.includes("password");
-            const errorCode = isInvalid ? "invalid_credentials" : "server_error";
+            const errorCode = isInvalid ? "auth_invalid_credentials" : "internal_error";
             const status = isInvalid ? 401 : 500;
             console.error("Sign in failed", errorCode);
-            return NextResponse.json({ success: false, error: errorCode }, { status });
+            return NextResponse.json(
+                {
+                    success: false,
+                    code: errorCode,
+                    message: isInvalid ? "Invalid email or password" : "Unexpected server error",
+                },
+                { status },
+            );
         }
 
         return NextResponse.json({ success: true, data: response });
     } catch (error) {
         const message = error instanceof Error ? error.message.toLowerCase() : "";
         if (message.includes("invalid") || message.includes("credential")) {
-            console.error("Sign in failed", "invalid_credentials");
-            return NextResponse.json({ success: false, error: "invalid_credentials" }, { status: 401 });
+            console.error("Sign in failed", "auth_invalid_credentials");
+            return NextResponse.json(
+                {
+                    success: false,
+                    code: "auth_invalid_credentials",
+                    message: "Invalid email or password",
+                },
+                { status: 401 },
+            );
         }
         console.error("Sign in failed", error);
-        return NextResponse.json({ success: false, error: "server_error" }, { status: 500 });
+        return NextResponse.json(
+            { success: false, code: "internal_error", message: "Unexpected server error" },
+            { status: 500 },
+        );
     }
 };

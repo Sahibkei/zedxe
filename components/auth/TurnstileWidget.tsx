@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { loadTurnstile } from "@/lib/turnstile/loader";
 
 type TurnstileWidgetProps = {
     siteKey?: string;
@@ -8,6 +10,8 @@ type TurnstileWidgetProps = {
     onExpire?: () => void;
     onError?: () => void;
     onResetRef?: (reset: (() => void) | null) => void;
+    instanceKey?: string;
+    onTokenReset?: () => void;
 };
 
 type TurnstileOptions = {
@@ -28,62 +32,49 @@ declare global {
     }
 }
 
-let turnstileScriptPromise: Promise<void> | null = null;
-
-const loadTurnstileScript = () => {
-    if (typeof window === "undefined") {
-        return Promise.resolve();
-    }
-
-    if (window.turnstile) {
-        return Promise.resolve();
-    }
-
-    if (turnstileScriptPromise) {
-        return turnstileScriptPromise;
-    }
-
-    turnstileScriptPromise = new Promise((resolve, reject) => {
-        const existingScript = document.getElementById("turnstile-script") as HTMLScriptElement | null;
-        if (existingScript) {
-            if (window.turnstile) {
-                resolve();
-                return;
-            }
-            existingScript.addEventListener("load", () => resolve(), { once: true });
-            existingScript.addEventListener("error", () => reject(new Error("Turnstile failed to load")), { once: true });
-            return;
-        }
-
-        const script = document.createElement("script");
-        script.id = "turnstile-script";
-        script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-        script.async = true;
-        script.defer = true;
-        script.addEventListener("load", () => resolve(), { once: true });
-        script.addEventListener("error", () => reject(new Error("Turnstile failed to load")), { once: true });
-        document.head.appendChild(script);
-    });
-
-    return turnstileScriptPromise;
-};
-
-const TurnstileWidget = ({ siteKey, onSuccess, onExpire, onError, onResetRef }: TurnstileWidgetProps) => {
+const TurnstileWidget = ({
+    siteKey,
+    onSuccess,
+    onExpire,
+    onError,
+    onResetRef,
+    instanceKey,
+    onTokenReset,
+}: TurnstileWidgetProps) => {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const widgetIdRef = useRef<string | null>(null);
     const resolvedSiteKey = siteKey ?? process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
     const successRef = useRef(onSuccess);
     const expireRef = useRef(onExpire);
     const errorRef = useRef(onError);
+    const tokenResetRef = useRef(onTokenReset);
+    const pathname = usePathname();
+    const reactId = useId();
+    const [renderNonce, setRenderNonce] = useState(0);
+    const renderKey = instanceKey ?? pathname ?? "";
 
     useEffect(() => {
         successRef.current = onSuccess;
         expireRef.current = onExpire;
         errorRef.current = onError;
-    }, [onSuccess, onExpire, onError]);
+        tokenResetRef.current = onTokenReset;
+    }, [onSuccess, onExpire, onError, onTokenReset]);
 
     useEffect(() => {
         let active = true;
+
+        const handleSuccess = (token: string) => successRef.current(token);
+        const handleExpire = () => {
+            tokenResetRef.current?.();
+            expireRef.current?.();
+        };
+        const handleError = (shouldRerender: boolean) => {
+            tokenResetRef.current?.();
+            errorRef.current?.();
+            if (shouldRerender) {
+                setRenderNonce((prev) => prev + 1);
+            }
+        };
 
         const renderWidget = async () => {
             if (!resolvedSiteKey) return;
@@ -91,18 +82,18 @@ const TurnstileWidget = ({ siteKey, onSuccess, onExpire, onError, onResetRef }: 
             if (widgetIdRef.current) return;
 
             try {
-                await loadTurnstileScript();
+                await loadTurnstile();
                 if (!active || !window.turnstile || !containerRef.current) return;
                 widgetIdRef.current = window.turnstile.render(containerRef.current, {
                     sitekey: resolvedSiteKey,
                     theme: "dark",
-                    callback: (token: string) => successRef.current(token),
-                    "expired-callback": () => expireRef.current?.(),
-                    "error-callback": () => errorRef.current?.(),
+                    callback: handleSuccess,
+                    "expired-callback": handleExpire,
+                    "error-callback": () => handleError(true),
                 });
             } catch (error) {
                 console.error("Turnstile failed to load", error);
-                errorRef.current?.();
+                handleError(false);
             }
         };
 
@@ -111,14 +102,19 @@ const TurnstileWidget = ({ siteKey, onSuccess, onExpire, onError, onResetRef }: 
         return () => {
             active = false;
             if (widgetIdRef.current && window.turnstile) {
-                window.turnstile.remove(widgetIdRef.current);
+                try {
+                    window.turnstile.remove(widgetIdRef.current);
+                } catch (error) {
+                    console.warn("Turnstile cleanup failed", error);
+                }
                 widgetIdRef.current = null;
             }
             if (containerRef.current) {
                 containerRef.current.innerHTML = "";
             }
+            tokenResetRef.current?.();
         };
-    }, [resolvedSiteKey]);
+    }, [resolvedSiteKey, renderKey, renderNonce]);
 
     useEffect(() => {
         if (!onResetRef) return;
@@ -132,7 +128,7 @@ const TurnstileWidget = ({ siteKey, onSuccess, onExpire, onError, onResetRef }: 
 
     return (
         <div className="space-y-2">
-            <div ref={containerRef} />
+            <div id={`turnstile-${reactId}`} ref={containerRef} />
             {!resolvedSiteKey ? (
                 <p className="text-xs text-red-400">Turnstile site key is not configured.</p>
             ) : null}

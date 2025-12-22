@@ -55,23 +55,19 @@ const SignUp = () => {
     }, []);
     const handleTurnstileError = useCallback(() => {
         setTurnstileToken(null);
-        setTurnstileMessage("Verification failed. Please retry.");
+        setTurnstileMessage("Verification failed. Please try again.");
     }, []);
-    const getErrorMessage = useCallback((error?: string) => {
-        if (!error) return "Failed to create an account.";
-        switch (error) {
-            case "turnstile_missing":
-                return "Please complete the human verification.";
-            case "turnstile_invalid":
-            case "turnstile_failed":
-                return "Human verification failed. Please try again.";
-            case "turnstile_misconfigured":
-                return "Human verification is unavailable. Please try again later.";
-            case "email_taken":
-                return "An account with this email already exists.";
-            default:
-                return error;
+    const handleTurnstileReset = useCallback(() => {
+        setTurnstileToken(null);
+    }, []);
+    const getErrorMessage = useCallback((status?: number, code?: string) => {
+        if (status === 403 && code === "turnstile_missing") return "Please complete the verification.";
+        if (status === 403 && code === "turnstile_failed") return "Verification failed. Please try again.";
+        if (status === 500 && code === "turnstile_misconfigured") {
+            return "Verification service misconfigured. Please contact support.";
         }
+        if (code === "email_taken") return "An account with this email already exists.";
+        return "Failed to create an account.";
     }, []);
     const isProduction = process.env.NODE_ENV === "production";
 
@@ -93,11 +89,11 @@ const SignUp = () => {
             setTurnstileToken(null);
             resetTurnstile?.();
             if (typeof result.error === "string" && result.error.startsWith("turnstile")) {
-                setTurnstileMessage(getErrorMessage(result.error));
+                setTurnstileMessage(getErrorMessage(result.status, result.error));
             }
             const debugSuffix = !isProduction && result.error ? ` (${result.error})` : "";
             toast.error('Sign up failed', {
-                description: `${getErrorMessage(result.error)}${debugSuffix}`,
+                description: `${getErrorMessage(result.status, result.error)}${debugSuffix}`,
             });
         } catch (e) {
             console.error(e);
@@ -185,6 +181,7 @@ const SignUp = () => {
                     onExpire={handleTurnstileExpire}
                     onError={handleTurnstileError}
                     onResetRef={setResetTurnstile}
+                    onTokenReset={handleTurnstileReset}
                 />
                 {!turnstileEnabled ? (
                     <p className="text-xs text-red-400">Human verification is not configured.</p>
