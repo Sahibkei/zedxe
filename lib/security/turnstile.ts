@@ -8,15 +8,23 @@ type TurnstileResponse = {
     "error-codes"?: string[];
 };
 
+const isValidIp = (value: string) => {
+    const ipv4 =
+        /^(25[0-5]|2[0-4]\d|1?\d{1,2})(\.(25[0-5]|2[0-4]\d|1?\d{1,2})){3}$/;
+    const ipv6 =
+        /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::1|([0-9a-fA-F]{1,4}:){1,7}:|:([0-9a-fA-F]{1,4}:){1,7})$/;
+    return ipv4.test(value) || ipv6.test(value);
+};
+
 export const getTurnstileIp = (req: Request): string | null => {
     const forwardedFor = req.headers.get("x-forwarded-for");
     if (forwardedFor) {
         const parsed = forwardedFor.split(",")[0]?.trim();
-        if (parsed) return parsed;
+        if (parsed && isValidIp(parsed)) return parsed;
     }
 
     const realIp = req.headers.get("x-real-ip");
-    if (realIp) return realIp.trim();
+    if (realIp && isValidIp(realIp.trim())) return realIp.trim();
 
     return null;
 };
@@ -26,22 +34,25 @@ export const verifyTurnstileToken = async (
     remoteIp?: string | null,
 ): Promise<TurnstileVerificationResult> => {
     const secret = process.env.TURNSTILE_SECRET_KEY;
-    const isProduction = process.env.NODE_ENV === "production";
+    const isDevelopment = process.env.NODE_ENV === "development";
 
     if (!secret) {
-        if (!isProduction) return { ok: true };
-        return { ok: false, error: "Turnstile misconfigured" };
+        if (isDevelopment) return { ok: true };
+        return { ok: false, error: "turnstile_misconfigured" };
     }
 
     if (!token) {
-        return { ok: false, error: "Missing Turnstile token" };
+        return { ok: false, error: "turnstile_missing" };
     }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
 
     try {
         const body = new URLSearchParams();
         body.append("secret", secret);
         body.append("response", token);
-        if (remoteIp) {
+        if (remoteIp && isValidIp(remoteIp)) {
             body.append("remoteip", remoteIp);
         }
 
@@ -49,22 +60,25 @@ export const verifyTurnstileToken = async (
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: body.toString(),
+            signal: controller.signal,
         });
 
         if (!response.ok) {
             console.error("Turnstile verification failed", response.status);
-            return { ok: false, error: "Turnstile verification failed" };
+            return { ok: false, error: "turnstile_failed" };
         }
 
         const payload = (await response.json()) as TurnstileResponse;
         if (!payload.success) {
             console.error("Turnstile verification unsuccessful", payload["error-codes"]);
-            return { ok: false, error: "Human verification failed" };
+            return { ok: false, error: "turnstile_failed" };
         }
 
         return { ok: true };
     } catch (error) {
         console.error("Turnstile verification error", error);
-        return { ok: false, error: "Turnstile verification failed" };
+        return { ok: false, error: "turnstile_failed" };
+    } finally {
+        clearTimeout(timeout);
     }
 };

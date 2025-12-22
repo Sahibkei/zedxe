@@ -24,19 +24,30 @@ export const POST = async (request: Request) => {
 
         const { email, password, turnstileToken } = parsed.data;
 
+        if (!turnstileToken) {
+            return NextResponse.json({ success: false, error: "turnstile_missing" }, { status: 403 });
+        }
+
         const verification = await verifyTurnstileToken(turnstileToken ?? null, getTurnstileIp(request));
         if (!verification.ok) {
+            if (verification.error === "turnstile_misconfigured") {
+                return NextResponse.json({ success: false, error: verification.error }, { status: 500 });
+            }
             return NextResponse.json(
-                { success: false, error: verification.error ?? "Human verification failed" },
+                { success: false, error: "turnstile_invalid" },
                 { status: 403 },
             );
         }
 
         const response = await auth.api.signInEmail({ body: { email, password } });
+        if (!response || ("error" in response && response.error)) {
+            console.error("Sign in failed", response?.error);
+            return NextResponse.json({ success: false, error: "sign_in_failed" }, { status: 500 });
+        }
 
         return NextResponse.json({ success: true, data: response });
     } catch (error) {
         console.error("Sign in failed", error);
-        return NextResponse.json({ success: false, error: "Sign in failed" }, { status: 500 });
+        return NextResponse.json({ success: false, error: "sign_in_failed" }, { status: 500 });
     }
 };

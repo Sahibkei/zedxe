@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from "react";
-import Script from "next/script";
+import { useEffect, useRef } from "react";
 
 type TurnstileWidgetProps = {
     siteKey?: string;
@@ -23,6 +22,7 @@ declare global {
         turnstile?: {
             render: (container: HTMLElement, options: TurnstileOptions) => string;
             reset: (widgetId?: string) => void;
+            remove: (widgetId: string) => void;
         };
     }
 }
@@ -30,36 +30,77 @@ declare global {
 const TurnstileWidget = ({ siteKey, onSuccess, onExpire, onError }: TurnstileWidgetProps) => {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const widgetIdRef = useRef<string | null>(null);
-    const [scriptLoaded, setScriptLoaded] = useState(false);
+    const scriptLoadedRef = useRef(false);
+    const renderRequestedRef = useRef(false);
     const resolvedSiteKey = siteKey ?? process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
     useEffect(() => {
-        if (!scriptLoaded) return;
-        if (!resolvedSiteKey) return;
-        if (!containerRef.current) return;
-        if (!window.turnstile) return;
+        const renderWidget = () => {
+            if (!resolvedSiteKey) return;
+            if (!containerRef.current) return;
+            if (!window.turnstile) return;
+            if (widgetIdRef.current) return;
 
-        if (widgetIdRef.current) {
-            window.turnstile.reset(widgetIdRef.current);
+            widgetIdRef.current = window.turnstile.render(containerRef.current, {
+                sitekey: resolvedSiteKey,
+                theme: "dark",
+                callback: onSuccess,
+                "expired-callback": onExpire,
+                "error-callback": onError,
+            });
+        };
+
+        if (window.turnstile) {
+            renderWidget();
             return;
         }
 
-        widgetIdRef.current = window.turnstile.render(containerRef.current, {
-            sitekey: resolvedSiteKey,
-            theme: "dark",
-            callback: onSuccess,
-            "expired-callback": onExpire,
-            "error-callback": onError,
-        });
-    }, [scriptLoaded, resolvedSiteKey, onSuccess, onExpire, onError]);
+        const scriptId = "turnstile-script";
+        const existingScript = document.getElementById(scriptId) as HTMLScriptElement | null;
+        const onLoad = () => {
+            scriptLoadedRef.current = true;
+            renderWidget();
+        };
+
+        if (existingScript) {
+            if (scriptLoadedRef.current) {
+                renderWidget();
+                return;
+            }
+            existingScript.addEventListener("load", onLoad, { once: true });
+            return () => existingScript.removeEventListener("load", onLoad);
+        }
+
+        if (renderRequestedRef.current) return;
+        renderRequestedRef.current = true;
+
+        const script = document.createElement("script");
+        script.id = scriptId;
+        script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+        script.async = true;
+        script.defer = true;
+        script.addEventListener("load", onLoad, { once: true });
+        document.head.appendChild(script);
+
+        return () => {
+            script.removeEventListener("load", onLoad);
+        };
+    }, [resolvedSiteKey, onSuccess, onExpire, onError]);
+
+    useEffect(() => {
+        return () => {
+            if (widgetIdRef.current && window.turnstile) {
+                window.turnstile.remove(widgetIdRef.current);
+                widgetIdRef.current = null;
+            }
+            if (containerRef.current) {
+                containerRef.current.innerHTML = "";
+            }
+        };
+    }, []);
 
     return (
         <div className="space-y-2">
-            <Script
-                src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
-                strategy="afterInteractive"
-                onLoad={() => setScriptLoaded(true)}
-            />
             <div ref={containerRef} />
             {!resolvedSiteKey ? (
                 <p className="text-xs text-red-400">Turnstile site key is not configured.</p>

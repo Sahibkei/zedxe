@@ -41,15 +41,26 @@ export const POST = async (request: Request) => {
         } =
             parsed.data;
 
+        if (!turnstileToken) {
+            return NextResponse.json({ success: false, error: "turnstile_missing" }, { status: 403 });
+        }
+
         const verification = await verifyTurnstileToken(turnstileToken ?? null, getTurnstileIp(request));
         if (!verification.ok) {
+            if (verification.error === "turnstile_misconfigured") {
+                return NextResponse.json({ success: false, error: verification.error }, { status: 500 });
+            }
             return NextResponse.json(
-                { success: false, error: verification.error ?? "Human verification failed" },
+                { success: false, error: "turnstile_invalid" },
                 { status: 403 },
             );
         }
 
         const response = await auth.api.signUpEmail({ body: { email, password, name: fullName } });
+        if (!response?.user || ("error" in response && response.error)) {
+            console.error("Sign up failed", response?.error);
+            return NextResponse.json({ success: false, error: "sign_up_failed" }, { status: 500 });
+        }
 
         if (response?.user) {
             await inngest.send({
@@ -61,6 +72,6 @@ export const POST = async (request: Request) => {
         return NextResponse.json({ success: true, data: response });
     } catch (error) {
         console.error("Sign up failed", error);
-        return NextResponse.json({ success: false, error: "Sign up failed" }, { status: 500 });
+        return NextResponse.json({ success: false, error: "sign_up_failed" }, { status: 500 });
     }
 };

@@ -28,14 +28,30 @@ const SignIn = () => {
         mode: 'onBlur',
     });
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-    const handleTurnstileSuccess = useCallback((token: string) => setTurnstileToken(token), []);
-    const handleTurnstileExpire = useCallback(() => setTurnstileToken(null), []);
-    const handleTurnstileError = useCallback(() => setTurnstileToken(null), []);
+    const [turnstileMessage, setTurnstileMessage] = useState<string | null>(null);
+    const handleTurnstileSuccess = useCallback((token: string) => {
+        setTurnstileToken(token);
+        setTurnstileMessage(null);
+    }, []);
+    const handleTurnstileExpire = useCallback(() => {
+        setTurnstileToken(null);
+        setTurnstileMessage("Verification expired. Please try again.");
+    }, []);
+    const handleTurnstileError = useCallback(() => {
+        setTurnstileToken(null);
+        setTurnstileMessage("Verification failed. Please retry.");
+    }, []);
 
     const onSubmit = async (data: SignInFormData) => {
         try {
             const result = await signInWithEmail({ ...data, turnstileToken });
-            if(result.success) router.push(redirectTo);
+            if(result.success) {
+                router.push(redirectTo);
+                return;
+            }
+            toast.error('Sign in failed', {
+                description: result.error ?? 'Failed to sign in.',
+            });
         } catch (e) {
             console.error(e);
             toast.error('Sign in failed', {
@@ -73,8 +89,11 @@ const SignIn = () => {
                     onExpire={handleTurnstileExpire}
                     onError={handleTurnstileError}
                 />
+                {turnstileMessage ? (
+                    <p className="text-xs text-red-400">{turnstileMessage}</p>
+                ) : null}
 
-                <Button type="submit" disabled={isSubmitting} className="blue-btn w-full mt-5 text-white">
+                <Button type="submit" disabled={isSubmitting || !turnstileToken} className="blue-btn w-full mt-5 text-white">
                     {isSubmitting ? 'Signing In' : 'Sign In'}
                 </Button>
 
