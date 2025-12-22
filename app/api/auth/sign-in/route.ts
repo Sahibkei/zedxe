@@ -3,10 +3,12 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/better-auth/auth";
 import { enforceRateLimit } from "@/lib/security/rateLimit";
+import { getTurnstileIp, verifyTurnstileToken } from "@/lib/security/turnstile";
 
 const signInSchema = z.object({
     email: z.string().email(),
     password: z.string().min(1),
+    turnstileToken: z.string().nullable().optional(),
 });
 
 export const POST = async (request: Request) => {
@@ -20,7 +22,16 @@ export const POST = async (request: Request) => {
             return NextResponse.json({ success: false, error: "Invalid input" }, { status: 400 });
         }
 
-        const { email, password } = parsed.data;
+        const { email, password, turnstileToken } = parsed.data;
+
+        const verification = await verifyTurnstileToken(turnstileToken ?? null, getTurnstileIp(request));
+        if (!verification.ok) {
+            return NextResponse.json(
+                { success: false, error: verification.error ?? "Human verification failed" },
+                { status: 403 },
+            );
+        }
+
         const response = await auth.api.signInEmail({ body: { email, password } });
 
         return NextResponse.json({ success: true, data: response });

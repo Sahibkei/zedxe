@@ -1,10 +1,12 @@
 'use client';
 
+import { useCallback, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
 import InputField from '@/components/forms/InputField';
 import FooterLink from '@/components/forms/FooterLink';
-import {signInWithEmail, signUpWithEmail} from "@/lib/actions/auth.actions";
+import TurnstileWidget from "@/components/auth/TurnstileWidget";
+import {signInWithEmail} from "@/lib/actions/auth.actions";
 import {toast} from "sonner";
 import {useRouter, useSearchParams} from "next/navigation";
 import { safeRedirect } from "@/lib/safeRedirect";
@@ -25,10 +27,14 @@ const SignIn = () => {
         },
         mode: 'onBlur',
     });
+    const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+    const handleTurnstileSuccess = useCallback((token: string) => setTurnstileToken(token), []);
+    const handleTurnstileExpire = useCallback(() => setTurnstileToken(null), []);
+    const handleTurnstileError = useCallback(() => setTurnstileToken(null), []);
 
     const onSubmit = async (data: SignInFormData) => {
         try {
-            const result = await signInWithEmail(data);
+            const result = await signInWithEmail({ ...data, turnstileToken });
             if(result.success) router.push(redirectTo);
         } catch (e) {
             console.error(e);
@@ -60,6 +66,12 @@ const SignIn = () => {
                     register={register}
                     error={errors.password}
                     validation={{ required: 'Password is required', minLength: 8 }}
+                />
+
+                <TurnstileWidget
+                    onSuccess={handleTurnstileSuccess}
+                    onExpire={handleTurnstileExpire}
+                    onError={handleTurnstileError}
                 />
 
                 <Button type="submit" disabled={isSubmitting} className="blue-btn w-full mt-5 text-white">

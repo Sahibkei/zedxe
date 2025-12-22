@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback, useState } from "react";
 import {useForm} from "react-hook-form";
 import {Button} from "@/components/ui/button";
 import InputField from "@/components/forms/InputField";
@@ -7,6 +8,7 @@ import SelectField from "@/components/forms/SelectField";
 import {INVESTMENT_GOALS, PREFERRED_INDUSTRIES, RISK_TOLERANCE_OPTIONS} from "@/lib/constants";
 import {CountrySelectField} from "@/components/forms/CountrySelectField";
 import FooterLink from "@/components/forms/FooterLink";
+import TurnstileWidget from "@/components/auth/TurnstileWidget";
 import {signUpWithEmail} from "@/lib/actions/auth.actions";
 import {useRouter, useSearchParams} from "next/navigation";
 import { safeRedirect } from "@/lib/safeRedirect";
@@ -33,10 +35,14 @@ const SignUp = () => {
         },
         mode: 'onBlur'
     }, );
+    const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+    const handleTurnstileSuccess = useCallback((token: string) => setTurnstileToken(token), []);
+    const handleTurnstileExpire = useCallback(() => setTurnstileToken(null), []);
+    const handleTurnstileError = useCallback(() => setTurnstileToken(null), []);
 
     const onSubmit = async (data: SignUpFormData) => {
         try {
-            const result = await signUpWithEmail(data);
+            const result = await signUpWithEmail({ ...data, turnstileToken });
             if(result.success) router.push(redirectTo);
         } catch (e) {
             console.error(e);
@@ -115,6 +121,12 @@ const SignUp = () => {
                     control={control}
                     error={errors.preferredIndustry}
                     required
+                />
+
+                <TurnstileWidget
+                    onSuccess={handleTurnstileSuccess}
+                    onExpire={handleTurnstileExpire}
+                    onError={handleTurnstileError}
                 />
 
                  <Button type="submit" disabled={isSubmitting} className="blue-btn w-full mt-5 text-white">

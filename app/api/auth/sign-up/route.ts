@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/better-auth/auth";
 import { inngest } from "@/lib/inngest/client";
 import { enforceRateLimit } from "@/lib/security/rateLimit";
+import { getTurnstileIp, verifyTurnstileToken } from "@/lib/security/turnstile";
 import type { SignUpFormData } from "@/lib/types/auth";
 
 const signUpSchema = z.object({
@@ -14,6 +15,7 @@ const signUpSchema = z.object({
     investmentGoals: z.string().optional(),
     riskTolerance: z.string().optional(),
     preferredIndustry: z.string().optional(),
+    turnstileToken: z.string().nullable().optional(),
 });
 
 export const POST = async (request: Request) => {
@@ -27,8 +29,25 @@ export const POST = async (request: Request) => {
             return NextResponse.json({ success: false, error: "Invalid input" }, { status: 400 });
         }
 
-        const { email, password, fullName, country, investmentGoals, riskTolerance, preferredIndustry } =
+        const {
+            email,
+            password,
+            fullName,
+            country,
+            investmentGoals,
+            riskTolerance,
+            preferredIndustry,
+            turnstileToken,
+        } =
             parsed.data;
+
+        const verification = await verifyTurnstileToken(turnstileToken ?? null, getTurnstileIp(request));
+        if (!verification.ok) {
+            return NextResponse.json(
+                { success: false, error: verification.error ?? "Human verification failed" },
+                { status: 403 },
+            );
+        }
 
         const response = await auth.api.signUpEmail({ body: { email, password, name: fullName } });
 
