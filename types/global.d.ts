@@ -2,6 +2,7 @@ declare global {
     type SignInFormData = {
         email: string;
         password: string;
+        turnstileToken?: string | null;
     };
 
     type SignUpFormData = {
@@ -12,6 +13,7 @@ declare global {
         investmentGoals: string;
         riskTolerance: string;
         preferredIndustry: string;
+        turnstileToken?: string | null;
     };
 
     type CountrySelectProps = {

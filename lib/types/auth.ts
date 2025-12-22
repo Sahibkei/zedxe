@@ -6,9 +6,11 @@ export type SignUpFormData = {
     investmentGoals?: string;
     riskTolerance?: string;
     preferredIndustry?: string;
+    turnstileToken?: string | null;
 };
 
 export type SignInFormData = {
     email: string;
     password: string;
+    turnstileToken?: string | null;
 };
