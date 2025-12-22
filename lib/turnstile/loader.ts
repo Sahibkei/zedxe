@@ -2,20 +2,6 @@ let loadPromise: Promise<void> | null = null;
 
 const TURNSTILE_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
-const resolveWhenReady = (resolve: () => void, reject: (error: Error) => void) => {
-    if (typeof window === "undefined") {
-        resolve();
-        return;
-    }
-
-    if (window.turnstile) {
-        resolve();
-        return;
-    }
-
-    reject(new Error("Turnstile did not initialize"));
-};
-
 export const loadTurnstile = (): Promise<void> => {
     if (typeof window === "undefined") {
         return Promise.resolve();
@@ -30,14 +16,14 @@ export const loadTurnstile = (): Promise<void> => {
     }
 
     loadPromise = new Promise((resolve, reject) => {
-        const handleResolve = () =>
-            resolveWhenReady(
-                resolve,
-                (error) => {
-                    loadPromise = null;
-                    reject(error);
-                },
-            );
+        const handleResolve = () => {
+            if (window.turnstile) {
+                resolve();
+                return;
+            }
+            loadPromise = null;
+            reject(new Error("Turnstile did not initialize"));
+        };
         const handleReject = () => {
             loadPromise = null;
             reject(new Error("Turnstile failed to load"));
@@ -53,10 +39,7 @@ export const loadTurnstile = (): Promise<void> => {
                 return;
             }
 
-            const isLoaded =
-                existingScript.dataset.turnstileLoaded === "true" ||
-                existingScript.readyState === "complete" ||
-                existingScript.readyState === "loaded";
+            const isLoaded = existingScript.dataset.turnstileLoaded === "true";
             if (isLoaded) {
                 handleResolve();
                 return;
@@ -70,7 +53,6 @@ export const loadTurnstile = (): Promise<void> => {
         const script = document.createElement("script");
         script.src = TURNSTILE_SRC;
         script.async = true;
-        script.defer = true;
         script.dataset.turnstile = "true";
         script.addEventListener(
             "load",

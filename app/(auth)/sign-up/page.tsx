@@ -24,7 +24,7 @@ const SignUp = () => {
         handleSubmit,
         control,
         watch,
-        formState: { errors, isSubmitting },
+        formState: { errors },
     } = useForm<SignUpFormData>({
         defaultValues: {
             fullName: '',
@@ -42,6 +42,8 @@ const SignUp = () => {
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
     const [turnstileMessage, setTurnstileMessage] = useState<string | null>(null);
     const [resetTurnstile, setResetTurnstile] = useState<(() => void) | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [turnstileKey, setTurnstileKey] = useState(0);
     const turnstileEnabled = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
     const turnstileRequired = turnstileEnabled;
     const formReady = Boolean(fullNameValue?.trim() && emailValue?.trim() && passwordValue?.trim());
@@ -66,12 +68,13 @@ const SignUp = () => {
         if (status === 500 && code === "turnstile_misconfigured") {
             return "Verification service misconfigured. Please contact support.";
         }
-        if (code === "email_taken") return "An account with this email already exists.";
+        if (status === 409 && code === "email_taken") return "An account with this email already exists.";
         return "Failed to create an account.";
     }, []);
     const isProduction = process.env.NODE_ENV === "production";
 
     const onSubmit = async (data: SignUpFormData) => {
+        setIsSubmitting(true);
         try {
             if (!turnstileEnabled) {
                 setTurnstileMessage("Human verification is not configured.");
@@ -102,6 +105,11 @@ const SignUp = () => {
             toast.error('Sign up failed', {
                 description: e instanceof Error ? e.message : 'Failed to create an account.'
             })
+        } finally {
+            setIsSubmitting(false);
+            setTurnstileToken(null);
+            resetTurnstile?.();
+            setTurnstileKey((prev) => prev + 1);
         }
     }
 
@@ -177,6 +185,7 @@ const SignUp = () => {
                 />
 
                 <TurnstileWidget
+                    key={turnstileKey}
                     onSuccess={handleTurnstileSuccess}
                     onExpire={handleTurnstileExpire}
                     onError={handleTurnstileError}

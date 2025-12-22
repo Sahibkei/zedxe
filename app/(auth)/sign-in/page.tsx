@@ -20,7 +20,7 @@ const SignIn = () => {
         register,
         handleSubmit,
         watch,
-        formState: { errors, isSubmitting },
+        formState: { errors },
     } = useForm<SignInFormData>({
         defaultValues: {
             email: '',
@@ -33,6 +33,8 @@ const SignIn = () => {
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
     const [turnstileMessage, setTurnstileMessage] = useState<string | null>(null);
     const [resetTurnstile, setResetTurnstile] = useState<(() => void) | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [turnstileKey, setTurnstileKey] = useState(0);
     const turnstileEnabled = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
     const turnstileRequired = turnstileEnabled;
     const formReady = Boolean(emailValue?.trim() && passwordValue?.trim());
@@ -63,6 +65,7 @@ const SignIn = () => {
     const isProduction = process.env.NODE_ENV === "production";
 
     const onSubmit = async (data: SignInFormData) => {
+        setIsSubmitting(true);
         try {
             if (!turnstileEnabled) {
                 setTurnstileMessage("Human verification is not configured.");
@@ -105,6 +108,11 @@ const SignIn = () => {
             toast.error('Sign in failed', {
                 description: e instanceof Error ? e.message : 'Failed to sign in.'
             })
+        } finally {
+            setIsSubmitting(false);
+            setTurnstileToken(null);
+            resetTurnstile?.();
+            setTurnstileKey((prev) => prev + 1);
         }
     }
 
@@ -133,6 +141,7 @@ const SignIn = () => {
                 />
 
                 <TurnstileWidget
+                    key={turnstileKey}
                     onSuccess={handleTurnstileSuccess}
                     onExpire={handleTurnstileExpire}
                     onError={handleTurnstileError}

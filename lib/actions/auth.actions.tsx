@@ -4,6 +4,15 @@ import { auth } from "@/lib/better-auth/auth";
 import type { SignInFormData, SignUpFormData } from "@/lib/types/auth";
 import { headers } from "next/headers";
 
+const safeParseJson = async (response: Response) => {
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+        return response.json();
+    }
+    const text = await response.text();
+    return text ? { message: text } : null;
+};
+
 export const signUpWithEmail = async ({
     email,
     password,
@@ -44,7 +53,7 @@ export const signUpWithEmail = async ({
             }),
         });
 
-        const payload = await response.json();
+        const payload = await safeParseJson(response);
         if (!response.ok) {
             return {
                 success: false,
@@ -87,8 +96,7 @@ export const signInWithEmail = async ({ email, password, turnstileToken }: SignI
             }),
         });
 
-        const contentType = response.headers.get("content-type") ?? "";
-        const payload = contentType.includes("application/json") ? await response.json() : null;
+        const payload = await safeParseJson(response);
         if (!response.ok) {
             return {
                 success: false,
