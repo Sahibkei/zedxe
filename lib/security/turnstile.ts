@@ -1,7 +1,6 @@
-type TurnstileVerificationResult = {
-    ok: boolean;
-    error?: string;
-};
+type TurnstileVerificationResult =
+    | { ok: true }
+    | { ok: false; code: "turnstile_missing" | "turnstile_failed" | "turnstile_misconfigured"; cfErrors?: string[] };
 
 type TurnstileResponse = {
     success: boolean;
@@ -35,18 +34,22 @@ export const verifyTurnstileToken = async (
 ): Promise<TurnstileVerificationResult> => {
     const secret = process.env.TURNSTILE_SECRET_KEY;
     const isDevelopment = process.env.NODE_ENV === "development";
+    const rawTimeout = Number(process.env.TURNSTILE_TIMEOUT_MS);
+    const timeoutMs = Number.isFinite(rawTimeout)
+        ? Math.min(5000, Math.max(3000, rawTimeout))
+        : 4000;
 
     if (!secret) {
         if (isDevelopment) return { ok: true };
-        return { ok: false, error: "turnstile_misconfigured" };
+        return { ok: false, code: "turnstile_misconfigured" };
     }
 
     if (!token) {
-        return { ok: false, error: "turnstile_missing" };
+        return { ok: false, code: "turnstile_missing" };
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
         const body = new URLSearchParams();
@@ -65,19 +68,33 @@ export const verifyTurnstileToken = async (
 
         if (!response.ok) {
             console.error("Turnstile verification failed", response.status);
-            return { ok: false, error: "turnstile_failed" };
+            return { ok: false, code: "turnstile_failed" };
         }
 
         const payload = (await response.json()) as TurnstileResponse;
         if (!payload.success) {
-            console.error("Turnstile verification unsuccessful", payload["error-codes"]);
-            return { ok: false, error: "turnstile_failed" };
+            const cfErrors = payload["error-codes"];
+            const normalized = cfErrors?.map((error) => error.toLowerCase()) ?? [];
+            if (normalized.includes("missing-input-secret") || normalized.includes("invalid-input-secret")) {
+                console.error("Turnstile misconfigured", cfErrors);
+                return { ok: false, code: "turnstile_misconfigured", cfErrors };
+            }
+            if (normalized.includes("missing-input-response")) {
+                console.error("Turnstile missing response", cfErrors);
+                return { ok: false, code: "turnstile_missing", cfErrors };
+            }
+            console.error("Turnstile verification unsuccessful", cfErrors);
+            return { ok: false, code: "turnstile_failed", cfErrors };
         }
 
         return { ok: true };
     } catch (error) {
+        if ((error as { name?: string })?.name === "AbortError") {
+            console.error("Turnstile verification timeout");
+            return { ok: false, code: "turnstile_failed", cfErrors: ["timeout"] };
+        }
         console.error("Turnstile verification error", error);
-        return { ok: false, error: "turnstile_failed" };
+        return { ok: false, code: "turnstile_failed" };
     } finally {
         clearTimeout(timeout);
     }

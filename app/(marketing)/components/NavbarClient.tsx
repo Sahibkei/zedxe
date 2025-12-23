@@ -3,9 +3,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowUpRight, Menu, X } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { signOut } from "@/lib/actions/auth.actions";
+import LogoutButton from "@/components/auth/LogoutButton";
 
 type NavbarClientProps = {
     isSignedIn: boolean;
@@ -13,27 +12,6 @@ type NavbarClientProps = {
 
 const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
     const [isOpen, setIsOpen] = useState(false);
-    const [isSigningOut, setIsSigningOut] = useState(false);
-    const [signOutError, setSignOutError] = useState<string | null>(null);
-    const router = useRouter();
-
-    const handleLogout = async () => {
-        if (isSigningOut) {
-            return;
-        }
-        setIsSigningOut(true);
-        setSignOutError(null);
-        try {
-            await signOut();
-            router.push("/");
-            router.refresh();
-        } catch (error) {
-            console.error("Sign out failed:", error);
-            setSignOutError("Logout failed. Please try again.");
-        } finally {
-            setIsSigningOut(false);
-        }
-    };
 
     return (
         <header className="sticky top-6 z-50">
@@ -66,14 +44,9 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                                 >
                                     Dashboard
                                 </Link>
-                                <button
-                                    type="button"
-                                    onClick={handleLogout}
-                                    className="btn-glow inline-flex items-center gap-2 rounded-full bg-teal-400 px-4 py-2 text-sm font-semibold text-gray-900 disabled:cursor-not-allowed disabled:opacity-70"
-                                    disabled={isSigningOut}
-                                >
-                                    {isSigningOut ? "Logging out..." : "Logout"}
-                                </button>
+                                <LogoutButton className="btn-glow inline-flex items-center gap-2 rounded-full bg-teal-400 px-4 py-2 text-sm font-semibold text-gray-900 disabled:cursor-not-allowed disabled:opacity-70">
+                                    {({ isSigningOut }) => (isSigningOut ? "Logging out..." : "Logout")}
+                                </LogoutButton>
                             </>
                         ) : (
                             <>
@@ -117,17 +90,12 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                                     <Link href="/dashboard" onClick={() => setIsOpen(false)} className="transition hover:text-white">
                                         Dashboard
                                     </Link>
-                                    <button
-                                        type="button"
-                                        onClick={async () => {
-                                            await handleLogout();
-                                            setIsOpen(false);
-                                        }}
+                                    <LogoutButton
                                         className="text-left transition hover:text-white"
-                                        disabled={isSigningOut}
+                                        onSignedOut={() => setIsOpen(false)}
                                     >
-                                        {isSigningOut ? "Logging out..." : "Logout"}
-                                    </button>
+                                        {({ isSigningOut }) => (isSigningOut ? "Logging out..." : "Logout")}
+                                    </LogoutButton>
                                 </>
                             ) : (
                                 <>
@@ -145,9 +113,6 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                             )}
                         </div>
                     </div>
-                ) : null}
-                {signOutError ? (
-                    <p className="mt-3 text-xs text-red-300 md:text-sm">{signOutError}</p>
                 ) : null}
             </div>
         </header>
