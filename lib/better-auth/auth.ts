@@ -3,6 +3,7 @@ import { mongodbAdapter} from "better-auth/adapters/mongodb";
 import { connectToDatabase} from "@/database/mongoose";
 import { nextCookies} from "better-auth/next-js";
 import type { Db } from "mongodb";
+import { sendPasswordResetEmail } from "@/lib/nodemailer";
 
 let authInstance: ReturnType<typeof betterAuth> | null = null;
 
@@ -29,6 +30,17 @@ export const getAuth = async () => {
             minPasswordLength: 8,
             maxPasswordLength: 128,
             autoSignIn: true,
+            resetPasswordTokenExpiresIn: 60 * 60,
+            sendResetPassword: async ({ user, url, token }, ctx) => {
+                if (!user?.email) return;
+                const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+                const resetUrl = appUrl ? `${appUrl}/reset-password?token=${token}` : url;
+                const requestId = ctx?.headers?.get?.("x-request-id") ?? "unknown";
+                if (!appUrl) {
+                    console.warn("Password reset using fallback URL", { requestId });
+                }
+                await sendPasswordResetEmail({ to: user.email, resetUrl, requestId });
+            },
         },
         plugins: [nextCookies()],
     });

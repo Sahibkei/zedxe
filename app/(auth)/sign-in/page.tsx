@@ -9,6 +9,7 @@ import TurnstileWidget from "@/components/auth/TurnstileWidget";
 import type { SignInFormData } from "@/lib/types/auth";
 import {toast} from "sonner";
 import {useRouter, useSearchParams} from "next/navigation";
+import Link from "next/link";
 import { safeRedirect } from "@/lib/safeRedirect";
 
 
@@ -135,6 +136,11 @@ const SignIn = () => {
                     error={errors.password}
                     validation={{ required: 'Password is required', minLength: 8 }}
                 />
+                <div className="text-right">
+                    <Link href="/forgot-password" className="text-xs text-blue-300 hover:underline">
+                        Forgot password?
+                    </Link>
+                </div>
 
                 <TurnstileWidget
                     onSuccess={handleTurnstileSuccess}
