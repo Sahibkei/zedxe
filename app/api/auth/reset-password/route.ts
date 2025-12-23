@@ -5,6 +5,8 @@ import { auth } from "@/lib/better-auth/auth";
 import { enforceRateLimit } from "@/lib/security/rateLimit";
 import { getTurnstileIp, verifyTurnstileToken } from "@/lib/security/turnstile";
 
+export const runtime = "nodejs";
+
 const hasTurnstileSecret = Boolean(process.env.TURNSTILE_SECRET_KEY);
 const resetSchema = z.object({
     token: z.string().min(1),

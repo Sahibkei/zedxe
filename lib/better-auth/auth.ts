@@ -39,7 +39,7 @@ export const getAuth = async () => {
                 if (!appUrl) {
                     console.warn("Password reset using fallback URL", { requestId });
                 }
-                await sendPasswordResetEmail({ email: user.email, url: resetUrl, requestId });
+                await sendPasswordResetEmail({ to: user.email, resetUrl, requestId });
             },
         },
         plugins: [nextCookies()],
