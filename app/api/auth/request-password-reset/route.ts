@@ -15,6 +15,33 @@ const requestSchema = z.object({
     turnstileToken: hasTurnstileSecret ? z.string().min(1) : z.string().nullable().optional(),
 });
 
+const getSafeRedirectOrigin = (request: Request) => {
+    const envOrigin = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+    if (envOrigin) return envOrigin;
+    try {
+        const url = new URL(request.url);
+        return url.origin;
+    } catch {
+        return null;
+    }
+};
+
+const sanitizeRedirectTo = (redirectTo: string | undefined, allowedOrigin: string) => {
+    if (!redirectTo) return null;
+    try {
+        if (redirectTo.startsWith("/")) {
+            return new URL(redirectTo, allowedOrigin).toString();
+        }
+        const parsed = new URL(redirectTo);
+        if (parsed.origin === allowedOrigin) {
+            return parsed.toString();
+        }
+    } catch {
+        return null;
+    }
+    return null;
+};
+
 export const POST = async (request: Request) => {
     const requestId = randomUUID();
     const rateLimited = await enforceRateLimit(request, "forgot");
@@ -69,22 +96,17 @@ export const POST = async (request: Request) => {
         });
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-    const forwardedHost = request.headers.get("x-forwarded-host");
-    const forwardedProto = request.headers.get("x-forwarded-proto");
-    const origin = request.headers.get("origin");
-    const baseUrl = appUrl ?? (forwardedHost && forwardedProto ? `${forwardedProto}://${forwardedHost}` : origin ?? "");
-    const resolvedRedirect = baseUrl ? new URL("/reset-password", baseUrl).toString() : redirectTo;
-    if (!appUrl) {
-        console.warn("Password reset redirect fallback used", { requestId });
-    }
+    const allowedOrigin = getSafeRedirectOrigin(request);
+    const safeRedirect = allowedOrigin
+        ? sanitizeRedirectTo(redirectTo, allowedOrigin) ?? new URL("/reset-password", allowedOrigin).toString()
+        : undefined;
 
     try {
         console.info("password-reset-requested", { requestId, emailHash });
         const headers = new Headers(request.headers);
         headers.set("x-request-id", requestId);
         const response = await auth.api.requestPasswordReset({
-            body: { email, redirectTo: resolvedRedirect },
+            body: { email, redirectTo: safeRedirect },
             headers,
         });
         if (response instanceof Response && !response.ok) {

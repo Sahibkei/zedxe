@@ -64,7 +64,15 @@ export const PATCH = async (request: Request) => {
     const { name, avatarUrl } = parsed.data;
     const updates: Record<string, unknown> = {};
     if (typeof name === "string") updates.name = name.trim();
-    if (typeof avatarUrl !== "undefined") updates.image = avatarUrl || null;
+    if (typeof avatarUrl !== "undefined") {
+        if (avatarUrl && avatarUrl.length > 100) {
+            return NextResponse.json(
+                { success: false, code: "invalid_avatar_url_length", message: "Avatar URL must be 100 characters or fewer." },
+                { status: 400 },
+            );
+        }
+        updates.image = avatarUrl || null;
+    }
 
     if (Object.keys(updates).length === 0) {
         return NextResponse.json(
@@ -89,7 +97,12 @@ export const PATCH = async (request: Request) => {
             { returnDocument: "after" },
         );
 
-        if (!result.value) {
+        const updatedDocument =
+            result && typeof result === "object" && "value" in result
+                ? (result as { value?: Record<string, unknown> }).value
+                : result;
+
+        if (!updatedDocument) {
             return NextResponse.json(
                 { success: false, code: "not_found", message: "User not found." },
                 { status: 404 },
@@ -97,10 +110,9 @@ export const PATCH = async (request: Request) => {
         }
 
         const updatedUser = {
-            id: result.value.id ?? result.value._id?.toString(),
-            name: result.value.name ?? session.user.name,
-            email: result.value.email ?? session.user.email,
-            image: "image" in result.value ? result.value.image ?? null : null,
+            name: (updatedDocument as { name?: string }).name ?? session.user.name,
+            email: (updatedDocument as { email?: string }).email ?? session.user.email,
+            image: "image" in (updatedDocument as Record<string, unknown>) ? (updatedDocument as { image?: string | null }).image ?? null : null,
         };
 
         return NextResponse.json({ success: true, user: updatedUser });

@@ -29,7 +29,6 @@ const validateAvatarUrl = (value: string | null | undefined) => {
 
 const validateName = (value: string) => {
     const trimmed = value.trim();
-    if (trimmed.length === 0) return null;
     if (trimmed.length < 2) return "Name must be at least 2 characters.";
     if (trimmed.length > 50) return "Name must be 50 characters or fewer.";
     return null;
