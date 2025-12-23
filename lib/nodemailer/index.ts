@@ -99,3 +99,31 @@ export const sendWeeklyReportEmail = async (params: { email: string; name: strin
 
     await transporter.sendMail(mailOptions);
 };
+
+export const sendPasswordResetEmail = async (params: { email: string; url: string }) => {
+    const htmlTemplate = `
+        <div style="font-family: Arial, sans-serif; color: #111827; line-height: 1.5;">
+            <h2 style="margin: 0 0 12px;">Reset your Signalist password</h2>
+            <p style="margin: 0 0 16px;">We received a request to reset your password. Click the button below to continue.</p>
+            <p style="margin: 0 0 24px;">
+                <a href="${params.url}" style="background-color: #2563eb; color: #fff; text-decoration: none; padding: 10px 16px; border-radius: 6px; display: inline-block;">
+                    Reset password
+                </a>
+            </p>
+            <p style="margin: 0 0 8px; font-size: 14px; color: #6b7280;">
+                If you did not request a password reset, you can ignore this email.
+            </p>
+            <p style="margin: 0; font-size: 12px; color: #9ca3af; word-break: break-all;">${params.url}</p>
+        </div>
+    `;
+
+    const mailOptions = {
+        from: `"Signalist" <${process.env.NODEMAILER_EMAIL!}>`,
+        to: params.email,
+        subject: "Reset your Signalist password",
+        text: `Reset your Signalist password: ${params.url}`,
+        html: htmlTemplate,
+    };
+
+    await transporter.sendMail(mailOptions);
+};
