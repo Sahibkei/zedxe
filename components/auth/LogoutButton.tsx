@@ -23,28 +23,23 @@ const LogoutButton = ({ children, className, onSignedOut }: LogoutButtonProps) =
                     method: "POST",
                     credentials: "include",
                     cache: "no-store",
-                    redirect: "manual",
                 });
-                const isSuccess =
-                    (response.status >= 200 && response.status < 400) || response.status === 204;
+                const isHttpFailure = response.status >= 400;
                 const contentType = response.headers.get("content-type") ?? "";
                 const payload = contentType.includes("application/json")
                     ? await response.json().catch(() => null)
                     : null;
-                if (!isSuccess) {
+                if (isHttpFailure) {
                     const message = payload?.message ?? "Logout failed. Please try again.";
-                    throw new Error(message);
+                    toast.error(message);
+                    return;
                 }
                 onSignedOut?.();
                 router.replace("/sign-in");
                 router.refresh();
-                setTimeout(() => {
-                    window.location.assign("/sign-in");
-                }, 150);
             } catch (error) {
                 console.error("Sign out failed:", error);
-                const message = error instanceof Error ? error.message : "Logout failed. Please try again.";
-                toast.error(message);
+                router.replace("/sign-in");
                 router.refresh();
             }
         });
