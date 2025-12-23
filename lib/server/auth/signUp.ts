@@ -84,9 +84,17 @@ export const signUp = async (payload: SignUpFormData, ip?: string | null): Promi
             throw new AppError(500, "internal_error", "Unexpected server error");
         }
         if (!response?.user || ("error" in response && response.error)) {
-            const errorMessage = typeof response?.error === "string" ? response.error : "";
+            const rawError = response?.error;
+            const structuredCode =
+                typeof rawError === "object" && rawError && "code" in rawError
+                    ? (rawError as { code?: string }).code
+                    : undefined;
+            const errorMessage = typeof rawError === "string" ? rawError : "";
             const normalized = errorMessage.toLowerCase();
-            const isEmailTaken = normalized.includes("exist") || normalized.includes("taken");
+            const isEmailTaken =
+                structuredCode === "USER_ALREADY_EXISTS" ||
+                normalized.includes("exist") ||
+                normalized.includes("taken");
             if (isEmailTaken) {
                 throw new AppError(409, "email_taken", "Email already in use", debugInfo);
             }

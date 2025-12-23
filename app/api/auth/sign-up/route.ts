@@ -12,7 +12,11 @@ export const POST = async (request: Request) => {
     try {
         const body = await request.json();
         const result = await signUp(body, getTurnstileIp(request));
-        return NextResponse.json({ success: true, data: result.data, debug: result.debug });
+        const payload = { success: true, data: result.data };
+        if (process.env.NODE_ENV !== "production" && result.debug) {
+            return NextResponse.json({ ...payload, debug: result.debug });
+        }
+        return NextResponse.json(payload);
     } catch (error) {
         if (error instanceof AppError) {
             console.error("auth:sign-up", {

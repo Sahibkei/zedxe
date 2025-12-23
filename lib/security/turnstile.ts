@@ -90,7 +90,7 @@ export const verifyTurnstile = async (
 
         return { ok: true };
     } catch (error) {
-        const isAbort = error instanceof DOMException && error.name === "AbortError";
+        const isAbort = (error as { name?: string } | null)?.name === "AbortError";
         const cfErrors = isAbort ? ["verify_timeout"] : ["verify_error"];
         console.error("Turnstile verification error", error);
         return { ok: false, code: "turnstile_failed", cfErrors };

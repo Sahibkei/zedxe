@@ -92,12 +92,3 @@ export const signInWithEmail = async ({ email, password, turnstileToken }: SignI
         return { ok: false, status: 500, code: "internal_error", message: "Unexpected server error" }
     }
 }
-
-export const signOut = async () => {
-    try {
-        await auth.api.signOut({ headers: await headers() });
-    } catch (e) {
-        console.error('Sign out failed', e)
-        return { success: false, error: 'Sign out failed' }
-    }
-}

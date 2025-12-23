@@ -42,10 +42,18 @@ export const signIn = async (payload: SignInFormData, ip?: string | null): Promi
         throw new AppError(500, "internal_error", "Unexpected server error");
     }
     if (!response || ("error" in response && response.error)) {
-        const errorMessage = typeof response?.error === "string" ? response.error : "";
+        const rawError = response?.error;
+        const structuredCode =
+            typeof rawError === "object" && rawError && "code" in rawError
+                ? (rawError as { code?: string }).code
+                : undefined;
+        const errorMessage = typeof rawError === "string" ? rawError : "";
         const normalized = errorMessage.toLowerCase();
         const isInvalid =
-            normalized.includes("invalid") || normalized.includes("credential") || normalized.includes("password");
+            structuredCode === "INVALID_EMAIL_OR_PASSWORD" ||
+            normalized.includes("invalid") ||
+            normalized.includes("credential") ||
+            normalized.includes("password");
         if (isInvalid) {
             throw new AppError(401, "auth_invalid_credentials", "Invalid email or password");
         }
