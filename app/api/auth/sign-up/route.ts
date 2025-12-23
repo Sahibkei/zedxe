@@ -30,7 +30,7 @@ export const POST = async (request: Request) => {
         } catch (error) {
             console.error("Invalid JSON payload", error);
             return NextResponse.json(
-                { success: false, code: "invalid_json", message: "Invalid JSON payload." },
+                { success: false, code: "invalid_json", message: "Invalid request body." },
                 { status: 400 },
             );
         }

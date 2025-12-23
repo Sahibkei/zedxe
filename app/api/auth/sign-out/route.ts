@@ -12,7 +12,7 @@ export const POST = async (request: Request) => {
     } catch (error) {
         console.error("Sign out failed", error);
         return NextResponse.json(
-            { success: false, code: "sign_out_failed", message: "Sign out failed." },
+            { success: false, code: "internal_error", message: "Unable to sign out right now." },
             { status: 500 },
         );
     }

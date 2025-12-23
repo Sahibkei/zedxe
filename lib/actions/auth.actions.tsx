@@ -25,6 +25,9 @@ export const signUpWithEmail = async ({
         if (!baseUrl) {
             throw new Error("Missing base URL for sign-up request");
         }
+        if (!turnstileToken) {
+            return { success: false, code: "turnstile_missing" };
+        }
 
         const response = await fetch(`${baseUrl}/api/auth/sign-up`, {
             method: "POST",

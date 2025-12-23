@@ -25,19 +25,26 @@ const LogoutButton = forwardRef<HTMLButtonElement, LogoutButtonProps>(
                     credentials: "include",
                 });
                 const contentType = response.headers.get("content-type") ?? "";
-                const payload = contentType.includes("application/json") ? await response.json() : null;
+                const contentLength = response.headers.get("content-length");
 
                 if (!response.ok) {
-                    toast.error("Logout failed", {
-                        description: payload?.message ?? "Logout failed. Please try again.",
-                    });
+                    let message = "Logout failed. Please try again.";
+                    if (contentType.includes("application/json") && contentLength !== "0") {
+                        try {
+                            const payload = await response.json();
+                            message = payload?.message ?? message;
+                        } catch {
+                            // Ignore JSON parsing errors and keep the default message.
+                        }
+                    }
+                    toast.error(message);
                     return;
                 }
 
-                toast.success("Logged out successfully");
+                onSignedOut?.();
+                toast.success("Logged out");
                 router.push("/sign-in");
                 router.refresh();
-                onSignedOut?.();
             } catch (error) {
                 toast.error("Logout failed", {
                     description: error instanceof Error ? error.message : "Logout failed. Please try again.",
