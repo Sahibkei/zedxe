@@ -62,13 +62,14 @@ const SignUp = () => {
         switch (error) {
             case "turnstile_missing":
                 return "Please complete the human verification.";
-            case "turnstile_invalid":
             case "turnstile_failed":
                 return "Human verification failed. Please try again.";
             case "turnstile_misconfigured":
                 return "Human verification is unavailable. Please try again later.";
             case "email_taken":
                 return "An account with this email already exists.";
+            case "invalid_json":
+                return "Something went wrong. Please try again.";
             default:
                 return error;
         }
@@ -86,18 +87,18 @@ const SignUp = () => {
                 return;
             }
             const result = await signUpWithEmail({ ...data, turnstileToken });
-            if(result.success) {
+            if (result.success) {
                 router.push(redirectTo);
                 return;
             }
             setTurnstileToken(null);
             resetTurnstile?.();
-            if (typeof result.error === "string" && result.error.startsWith("turnstile")) {
-                setTurnstileMessage(getErrorMessage(result.error));
+            if (typeof result.code === "string" && result.code.startsWith("turnstile")) {
+                setTurnstileMessage(getErrorMessage(result.code));
             }
-            const debugSuffix = !isProduction && result.error ? ` (${result.error})` : "";
+            const debugSuffix = !isProduction && result.code ? ` (${result.code})` : "";
             toast.error('Sign up failed', {
-                description: `${getErrorMessage(result.error)}${debugSuffix}`,
+                description: `${getErrorMessage(result.code)}${debugSuffix}`,
             });
         } catch (e) {
             console.error(e);

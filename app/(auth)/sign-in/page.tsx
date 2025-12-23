@@ -53,13 +53,14 @@ const SignIn = () => {
         switch (error) {
             case "turnstile_missing":
                 return "Please complete the human verification.";
-            case "turnstile_invalid":
             case "turnstile_failed":
                 return "Human verification failed. Please try again.";
             case "turnstile_misconfigured":
                 return "Human verification is unavailable. Please try again later.";
-            case "invalid_credentials":
+            case "auth_invalid_credentials":
                 return "Invalid email or password.";
+            case "invalid_json":
+                return "Something went wrong. Please try again.";
             default:
                 return error;
         }
@@ -92,7 +93,7 @@ const SignIn = () => {
                 router.push(redirectTo);
                 return;
             }
-            const errorCode = payload?.error;
+            const errorCode = payload?.code;
             setTurnstileToken(null);
             resetTurnstile?.();
             if (typeof errorCode === "string" && errorCode.startsWith("turnstile")) {

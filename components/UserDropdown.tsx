@@ -9,20 +9,12 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import {useRouter} from "next/navigation";
 import {Button} from "@/components/ui/button";
 import {LogOut} from "lucide-react";
 import NavItems from "@/components/NavItems";
-import {signOut} from "@/lib/actions/auth.actions";
+import LogoutButton from "@/components/auth/LogoutButton";
 
 const UserDropdown = ({ user, initialStocks }: {user: User, initialStocks: StockWithWatchlistStatus[]}) => {
-    const router = useRouter();
-
-    const handleSignOut = async () => {
-        await signOut();
-        router.push("/sign-in");
-    }
-
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -58,9 +50,13 @@ const UserDropdown = ({ user, initialStocks }: {user: User, initialStocks: Stock
                     </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator className="bg-gray-600"/>
-                <DropdownMenuItem onClick={handleSignOut} className="text-gray-100 text-md font-medium focus:bg-transparent focus:text-yellow-500 transition-colors cursor-pointer">
-                    <LogOut className="h-4 w-4 mr-2 hidden sm:block" />
-                    Logout
+                <DropdownMenuItem asChild>
+                    <LogoutButton className="flex w-full cursor-pointer items-center text-gray-100 text-md font-medium focus:bg-transparent focus:text-yellow-500 transition-colors">
+                        <>
+                            <LogOut className="h-4 w-4 mr-2 hidden sm:block" />
+                            Logout
+                        </>
+                    </LogoutButton>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="hidden sm:block bg-gray-600"/>
                 <nav className="sm:hidden">

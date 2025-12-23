@@ -25,6 +25,9 @@ export const signUpWithEmail = async ({
         if (!baseUrl) {
             throw new Error("Missing base URL for sign-up request");
         }
+        if (!turnstileToken) {
+            return { success: false, code: "turnstile_missing" };
+        }
 
         const response = await fetch(`${baseUrl}/api/auth/sign-up`, {
             method: "POST",
@@ -44,15 +47,16 @@ export const signUpWithEmail = async ({
             }),
         });
 
-        const payload = await response.json();
+        const contentType = response.headers.get("content-type") ?? "";
+        const payload = contentType.includes("application/json") ? await response.json() : null;
         if (!response.ok) {
-            return { success: false, error: payload?.error ?? "Sign up failed" };
+            return { success: false, code: payload?.code ?? "sign_up_failed" };
         }
 
-        return { success: true, data: payload?.data ?? payload };
+        return { success: true };
     } catch (e) {
         console.error('Sign up failed', e)
-        return { success: false, error: 'Sign up failed' }
+        return { success: false, code: 'sign_up_failed' }
     }
 }
 
@@ -85,13 +89,13 @@ export const signInWithEmail = async ({ email, password, turnstileToken }: SignI
         const contentType = response.headers.get("content-type") ?? "";
         const payload = contentType.includes("application/json") ? await response.json() : null;
         if (!response.ok) {
-            return { success: false, error: payload?.error ?? "Sign in failed" };
+            return { success: false, code: payload?.code ?? "sign_in_failed" };
         }
 
-        return { success: true, data: payload?.data ?? payload }
+        return { success: true }
     } catch (e) {
         console.error('Sign in failed', e)
-        return { success: false, error: 'Sign in failed' }
+        return { success: false, code: 'sign_in_failed' }
     }
 }
 
@@ -100,6 +104,6 @@ export const signOut = async () => {
         await auth.api.signOut({ headers: await headers() });
     } catch (e) {
         console.error('Sign out failed', e)
-        return { success: false, error: 'Sign out failed' }
+        return { success: false, code: 'sign_out_failed' }
     }
 }

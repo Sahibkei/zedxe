@@ -24,10 +24,22 @@ export const POST = async (request: Request) => {
     if (rateLimited) return rateLimited;
 
     try {
-        const body = (await request.json()) as SignUpFormData;
+        let body: SignUpFormData;
+        try {
+            body = (await request.json()) as SignUpFormData;
+        } catch (error) {
+            console.error("Invalid JSON payload", error);
+            return NextResponse.json(
+                { success: false, code: "invalid_json", message: "Invalid request body." },
+                { status: 400 },
+            );
+        }
         const parsed = signUpSchema.safeParse(body);
         if (!parsed.success) {
-            return NextResponse.json({ success: false, error: "Invalid input" }, { status: 400 });
+            return NextResponse.json(
+                { success: false, code: "invalid_input", message: "Invalid input." },
+                { status: 400 },
+            );
         }
 
         const {
@@ -43,17 +55,23 @@ export const POST = async (request: Request) => {
             parsed.data;
 
         if (hasTurnstileSecret && !turnstileToken) {
-            return NextResponse.json({ success: false, error: "turnstile_missing" }, { status: 403 });
+            return NextResponse.json(
+                { success: false, code: "turnstile_missing", message: "Turnstile token is missing." },
+                { status: 403 },
+            );
         }
 
         const verification = await verifyTurnstileToken(turnstileToken ?? null, getTurnstileIp(request));
         if (!verification.ok) {
-            if (verification.error === "turnstile_misconfigured") {
-                return NextResponse.json({ success: false, error: verification.error }, { status: 500 });
-            }
+            const status = verification.code === "turnstile_misconfigured" ? 500 : 403;
             return NextResponse.json(
-                { success: false, error: verification.error ?? "turnstile_failed" },
-                { status: 403 },
+                {
+                    success: false,
+                    code: verification.code,
+                    message: "Turnstile verification failed.",
+                    cfErrors: verification.cfErrors,
+                },
+                { status },
             );
         }
 
@@ -65,13 +83,20 @@ export const POST = async (request: Request) => {
             return response;
         }
         if (!response?.user || ("error" in response && response.error)) {
-            const errorMessage = typeof response?.error === "string" ? response.error : "";
-            const normalized = errorMessage.toLowerCase();
-            const isEmailTaken = normalized.includes("exist") || normalized.includes("taken");
-            const errorCode = isEmailTaken ? "email_taken" : "server_error";
+            const rawError = response?.error;
+            const errorCode =
+                typeof rawError === "string" ? rawError : (rawError as { code?: string })?.code ?? "";
+            const normalizedCode = errorCode.toUpperCase();
+            const isEmailTaken = ["EMAIL_EXISTS", "EMAIL_ALREADY_EXISTS", "USER_ALREADY_EXISTS", "USER_EXISTS"].includes(
+                normalizedCode,
+            );
+            const code = isEmailTaken ? "email_taken" : "server_error";
             const status = isEmailTaken ? 409 : 500;
-            console.error("Sign up failed", errorCode);
-            return NextResponse.json({ success: false, error: errorCode }, { status });
+            console.error("Sign up failed", code);
+            return NextResponse.json(
+                { success: false, code, message: "Sign up failed." },
+                { status },
+            );
         }
 
         if (response?.user) {
@@ -81,9 +106,12 @@ export const POST = async (request: Request) => {
             });
         }
 
-        return NextResponse.json({ success: true, data: response });
+        return NextResponse.json({ success: true });
     } catch (error) {
         console.error("Sign up failed", error);
-        return NextResponse.json({ success: false, error: "server_error" }, { status: 500 });
+        return NextResponse.json(
+            { success: false, code: "server_error", message: "Sign up failed." },
+            { status: 500 },
+        );
     }
 };
