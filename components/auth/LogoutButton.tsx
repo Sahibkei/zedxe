@@ -23,11 +23,15 @@ const LogoutButton = ({ children, className, onSignedOut }: LogoutButtonProps) =
                     method: "POST",
                     credentials: "include",
                     cache: "no-store",
+                    redirect: "manual",
                 });
-                const isSuccess = response.status >= 200 && response.status < 400;
+                const isSuccess =
+                    (response.status >= 200 && response.status < 400) || response.status === 204;
+                const contentType = response.headers.get("content-type") ?? "";
+                const payload = contentType.includes("application/json")
+                    ? await response.json().catch(() => null)
+                    : null;
                 if (!isSuccess) {
-                    const contentType = response.headers.get("content-type") ?? "";
-                    const payload = contentType.includes("application/json") ? await response.json() : null;
                     const message = payload?.message ?? "Logout failed. Please try again.";
                     throw new Error(message);
                 }
