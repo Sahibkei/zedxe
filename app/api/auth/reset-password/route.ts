@@ -12,11 +12,28 @@ const resetSchema = z.object({
     turnstileToken: hasTurnstileSecret ? z.string().min(1) : z.string().nullable().optional(),
 });
 
-const isInvalidTokenError = (error?: unknown) => {
-    if (!error) return false;
-    const message = typeof error === "string" ? error : "";
-    const normalized = message.toLowerCase();
-    return normalized.includes("invalid") || normalized.includes("expired") || normalized.includes("token");
+const getErrorDetails = (error: unknown) => {
+    if (!error) return null;
+    if (typeof error === "string") return { code: null, message: error };
+    if (typeof error === "object" && "code" in error) {
+        const code = typeof (error as { code?: unknown }).code === "string" ? (error as { code: string }).code : null;
+        const message =
+            typeof (error as { message?: unknown }).message === "string"
+                ? (error as { message: string }).message
+                : "";
+        return { code, message };
+    }
+    return null;
+};
+
+const isInvalidTokenError = (error: unknown) => {
+    const details = getErrorDetails(error);
+    if (!details) return false;
+    if (details.code && ["INVALID_TOKEN", "TOKEN_EXPIRED"].includes(details.code)) {
+        return true;
+    }
+    const normalized = details.message.toLowerCase();
+    return normalized.includes("token") && (normalized.includes("invalid") || normalized.includes("expired"));
 };
 
 export const POST = async (request: Request) => {
@@ -59,18 +76,23 @@ export const POST = async (request: Request) => {
         });
 
         if (response instanceof Response) {
-            if (!response.ok) {
+            if (response.ok) {
+                return NextResponse.json({ success: true });
+            }
+            const contentType = response.headers.get("content-type") ?? "";
+            const payload = contentType.includes("application/json") ? await response.json() : null;
+            const errorValue = payload?.error ?? payload?.code ?? payload?.message;
+            if (isInvalidTokenError(errorValue)) {
                 return NextResponse.json(
-                    { success: false, code: "internal_error" },
-                    { status: response.status },
+                    { success: false, code: "INVALID_TOKEN", message: "Reset link is invalid or expired." },
+                    { status: 400 },
                 );
             }
-            return NextResponse.json({ success: true });
+            return NextResponse.json({ success: false, code: "internal_error" }, { status: 500 });
         }
 
         if (response && "error" in response && response.error) {
-            const errorMessage = typeof response.error === "string" ? response.error : "";
-            if (isInvalidTokenError(errorMessage)) {
+            if (isInvalidTokenError(response.error)) {
                 return NextResponse.json(
                     {
                         success: false,
@@ -86,7 +108,7 @@ export const POST = async (request: Request) => {
 
         return NextResponse.json({ success: true });
     } catch (error) {
-        if (isInvalidTokenError(error instanceof Error ? error.message : "")) {
+        if (isInvalidTokenError(error)) {
             return NextResponse.json(
                 { success: false, code: "INVALID_TOKEN", message: "Reset link is invalid or expired." },
                 { status: 400 },

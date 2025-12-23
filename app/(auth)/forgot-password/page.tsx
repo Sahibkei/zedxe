@@ -30,6 +30,7 @@ const ForgotPasswordPage = () => {
     const [turnstileMessage, setTurnstileMessage] = useState<string | null>(null);
     const [resetTurnstile, setResetTurnstile] = useState<(() => void) | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const [requestId, setRequestId] = useState<string | null>(null);
     const turnstileEnabled = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
     const turnstileRequired = turnstileEnabled;
     const formReady = Boolean(emailValue?.trim());
@@ -69,6 +70,7 @@ const ForgotPasswordPage = () => {
 
     const onSubmit = async (data: ForgotPasswordFormData) => {
         setSuccessMessage(null);
+        setRequestId(null);
         try {
             if (!turnstileEnabled) {
                 setTurnstileMessage('Human verification is not configured.');
@@ -97,15 +99,25 @@ const ForgotPasswordPage = () => {
                     payload?.message ?? 'If an account exists, we sent a reset link.',
                 );
                 setTurnstileMessage(null);
+                setRequestId(payload?.requestId ?? null);
                 return;
             }
 
             const errorCode = payload?.code ?? payload?.error;
+            const responseRequestId = payload?.requestId ?? null;
             setTurnstileToken(null);
             resetTurnstile?.();
 
             if (typeof errorCode === 'string' && errorCode.startsWith('turnstile')) {
                 setTurnstileMessage(getErrorMessage(errorCode));
+            }
+
+            if (response.status >= 500) {
+                setRequestId(responseRequestId);
+                toast.error('Request failed', {
+                    description: 'We couldn’t send the email right now. Please try again later.',
+                });
+                return;
             }
 
             const debugSuffix = !isProduction && errorCode ? ` (${errorCode})` : '';
@@ -126,7 +138,7 @@ const ForgotPasswordPage = () => {
         <>
             <h1 className="form-title">Forgot your password?</h1>
             <p className="text-sm text-gray-400 mb-6">
-                Enter your email and we will send a reset link if an account exists.
+                Enter your email and we will send a reset link if an account exists. Check your spam or promotions folders if you do not see it.
             </p>
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -150,7 +162,18 @@ const ForgotPasswordPage = () => {
                     <p className="text-xs text-red-400">Human verification is not configured.</p>
                 ) : null}
                 {turnstileMessage ? <p className="text-xs text-red-400">{turnstileMessage}</p> : null}
-                {successMessage ? <p className="text-xs text-emerald-400">{successMessage}</p> : null}
+                {successMessage ? (
+                    <div className="text-xs text-emerald-400 space-y-1">
+                        <p>{successMessage}</p>
+                        <p className="text-gray-400">Remember to check spam or promotions folders.</p>
+                        {requestId ? (
+                            <p className="text-[11px] text-gray-500">Request ID: {requestId}</p>
+                        ) : null}
+                    </div>
+                ) : null}
+                {!successMessage && requestId ? (
+                    <p className="text-[11px] text-gray-500">Request ID: {requestId}</p>
+                ) : null}
 
                 <Button
                     type="submit"

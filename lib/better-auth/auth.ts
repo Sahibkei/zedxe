@@ -31,12 +31,15 @@ export const getAuth = async () => {
             maxPasswordLength: 128,
             autoSignIn: true,
             resetPasswordTokenExpiresIn: 60 * 60,
-            sendResetPassword: async ({ user, url }) => {
+            sendResetPassword: async ({ user, url, token }, ctx) => {
                 if (!user?.email) return;
-                const sendPromise = sendPasswordResetEmail({ email: user.email, url });
-                void sendPromise.catch((error) => {
-                    console.error("Failed to send password reset email", error);
-                });
+                const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+                const resetUrl = appUrl ? `${appUrl}/reset-password?token=${token}` : url;
+                const requestId = ctx?.headers?.get?.("x-request-id") ?? "unknown";
+                if (!appUrl) {
+                    console.warn("Password reset using fallback URL", { requestId });
+                }
+                await sendPasswordResetEmail({ email: user.email, url: resetUrl, requestId });
             },
         },
         plugins: [nextCookies()],

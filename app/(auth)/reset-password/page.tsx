@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,7 @@ type ResetPasswordFormData = {
 const ResetPasswordPage = () => {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const token = useMemo(() => searchParams.get('token') ?? '', [searchParams]);
+    const token = searchParams.get('token') ?? '';
     const errorParam = searchParams.get('error');
     const {
         register,
