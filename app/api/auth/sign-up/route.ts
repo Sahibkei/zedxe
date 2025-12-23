@@ -10,7 +10,21 @@ export const POST = async (request: Request) => {
     if (rateLimited) return rateLimited;
 
     try {
-        const body = await request.json();
+        let body: unknown;
+        try {
+            body = await request.json();
+        } catch (error) {
+            console.error("auth:sign-up", {
+                code: "invalid_json",
+                status: 400,
+                errName: error instanceof Error ? error.name : undefined,
+                errMessage: error instanceof Error ? error.message : undefined,
+            });
+            return NextResponse.json(
+                { success: false, code: "invalid_json", message: "Invalid request body" },
+                { status: 400 },
+            );
+        }
         const result = await signUp(body, getTurnstileIp(request));
         const payload = { success: true, data: result.data };
         if (process.env.NODE_ENV !== "production" && result.debug) {
