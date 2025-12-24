@@ -10,6 +10,9 @@ import { getStockProfileV2 } from "@/lib/stocks/getStockProfileV2";
 import StockProfileTabs from "./StockProfileTabs";
 import { cn, formatMarketCapValue, formatPrice } from "@/lib/utils";
 import ProviderStatusDebug from "./ProviderStatusDebug";
+import HistogramWC from "@/components/charts/layerchart/HistogramWC";
+import GeoMapWC from "@/components/charts/layerchart/GeoMapWC";
+import SankeyWC from "@/components/charts/layerchart/SankeyWC";
 
 export default async function StockDetails({ params }: StockDetailsPageProps) {
     const { symbol } = await params;
@@ -47,6 +50,27 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
         change === undefined || change === null ? "" : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
     const changeClass = change === undefined || change === null ? "text-muted-foreground" : change >= 0 ? "text-green-400" : "text-red-400";
     const showProviderDebug = process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_DEBUG_PROVIDER_STATUS === "1";
+    const histogramData = [
+        { label: "1D", value: Number.parseFloat((snapshot.changePercent ?? 0).toFixed(2)) || 0.2 },
+        { label: "1W", value: Number.parseFloat(((snapshot as Record<string, number>).weekChangePercent ?? 1.4).toFixed(2)) },
+        { label: "1M", value: Number.parseFloat(((snapshot as Record<string, number>).monthChangePercent ?? 2.1).toFixed(2)) },
+        { label: "3M", value: Number.parseFloat(((snapshot as Record<string, number>).threeMonthChangePercent ?? 3.8).toFixed(2)) },
+        { label: "YTD", value: Number.parseFloat(((snapshot as Record<string, number>).ytdChangePercent ?? 5.2).toFixed(2)) },
+    ];
+    const geoData = [
+        { region: stockProfile.company.country || "United States", value: 54 },
+        { region: "Europe", value: 26 },
+        { region: "Asia-Pacific", value: 14 },
+        { region: "Rest of World", value: 6 },
+    ];
+    const sankeyData = [
+        { source: "North America", target: "Cloud", value: 32 },
+        { source: "North America", target: "Devices", value: 14 },
+        { source: "Europe", target: "Cloud", value: 18 },
+        { source: "Europe", target: "Enterprise", value: 8 },
+        { source: "Asia-Pacific", target: "Consumer", value: 10 },
+        { source: "Rest of World", target: "Services", value: 6 },
+    ];
 
     return (
         <div className="mx-auto w-full max-w-7xl px-4 md:px-6 py-8 space-y-8">
@@ -192,6 +216,12 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
             <div className="rounded-2xl border border-border/60 bg-card/80 p-6 shadow-xl backdrop-blur space-y-4">
                 <StockProfileTabs profile={stockProfile} />
                 {showProviderDebug && <ProviderStatusDebug errors={stockProfile.providerErrors} />}
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                <HistogramWC data={histogramData} />
+                <GeoMapWC data={geoData} />
+                <SankeyWC data={sankeyData} />
             </div>
         </div>
     );

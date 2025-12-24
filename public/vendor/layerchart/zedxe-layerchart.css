@@ -1,0 +1,12 @@
+:root {
+  --zedxe-chart-radius: 16px;
+  --zedxe-chart-border: 1px solid rgba(255, 255, 255, 0.08);
+  --zedxe-chart-surface: radial-gradient(circle at 16% 12%, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.02));
+}
+
+zedxe-histogram,
+zedxe-geo-map,
+zedxe-sankey {
+  display: block;
+}

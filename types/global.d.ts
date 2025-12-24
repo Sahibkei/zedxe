@@ -221,4 +221,18 @@ declare global {
     };
 }
 
+declare namespace JSX {
+    interface IntrinsicElements {
+        "zedxe-histogram": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+            data?: string;
+        };
+        "zedxe-geo-map": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+            data?: string;
+        };
+        "zedxe-sankey": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+            data?: string;
+        };
+    }
+}
+
 export {};
