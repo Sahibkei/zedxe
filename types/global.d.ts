@@ -232,6 +232,12 @@ declare namespace JSX {
         "zedxe-sankey": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
             data?: string;
         };
+        "zedxe-revenue-growth": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+            data?: string;
+        };
+        "zedxe-profitability": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+            data?: string;
+        };
     }
 }
 

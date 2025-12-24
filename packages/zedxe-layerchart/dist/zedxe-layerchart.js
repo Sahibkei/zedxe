@@ -95,6 +95,36 @@
     return { values: filtered };
   };
 
+  const parseRevenue = (raw) => {
+    if (!raw) return null;
+    try {
+      const payload = JSON.parse(raw);
+      if (!payload?.series || !Array.isArray(payload.series)) return null;
+      const series = payload.series.filter((item) => typeof item?.date === "string" && typeof item?.revenue === "number" && !Number.isNaN(item.revenue));
+      return { ...payload, view: payload.view === "yoy" ? "yoy" : "values", series };
+    } catch {
+      return null;
+    }
+  };
+
+  const parseProfitability = (raw) => {
+    if (!raw) return null;
+    try {
+      const payload = JSON.parse(raw);
+      if (!payload?.series || !Array.isArray(payload.series)) return null;
+      const series = payload.series
+        .filter((item) => typeof item?.date === "string")
+        .map((item) => ({
+          date: item.date,
+          ebitda: typeof item.ebitda === "number" && !Number.isNaN(item.ebitda) ? item.ebitda : undefined,
+          netIncome: typeof item.netIncome === "number" && !Number.isNaN(item.netIncome) ? item.netIncome : undefined
+        }));
+      return { ...payload, series };
+    } catch {
+      return null;
+    }
+  };
+
   class BaseChart extends HTMLElement {
     static get observedAttributes() { return ["data"]; }
     constructor() {
@@ -262,6 +292,220 @@
     }
   }
 
+  class RevenueGrowthElement extends BaseChart {
+    computeYoy(series) {
+      const sorted = [...series].sort((a, b) => a.date.localeCompare(b.date));
+      return sorted.map((point, idx) => {
+        if (idx === 0) return { ...point, change: 0 };
+        const prev = sorted[idx - 1];
+        const change = prev.revenue ? ((point.revenue - prev.revenue) / prev.revenue) * 100 : 0;
+        return { ...point, change };
+      });
+    }
+
+    formatNumber(value, currency) {
+      if (typeof value !== "number" || Number.isNaN(value)) return "—";
+      const short = value >= 1e9 ? `${(value / 1e9).toFixed(1)}B` : value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value.toLocaleString();
+      return currency ? `${currency} ${short}` : short;
+    }
+
+    render() {
+      const container = this.mountBase();
+      if (!container) return;
+      const payload = parseRevenue(this.getAttribute("data"));
+      if (!payload || !payload.series.length) {
+        this.showEmpty(container, "No data");
+        return;
+      }
+      const view = payload.view === "yoy" ? "yoy" : "values";
+      const series = payload.series;
+      const yoySeries = this.computeYoy(series);
+      container.textContent = "";
+
+      const chart = document.createElement("div");
+      chart.className = "chart";
+
+      const bars = document.createElement("div");
+      bars.className = "bars";
+      const frag = document.createDocumentFragment();
+
+      const maxRevenue = Math.max(...series.map((p) => p.revenue || 0), 1);
+      const maxChange = Math.max(...yoySeries.map((p) => Math.abs(p.change || 0)), 1);
+
+      (view === "yoy" ? yoySeries : series).forEach((point) => {
+        const bar = document.createElement("div");
+        const value = view === "yoy" ? Math.max(4, ((Math.abs(point.change || 0)) / maxChange) * 100) : Math.max(4, ((point.revenue || 0) / maxRevenue) * 100);
+        bar.className = "bar";
+        if (view === "yoy" && (point.change || 0) < 0) bar.classList.add("negative");
+        bar.style.height = view === "yoy" ? `${Math.min(100, value)}%` : `${Math.min(100, value)}%`;
+        bar.addEventListener("mouseenter", () => {
+          tooltipLabel.textContent = point.date;
+          tooltipValue.textContent =
+            view === "yoy"
+              ? `${(point.change || 0).toFixed(2)}% YoY`
+              : this.formatNumber(point.revenue || 0, payload.currency);
+          bar.classList.add("active");
+        });
+        bar.addEventListener("mouseleave", () => {
+          tooltipLabel.textContent = "";
+          tooltipValue.textContent = "";
+          bar.classList.remove("active");
+        });
+        const sr = document.createElement("span");
+        sr.className = "sr-only";
+        sr.textContent =
+          view === "yoy"
+            ? `${point.date}: ${(point.change || 0).toFixed(2)}%`
+            : `${point.date}: ${this.formatNumber(point.revenue || 0, payload.currency)}`;
+        bar.appendChild(sr);
+        frag.appendChild(bar);
+      });
+      bars.appendChild(frag);
+
+      const tooltip = document.createElement("div");
+      tooltip.className = "tooltip";
+      const tooltipLabel = document.createElement("p");
+      tooltipLabel.className = "tooltip-label";
+      const tooltipValue = document.createElement("p");
+      tooltipValue.className = "tooltip-value";
+      tooltip.append(tooltipLabel, tooltipValue);
+
+      const legend = document.createElement("div");
+      legend.className = "legend";
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      const legendText = document.createElement("span");
+      legendText.className = "legend-text";
+      legendText.textContent = view === "yoy" ? "YoY %" : `Revenue (${payload.currency || ""})`;
+      legend.append(dot, legendText);
+
+      chart.append(bars, tooltip, legend);
+      container.appendChild(chart);
+    }
+  }
+
+  class ProfitabilityElement extends BaseChart {
+    formatNumber(value, currency) {
+      if (typeof value !== "number" || Number.isNaN(value)) return "—";
+      const short = value >= 1e9 ? `${(value / 1e9).toFixed(1)}B` : value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value.toLocaleString();
+      return currency ? `${currency} ${short}` : short;
+    }
+
+    render() {
+      const container = this.mountBase();
+      if (!container) return;
+      if (this.showEbitda === undefined) this.showEbitda = true;
+      if (this.showNetIncome === undefined) this.showNetIncome = true;
+      const payload = parseProfitability(this.getAttribute("data"));
+      if (!payload || !payload.series.length) {
+        this.showEmpty(container, "No data");
+        return;
+      }
+      container.textContent = "";
+
+      const chart = document.createElement("div");
+      chart.className = "chart";
+
+      const legend = document.createElement("div");
+      legend.className = "legend";
+
+      const ebitdaBtn = document.createElement("button");
+      ebitdaBtn.type = "button";
+      ebitdaBtn.className = `legend-btn ${this.showEbitda ? "active" : ""}`;
+      const eDot = document.createElement("span");
+      eDot.className = "dot ebitda";
+      ebitdaBtn.append(eDot, document.createTextNode("EBITDA"));
+      ebitdaBtn.addEventListener("click", () => {
+        this.showEbitda = !this.showEbitda;
+        this.render();
+      });
+
+      const netBtn = document.createElement("button");
+      netBtn.type = "button";
+      netBtn.className = `legend-btn ${this.showNetIncome ? "active" : ""}`;
+      const nDot = document.createElement("span");
+      nDot.className = "dot net";
+      netBtn.append(nDot, document.createTextNode("Net Income"));
+      netBtn.addEventListener("click", () => {
+        this.showNetIncome = !this.showNetIncome;
+        this.render();
+      });
+
+      legend.append(ebitdaBtn, netBtn);
+
+      const grid = document.createElement("div");
+      grid.className = "grid";
+      const frag = document.createDocumentFragment();
+      const maxValue = Math.max(...payload.series.map((p) => Math.max(p.ebitda || 0, p.netIncome || 0, 1)));
+
+      const tooltip = document.createElement("div");
+      tooltip.className = "tooltip";
+      const tooltipLabel = document.createElement("p");
+      tooltipLabel.className = "tooltip-label";
+      const tooltipValues = document.createElement("div");
+      tooltip.append(tooltipLabel, tooltipValues);
+
+      payload.series.forEach((point) => {
+        const column = document.createElement("div");
+        column.className = "column";
+        column.addEventListener("mouseenter", () => {
+          tooltipLabel.textContent = point.date;
+          tooltipValues.textContent = "";
+          if (this.showEbitda) {
+            const line = document.createElement("p");
+            line.className = "tooltip-value";
+            line.textContent = `EBITDA: ${this.formatNumber(point.ebitda, payload.currency)}`;
+            tooltipValues.appendChild(line);
+          }
+          if (this.showNetIncome) {
+            const line = document.createElement("p");
+            line.className = "tooltip-value";
+            line.textContent = `Net Income: ${this.formatNumber(point.netIncome, payload.currency)}`;
+            tooltipValues.appendChild(line);
+          }
+        });
+        column.addEventListener("mouseleave", () => {
+          tooltipLabel.textContent = "";
+          tooltipValues.textContent = "";
+        });
+
+        const stack = document.createElement("div");
+        stack.className = "stack";
+        if (this.showEbitda && point.ebitda) {
+          const bar = document.createElement("div");
+          bar.className = "bar ebitda";
+          bar.style.height = `${Math.max(6, (point.ebitda / maxValue) * 100)}%`;
+          const sr = document.createElement("span");
+          sr.className = "sr-only";
+          sr.textContent = `${point.date}: EBITDA ${this.formatNumber(point.ebitda, payload.currency)}`;
+          bar.appendChild(sr);
+          stack.appendChild(bar);
+        }
+        if (this.showNetIncome && point.netIncome) {
+          const bar = document.createElement("div");
+          bar.className = "bar net";
+          bar.style.height = `${Math.max(6, (point.netIncome / maxValue) * 100)}%`;
+          const sr = document.createElement("span");
+          sr.className = "sr-only";
+          sr.textContent = `${point.date}: Net Income ${this.formatNumber(point.netIncome, payload.currency)}`;
+          bar.appendChild(sr);
+          stack.appendChild(bar);
+        }
+
+        const label = document.createElement("span");
+        label.className = "label";
+        label.textContent = point.date;
+
+        column.append(stack, label);
+        frag.appendChild(column);
+      });
+
+      grid.appendChild(frag);
+      chart.append(legend, grid, tooltip);
+      container.appendChild(chart);
+    }
+  }
+
   if (!customElements.get("zedxe-histogram")) {
     customElements.define("zedxe-histogram", HistogramElement);
   }
@@ -270,5 +514,11 @@
   }
   if (!customElements.get("zedxe-sankey")) {
     customElements.define("zedxe-sankey", SankeyElement);
+  }
+  if (!customElements.get("zedxe-revenue-growth")) {
+    customElements.define("zedxe-revenue-growth", RevenueGrowthElement);
+  }
+  if (!customElements.get("zedxe-profitability")) {
+    customElements.define("zedxe-profitability", ProfitabilityElement);
   }
 })();

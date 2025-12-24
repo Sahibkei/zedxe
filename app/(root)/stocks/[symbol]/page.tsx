@@ -11,8 +11,7 @@ import StockProfileTabs from "./StockProfileTabs";
 import { cn, formatMarketCapValue, formatPrice } from "@/lib/utils";
 import ProviderStatusDebug from "./ProviderStatusDebug";
 import HistogramWC from "@/components/charts/layerchart/HistogramWC";
-import GeoMapWC from "@/components/charts/layerchart/GeoMapWC";
-import SankeyWC from "@/components/charts/layerchart/SankeyWC";
+import RevenueCharts from "./RevenueCharts";
 
 export default async function StockDetails({ params }: StockDetailsPageProps) {
     const { symbol } = await params;
@@ -57,22 +56,6 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
         { label: "1M", value: Number.parseFloat(((snapshot as Record<string, number>).monthChangePercent ?? 2.1).toFixed(2)) },
         { label: "3M", value: Number.parseFloat(((snapshot as Record<string, number>).threeMonthChangePercent ?? 3.8).toFixed(2)) },
         { label: "YTD", value: Number.parseFloat(((snapshot as Record<string, number>).ytdChangePercent ?? 5.2).toFixed(2)) },
-    ];
-    // TODO: replace placeholder geo revenue mix with API-backed data.
-    const geoData = [
-        { region: stockProfile.company.country || "United States", value: 54 },
-        { region: "Europe", value: 26 },
-        { region: "Asia-Pacific", value: 14 },
-        { region: "Rest of World", value: 6 },
-    ];
-    // TODO: replace placeholder revenue flow with API-backed data.
-    const sankeyData = [
-        { source: "North America", target: "Cloud", value: 32 },
-        { source: "North America", target: "Devices", value: 14 },
-        { source: "Europe", target: "Cloud", value: 18 },
-        { source: "Europe", target: "Enterprise", value: 8 },
-        { source: "Asia-Pacific", target: "Consumer", value: 10 },
-        { source: "Rest of World", target: "Services", value: 6 },
     ];
 
     return (
@@ -221,10 +204,12 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                 {showProviderDebug && <ProviderStatusDebug errors={stockProfile.providerErrors} />}
             </div>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                <HistogramWC data={histogramData} />
-                <GeoMapWC data={geoData} />
-                <SankeyWC data={sankeyData} />
+            <div className="grid grid-cols-1 gap-4">
+                <div className="rounded-2xl border border-border/60 bg-card/80 p-5 shadow-xl backdrop-blur">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Distribution / Histogram</p>
+                    <HistogramWC data={histogramData} />
+                </div>
+                <RevenueCharts symbol={symbolUpper} />
             </div>
         </div>
     );

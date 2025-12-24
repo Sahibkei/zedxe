@@ -44,3 +44,18 @@ export function parseSankey(raw?: string | null): ParsedResult<SankeyLink> {
   }
   return { values: filtered };
 }
+
+export type RevenueSeries = {
+  symbol?: string;
+  frequency?: "annual" | "quarter";
+  currency?: string;
+  view?: "values" | "yoy";
+  series?: Array<{ date: string; revenue: number }>;
+};
+
+export type ProfitabilitySeries = {
+  symbol?: string;
+  frequency?: "annual" | "quarter";
+  currency?: string;
+  series?: Array<{ date: string; ebitda?: number; netIncome?: number }>;
+};
