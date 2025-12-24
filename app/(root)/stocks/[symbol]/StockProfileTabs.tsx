@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, ChevronLeft, ChevronRight, Globe2, Link2, MapPin, Phone, Users } from "lucide-react";
+import { AlertCircle, ArrowUpRight, ChevronLeft, ChevronRight, Globe2, Link2, MapPin, Phone } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
 
 import TradingViewWidget from "@/components/TradingViewWidget";
@@ -30,6 +30,8 @@ type StockProfileTabsProps = {
     changePercent?: number;
 };
 
+const USE_DEMO_DATA = process.env.NEXT_PUBLIC_USE_DEMO_DATA === "1";
+
 const mockManagementTeam = [
     { name: "Greg Joswiak", title: "Senior Vice President", compensation: "-", currency: "USD" },
     { name: "Jeffrey E. Williams", title: "Senior Vice President", compensation: "5.02 M", currency: "USD" },
@@ -37,21 +39,21 @@ const mockManagementTeam = [
     { name: "Sabih Khan", title: "Chief Operating Officer", compensation: "4.64 M", currency: "USD" },
 ];
 
-const earningsHistory = [
+const demoEarningsHistory = [
     { date: "2025-10-30", eps: 1.85, epsEst: 1.78, revenue: "102.466 B", revenueEst: "102.23 B" },
     { date: "2025-07-31", eps: 1.57, epsEst: 1.44, revenue: "94.036 B", revenueEst: "89.56 B" },
     { date: "2025-05-01", eps: 1.65, epsEst: 1.63, revenue: "95.359 B", revenueEst: "94.54 B" },
     { date: "2025-01-30", eps: 2.4, epsEst: 2.36, revenue: "124.300 B", revenueEst: "124.26 B" },
 ];
 
-const dividendHistory = [
+const demoDividendHistory = [
     { date: "2025-11-10", adjusted: 0.26, dividend: 0.26, recordDate: "2025-11-10", paymentDate: "2025-11-13" },
     { date: "2025-08-11", adjusted: 0.26, dividend: 0.26, recordDate: "2025-08-11", paymentDate: "2025-08-14" },
     { date: "2025-05-12", adjusted: 0.26, dividend: 0.26, recordDate: "2025-05-12", paymentDate: "2025-05-15" },
     { date: "2025-02-10", adjusted: 0.25, dividend: 0.25, recordDate: "2025-02-10", paymentDate: "2025-02-13" },
 ];
 
-const businessLineData = [
+const demoBusinessLineData = [
     { label: "FY 2020", Mac: 30, iPhone: 140, Service: 65, Wearables: 32, iPad: 24, Other: 20 },
     { label: "FY 2021", Mac: 35, iPhone: 170, Service: 78, Wearables: 40, iPad: 27, Other: 22 },
     { label: "FY 2022", Mac: 38, iPhone: 185, Service: 86, Wearables: 45, iPad: 29, Other: 23 },
@@ -61,6 +63,14 @@ const businessLineData = [
     { label: "FY 2026", Mac: 46, iPhone: 223, Service: 124, Wearables: 69, iPad: 37, Other: 27 },
     { label: "FY 2027", Mac: 48, iPhone: 232, Service: 132, Wearables: 75, iPad: 38, Other: 28 },
     { label: "FY 2028", Mac: 49, iPhone: 240, Service: 139, Wearables: 78, iPad: 39, Other: 29 },
+];
+
+const demoRevenueSeries = [
+    { label: "FY 2021", revenue: 365_817_000_000 },
+    { label: "FY 2022", revenue: 394_328_000_000 },
+    { label: "FY 2023", revenue: 383_285_000_000 },
+    { label: "FY 2024", revenue: 391_035_000_000 },
+    { label: "FY 2025", revenue: 416_161_000_000 },
 ];
 
 const formatPercent = (value?: number) => {
@@ -73,17 +83,25 @@ const Pill = ({
     active,
     children,
     onClick,
+    disabled,
+    title,
 }: {
     active?: boolean;
     children: React.ReactNode;
     onClick?: () => void;
+    disabled?: boolean;
+    title?: string;
 }) => (
     <button
         type="button"
         onClick={onClick}
+        disabled={disabled}
+        aria-disabled={disabled}
+        title={title}
         className={cn(
             "rounded-lg px-3 py-1 text-xs font-semibold transition",
-            active ? "bg-sky-500/20 text-sky-100 ring-1 ring-sky-400/40" : "bg-white/5 text-slate-300"
+            active ? "bg-sky-500/20 text-sky-100 ring-1 ring-sky-400/40" : "bg-white/5 text-slate-300",
+            disabled && "cursor-not-allowed opacity-60"
         )}
     >
         {children}
@@ -92,6 +110,24 @@ const Pill = ({
 
 const SectionTitle = ({ children }: { children: React.ReactNode }) => (
     <p className="text-sm font-semibold text-slate-100">{children}</p>
+);
+
+const EmptyState = ({ message, compact }: { message: string; compact?: boolean }) => (
+    <div
+        className={cn(
+            "flex items-center justify-center gap-2 rounded-lg border border-white/5 bg-white/5 text-sm text-slate-300",
+            compact ? "min-h-[60px] px-3 py-3" : "min-h-[120px] px-4 py-6"
+        )}
+    >
+        <AlertCircle className="h-4 w-4 text-slate-400" />
+        <span>{message}</span>
+    </div>
+);
+
+const DemoBadge = () => (
+    <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200 ring-1 ring-amber-400/40">
+        Demo data
+    </span>
 );
 
 export default function StockProfileTabs({
@@ -116,17 +152,13 @@ export default function StockProfileTabs({
               ? "text-emerald-400"
               : "text-rose-400";
 
+    const revenueSource = revenueView === "annual" ? profile.financials.annual : profile.financials.quarterly;
     const revenueSeries = useMemo(() => {
-        const source = revenueView === "annual" ? profile.financials.annual : profile.financials.quarterly;
-        if (source.length) return source;
-        return [
-            { label: "FY 2021", revenue: 365_817_000_000 },
-            { label: "FY 2022", revenue: 394_328_000_000 },
-            { label: "FY 2023", revenue: 383_285_000_000 },
-            { label: "FY 2024", revenue: 391_035_000_000 },
-            { label: "FY 2025", revenue: 416_161_000_000 },
-        ];
-    }, [profile.financials.annual, profile.financials.quarterly, revenueView]);
+        if (revenueSource.length) return revenueSource;
+        if (USE_DEMO_DATA) return demoRevenueSeries;
+        return [];
+    }, [revenueSource, revenueView]);
+    const revenueIsDemo = !revenueSource.length && USE_DEMO_DATA;
 
     const revenueOption = useMemo(
         () => ({
@@ -159,10 +191,21 @@ export default function StockProfileTabs({
         [revenueSeries]
     );
 
+    const valuationBase = revenueSeries.length ? revenueSeries : [];
     const valuationSeries = useMemo(() => {
-        const base = revenueSeries.length ? revenueSeries : businessLineData;
+        const base = valuationBase.length
+            ? valuationBase
+            : USE_DEMO_DATA
+              ? demoRevenueSeries
+              : [{ label: "Current", revenue: profile.company.marketCap ?? 1 }];
         const { pe = 18, ps = 5, pb = 6, evToEbitda = 14 } = profile.metrics;
-        return base.map((entry, idx) => ({
+        const sliced =
+            valuationHorizon === "qtr"
+                ? base.slice(0, Math.max(1, Math.min(8, base.length)))
+                : valuationHorizon === "ttm"
+                  ? base.slice(0, 1)
+                  : base;
+        return sliced.map((entry, idx) => ({
             label: entry.label,
             pe: Math.max(0, pe + idx * 0.4),
             ps: Math.max(0, (ps || 4) + idx * 0.2),
@@ -170,7 +213,8 @@ export default function StockProfileTabs({
             evSales: Math.max(0, (ps || 4) + 1 + idx * 0.25),
             evEbitda: Math.max(0, (evToEbitda || 14) + idx * 0.35),
         }));
-    }, [profile.metrics, revenueSeries]);
+    }, [profile.company.marketCap, profile.metrics, valuationBase, valuationHorizon]);
+    const valuationIsDemo = (!valuationBase.length && USE_DEMO_DATA) || revenueIsDemo;
 
     const valuationOption = useMemo(
         () => ({
@@ -215,25 +259,28 @@ export default function StockProfileTabs({
         [valuationSeries]
     );
 
+    const businessLineSeries = USE_DEMO_DATA ? demoBusinessLineData : [];
+    const businessLineIsDemo = USE_DEMO_DATA && businessLineSeries.length > 0;
     const businessChunks = useMemo(() => {
         const size = 6;
         const chunks = [];
-        for (let i = 0; i < businessLineData.length; i += size) {
-            chunks.push(businessLineData.slice(i, i + size));
+        for (let i = 0; i < businessLineSeries.length; i += size) {
+            chunks.push(businessLineSeries.slice(i, i + size));
         }
         return chunks;
-    }, []);
+    }, [businessLineSeries]);
     const currentChunk = businessChunks[businessPage] ?? businessChunks[0];
     const businessLineOption = useMemo(() => {
         const segments = ["Mac", "iPhone", "Service", "Wearables", "iPad", "Other"];
+        const xAxisData = currentChunk ? currentChunk.map((c) => c.label) : [];
         return {
             backgroundColor: "transparent",
             tooltip: { trigger: "axis" },
             legend: { data: segments, textStyle: { color: "#cbd5e1" } },
-            grid: { left: 48, right: 20, top: 40, bottom: 50 },
+            grid: { left: 48, right: 20, top: 40, bottom: 64 },
             xAxis: {
                 type: "category",
-                data: currentChunk?.map((c) => c.label),
+                data: xAxisData,
                 axisLabel: { color: "#94a3b8", interval: 0, rotate: 20 },
                 axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } },
             },
@@ -253,18 +300,35 @@ export default function StockProfileTabs({
         };
     }, [businessPage, businessChunks, currentChunk]);
 
+    const managementTeam = USE_DEMO_DATA ? mockManagementTeam : [];
+    const managementIsDemo = USE_DEMO_DATA && managementTeam.length > 0;
+    const earningsHistory = USE_DEMO_DATA ? demoEarningsHistory : [];
+    const earningsIsDemo = USE_DEMO_DATA && earningsHistory.length > 0;
+    const dividendHistory = USE_DEMO_DATA ? demoDividendHistory : [];
+    const dividendIsDemo = USE_DEMO_DATA && dividendHistory.length > 0;
+
+    const formatMetricNumber = (value?: number, maximumFractionDigits = 2) => {
+        if (value === undefined || value === null || Number.isNaN(value)) return "N/A";
+        return new Intl.NumberFormat("en-US", { maximumFractionDigits }).format(value);
+    };
+
     const keyMetrics = [
-        { label: "Beta", value: "1.11" },
-        { label: "Vol Avg", value: "48.01 M" },
-        { label: "Market Cap", value: marketCapDisplay },
-        { label: "Div Yield", value: profile.metrics.dividendYieldPercent ? formatPercent(profile.metrics.dividendYieldPercent) : "0.37%" },
-        { label: "P/E Ratio", value: profile.metrics.pe ? profile.metrics.pe.toFixed(2) : "36.72" },
+        { label: "P/E Ratio", value: formatMetricNumber(profile.metrics.pe) },
+        { label: "P/S Ratio", value: formatMetricNumber(profile.metrics.ps) },
+        { label: "P/B Ratio", value: formatMetricNumber(profile.metrics.pb) },
+        {
+            label: "Dividend Yield",
+            value: profile.metrics.dividendYieldPercent !== undefined && profile.metrics.dividendYieldPercent !== null
+                ? formatPercent(profile.metrics.dividendYieldPercent)
+                : "N/A",
+        },
+        { label: "Market Cap", value: marketCapDisplay || "N/A" },
     ];
 
     const shareStats = [
-        { label: "Free float", value: "99.826" },
-        { label: "Float shares", value: "14.751 B" },
-        { label: "Outstanding shares", value: "14.776 B" },
+        { label: "Free float", value: "N/A" },
+        { label: "Float shares", value: "N/A" },
+        { label: "Outstanding shares", value: "N/A" },
         { label: "Source", value: "N/A" },
     ];
 
@@ -301,12 +365,12 @@ export default function StockProfileTabs({
     };
 
     const sparklineData = useMemo(() => {
-        const source = revenueSeries.length ? revenueSeries : businessLineData;
+        const source = revenueSeries.length ? revenueSeries : businessLineSeries;
         return source.slice(-10).map((item, idx) => ({
             name: item.label ?? `P${idx}`,
             value: (item as any).revenue ?? (item as any).iPhone ?? 0,
         }));
-    }, [revenueSeries]);
+    }, [businessLineSeries, revenueSeries]);
 
     const SymbolChip = ({ value }: { value: string }) => (
         <span className="rounded-md border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-100">
@@ -365,26 +429,50 @@ export default function StockProfileTabs({
         </div>
     );
 
+    const hasRevenueData = revenueSeries.length > 0;
+    const hasValuationData = valuationSeries.length > 0;
+    const hasBusinessData = businessLineSeries.length > 0;
+    const hasManagementData = managementTeam.length > 0;
+    const hasEarningsData = earningsHistory.length > 0;
+    const hasDividendData = dividendHistory.length > 0;
+
+    const industry = profile.company.industry || "N/A";
+    const country = profile.company.country || "N/A";
+    const exchange = profile.company.exchange || "N/A";
+    const currency = profile.company.currency || "N/A";
+
     const renderOverview = () => (
         <OpenBBLayoutGrid
             tickerInformation={
                 <OpenBBWidgetShell title="Ticker Information" symbol={symbol} rightControls={<SymbolChip value={symbol} />} height={230}>
                     <div className="grid gap-3 lg:grid-cols-3">
-                        <div className="lg:col-span-2 space-y-1">
+                        <div className="lg:col-span-2 space-y-2">
                             <p className="text-3xl font-semibold text-slate-50">{priceDisplay}</p>
-                            <p className={cn("text-sm font-semibold", priceChangeClass)}>{changeDisplay || "—"}</p>
+                            <p className={cn("text-sm font-semibold", priceChangeClass)}>{changeDisplay || "N/A"}</p>
                             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                                <span>Volume</span>
-                                <span className="font-medium text-slate-100">8.866 M</span>
-                                <span className="text-slate-500">•</span>
-                                <span>Consumer Electronics</span>
+                                <span>Industry:</span>
+                                <span className="font-medium text-slate-100">{industry}</span>
                                 <span className="text-slate-500">|</span>
-                                <span>US</span>
+                                <span>Country:</span>
+                                <span className="font-medium text-slate-100">{country}</span>
                                 <span className="text-slate-500">|</span>
-                                <span>{profile.company.exchange || "NASDAQ"}</span>
+                                <span>Exchange:</span>
+                                <span className="font-medium text-slate-100">{exchange}</span>
                             </div>
                         </div>
-                        <div className="h-24">
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-xs text-slate-300">
+                                <span>Currency</span>
+                                <span className="font-semibold text-slate-100">{currency}</span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-xs text-slate-300">
+                                <span>Market Cap</span>
+                                <span className="font-semibold text-slate-100">{marketCapDisplay || "N/A"}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="mt-3 h-24">
+                        {sparklineData.length ? (
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={sparklineData}>
                                     <defs>
@@ -404,7 +492,9 @@ export default function StockProfileTabs({
                                     />
                                 </AreaChart>
                             </ResponsiveContainer>
-                        </div>
+                        ) : (
+                            <EmptyState message="No trend data available" compact />
+                        )}
                     </div>
                 </OpenBBWidgetShell>
             }
@@ -431,49 +521,62 @@ export default function StockProfileTabs({
                         <div className="grid gap-2 text-sm text-slate-200">
                             <div className="flex items-center gap-2 text-slate-300">
                                 <MapPin className="h-4 w-4 text-amber-300" />
-                                <span>{profile.company.country || "Country N/A"}</span>
+                                <span>{country}</span>
                             </div>
                             <div className="flex items-center gap-2 text-slate-300">
                                 <Globe2 className="h-4 w-4 text-sky-300" />
                                 <span>
-                                    Sector: <span className="font-semibold text-slate-100">{profile.company.industry || "—"}</span>
+                                    Sector: <span className="font-semibold text-slate-100">{industry}</span>
                                 </span>
                             </div>
                             <div className="flex items-center gap-2 text-slate-300">
-                                <Users className="h-4 w-4 text-emerald-300" />
-                                <span>Full time employees: 164,000</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-slate-300">
                                 <Phone className="h-4 w-4 text-purple-300" />
-                                <span>Exchange: {profile.company.exchange || "NASDAQ"}</span>
+                                <span>Exchange: {exchange}</span>
                             </div>
                         </div>
                         <div className="space-y-2 rounded-xl border border-white/5 bg-white/5 p-3">
                             <SectionTitle>Description</SectionTitle>
                             <div className="max-h-32 overflow-y-auto pr-2 text-sm leading-relaxed text-slate-300">
-                                {profile.company.description ||
-                                    "Business description not available from the current provider."}
+                                {profile.company.description
+                                    ? profile.company.description
+                                    : "Business description not available from the current provider."}
                             </div>
                         </div>
                     </div>
                 </OpenBBWidgetShell>
             }
             pricePerformance={
-                <OpenBBWidgetShell title="Price Performance" symbol={symbol} rightControls={<SymbolChip value={symbol} />} height={520}>
+                <OpenBBWidgetShell
+                    title="Price Performance"
+                    symbol={symbol}
+                    rightControls={<SymbolChip value={symbol} />}
+                    className="min-h-[380px] overflow-hidden lg:min-h-[460px]"
+                >
                     <div className="space-y-2">
-                        <p className="text-xs text-slate-400">Outstanding Shares: 14.776 B</p>
-                        <TradingViewWidget
-                            scripUrl="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"
-                            config={CANDLE_CHART_WIDGET_CONFIG(profile.tvSymbol || symbol)}
-                            className="w-full"
-                            height={460}
-                        />
+                        <p className="text-xs text-slate-400">Outstanding Shares: N/A</p>
+                        <div className="overflow-hidden rounded-xl border border-white/5 bg-black/20">
+                            <TradingViewWidget
+                                scripUrl="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"
+                                config={CANDLE_CHART_WIDGET_CONFIG(profile.tvSymbol || symbol)}
+                                className="h-full w-full"
+                                height={420}
+                            />
+                        </div>
                     </div>
                 </OpenBBWidgetShell>
             }
             revenueGrowth={
-                <OpenBBWidgetShell title="Revenue Growth" symbol={symbol} rightControls={revenueControls} height={300}>
-                    <OpenBBECharts option={revenueOption} height={230} />
+                <OpenBBWidgetShell
+                    title="Revenue Growth"
+                    symbol={symbol}
+                    rightControls={<div className="flex items-center gap-2">{revenueIsDemo && <DemoBadge />}{revenueControls}</div>}
+                    height={300}
+                >
+                    {hasRevenueData ? (
+                        <OpenBBECharts option={revenueOption} height={230} />
+                    ) : (
+                        <EmptyState message="No revenue data available" />
+                    )}
                 </OpenBBWidgetShell>
             }
             keyMetrics={
@@ -508,33 +611,56 @@ export default function StockProfileTabs({
                 </OpenBBWidgetShell>
             }
             valuationMultiples={
-                <OpenBBWidgetShell title="Valuation Multiples" symbol={symbol} rightControls={valuationControls} height={360}>
-                    <OpenBBECharts option={valuationOption} height={280} />
+                <OpenBBWidgetShell
+                    title="Valuation Multiples"
+                    symbol={symbol}
+                    rightControls={
+                        <div className="flex items-center gap-2">
+                            {valuationIsDemo && <DemoBadge />}
+                            {valuationControls}
+                        </div>
+                    }
+                    height={360}
+                >
+                    {hasValuationData ? (
+                        <OpenBBECharts option={valuationOption} height={280} />
+                    ) : (
+                        <EmptyState message="No valuation data available" />
+                    )}
                 </OpenBBWidgetShell>
             }
             managementTeam={
-                <OpenBBWidgetShell title="Management Team" symbol={symbol} height={360}>
-                    <div className="overflow-hidden rounded-lg border border-white/5">
-                        <div className="grid grid-cols-4 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200">
-                            <span>Name</span>
-                            <span>Title</span>
-                            <span>Compensation</span>
-                            <span>Currency</span>
+                <OpenBBWidgetShell
+                    title="Management Team"
+                    symbol={symbol}
+                    rightControls={managementIsDemo ? <DemoBadge /> : undefined}
+                    height={360}
+                >
+                    {hasManagementData ? (
+                        <div className="overflow-hidden rounded-lg border border-white/5">
+                            <div className="grid grid-cols-4 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200">
+                                <span>Name</span>
+                                <span>Title</span>
+                                <span>Compensation</span>
+                                <span>Currency</span>
+                            </div>
+                            <div className="max-h-64 overflow-y-auto">
+                                {managementTeam.map((member) => (
+                                    <div
+                                        key={member.name}
+                                        className="grid grid-cols-4 items-center gap-2 border-t border-white/5 px-3 py-2 text-sm text-slate-200 odd:bg-white/5"
+                                    >
+                                        <span>{member.name}</span>
+                                        <span className="text-slate-300">{member.title}</span>
+                                        <span className="text-emerald-300">{member.compensation}</span>
+                                        <span>{member.currency}</span>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                        <div className="max-h-64 overflow-y-auto">
-                            {mockManagementTeam.map((member) => (
-                                <div
-                                    key={member.name}
-                                    className="grid grid-cols-4 items-center gap-2 border-t border-white/5 px-3 py-2 text-sm text-slate-200 odd:bg-white/5"
-                                >
-                                    <span>{member.name}</span>
-                                    <span className="text-slate-300">{member.title}</span>
-                                    <span className="text-emerald-300">{member.compensation}</span>
-                                    <span>{member.currency}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
+                    ) : (
+                        <EmptyState message="No management data available" />
+                    )}
                 </OpenBBWidgetShell>
             }
             revenueBusinessLine={
@@ -543,14 +669,23 @@ export default function StockProfileTabs({
                     symbol={symbol}
                     rightControls={
                         <div className="flex items-center gap-2">
-                            <Pill active>FY</Pill>
-                            <Pill>QTR</Pill>
+                            {businessLineIsDemo && <DemoBadge />}
+                            <Pill disabled title="Coming soon">
+                                FY
+                            </Pill>
+                            <Pill disabled title="Coming soon">
+                                QTR
+                            </Pill>
                             {businessPagination}
                         </div>
                     }
-                    height={360}
+                    className="min-h-[340px]"
                 >
-                    <OpenBBECharts option={businessLineOption} height={280} />
+                    {hasBusinessData ? (
+                        <OpenBBECharts option={businessLineOption} height={280} />
+                    ) : (
+                        <EmptyState message="No business line data available" />
+                    )}
                 </OpenBBWidgetShell>
             }
         />
@@ -563,8 +698,12 @@ export default function StockProfileTabs({
                 symbol={symbol}
                 rightControls={
                     <div className="flex items-center gap-2">
-                        <Pill active>FY</Pill>
-                        <Pill>QTR</Pill>
+                        <Pill disabled title="Coming soon">
+                            FY
+                        </Pill>
+                        <Pill disabled title="Coming soon">
+                            QTR
+                        </Pill>
                     </div>
                 }
             >
@@ -583,60 +722,68 @@ export default function StockProfileTabs({
                 />
             </OpenBBWidgetShell>
 
-            <OpenBBWidgetShell title="Earnings History" symbol={symbol}>
-                <div className="overflow-hidden rounded-lg border border-white/5">
-                    <div className="grid grid-cols-6 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200">
-                        <span>Date</span>
-                        <span>EPS</span>
-                        <span>EPS Est.</span>
-                        <span>Revenue</span>
-                        <span>Revenue Est.</span>
-                        <span>Transcript</span>
+            <OpenBBWidgetShell title="Earnings History" symbol={symbol} rightControls={earningsIsDemo ? <DemoBadge /> : undefined}>
+                {hasEarningsData ? (
+                    <div className="overflow-hidden rounded-lg border border-white/5">
+                        <div className="grid grid-cols-6 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200">
+                            <span>Date</span>
+                            <span>EPS</span>
+                            <span>EPS Est.</span>
+                            <span>Revenue</span>
+                            <span>Revenue Est.</span>
+                            <span>Transcript</span>
+                        </div>
+                        <div className="max-h-64 overflow-y-auto">
+                            {earningsHistory.map((row) => (
+                                <div
+                                    key={row.date}
+                                    className="grid grid-cols-6 items-center gap-2 border-t border-white/5 px-3 py-2 text-sm text-slate-200 odd:bg-white/5"
+                                >
+                                    <span>{row.date}</span>
+                                    <span className="text-emerald-300">{row.eps.toFixed(4)}</span>
+                                    <span className="text-emerald-300">{row.epsEst.toFixed(4)}</span>
+                                    <span className="text-emerald-300">{row.revenue}</span>
+                                    <span className="text-emerald-300">{row.revenueEst}</span>
+                                    <span className="text-slate-400" aria-disabled>
+                                        Transcript unavailable
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                    <div className="max-h-64 overflow-y-auto">
-                        {earningsHistory.map((row) => (
-                            <div
-                                key={row.date}
-                                className="grid grid-cols-6 items-center gap-2 border-t border-white/5 px-3 py-2 text-sm text-slate-200 odd:bg-white/5"
-                            >
-                                <span>{row.date}</span>
-                                <span className="text-emerald-300">{row.eps.toFixed(4)}</span>
-                                <span className="text-emerald-300">{row.epsEst.toFixed(4)}</span>
-                                <span className="text-emerald-300">{row.revenue}</span>
-                                <span className="text-emerald-300">{row.revenueEst}</span>
-                                <a className="text-sky-300 hover:text-sky-200" href="#">
-                                    View transcript
-                                </a>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                ) : (
+                    <EmptyState message="No earnings history available" />
+                )}
             </OpenBBWidgetShell>
 
-            <OpenBBWidgetShell title="Dividend Payment" symbol={symbol}>
-                <div className="overflow-hidden rounded-lg border border-white/5">
-                    <div className="grid grid-cols-5 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200">
-                        <span>Date</span>
-                        <span>Adjusted Dividend</span>
-                        <span>Dividend</span>
-                        <span>Record Date</span>
-                        <span>Payment Date</span>
+            <OpenBBWidgetShell title="Dividend Payment" symbol={symbol} rightControls={dividendIsDemo ? <DemoBadge /> : undefined}>
+                {hasDividendData ? (
+                    <div className="overflow-hidden rounded-lg border border-white/5">
+                        <div className="grid grid-cols-5 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200">
+                            <span>Date</span>
+                            <span>Adjusted Dividend</span>
+                            <span>Dividend</span>
+                            <span>Record Date</span>
+                            <span>Payment Date</span>
+                        </div>
+                        <div className="max-h-64 overflow-y-auto">
+                            {dividendHistory.map((row) => (
+                                <div
+                                    key={row.date}
+                                    className="grid grid-cols-5 items-center gap-2 border-t border-white/5 px-3 py-2 text-sm text-slate-200 odd:bg-white/5"
+                                >
+                                    <span>{row.date}</span>
+                                    <span className="text-emerald-300">{row.adjusted.toFixed(2)}</span>
+                                    <span className="text-emerald-300">{row.dividend.toFixed(2)}</span>
+                                    <span>{row.recordDate}</span>
+                                    <span>{row.paymentDate}</span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                    <div className="max-h-64 overflow-y-auto">
-                        {dividendHistory.map((row) => (
-                            <div
-                                key={row.date}
-                                className="grid grid-cols-5 items-center gap-2 border-t border-white/5 px-3 py-2 text-sm text-slate-200 odd:bg-white/5"
-                            >
-                                <span>{row.date}</span>
-                                <span className="text-emerald-300">{row.adjusted.toFixed(2)}</span>
-                                <span className="text-emerald-300">{row.dividend.toFixed(2)}</span>
-                                <span>{row.recordDate}</span>
-                                <span>{row.paymentDate}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                ) : (
+                    <EmptyState message="No dividend payments available" />
+                )}
             </OpenBBWidgetShell>
         </div>
     );

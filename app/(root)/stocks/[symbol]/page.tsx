@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/better-auth/auth";
 import { getSymbolSnapshot } from "@/lib/actions/finnhub.actions";
 import { isSymbolInWatchlist } from "@/lib/actions/watchlist.actions";
-import { getAlertsByUser } from "@/lib/actions/alert.actions";
+import { getAlertsByUser, normalizeAlert } from "@/lib/actions/alert.actions";
 import StockActionBar from "./StockActionBar";
 import { getStockProfileV2 } from "@/lib/stocks/getStockProfileV2";
 import StockProfileTabs from "./StockProfileTabs";
@@ -21,13 +21,7 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
     ]);
 
     const symbolAlert = alerts.find((alert) => alert.symbol === symbolUpper);
-    const symbolAlertDisplay = symbolAlert
-        ? {
-              ...symbolAlert,
-              id: String((symbolAlert as { _id?: string })._id || symbolAlert._id || ''),
-              createdAt: symbolAlert.createdAt,
-          }
-        : undefined;
+    const symbolAlertDisplay = symbolAlert ? normalizeAlert(symbolAlert) : undefined;
     const companyName = stockProfile.company.name || stockProfile.finnhubSymbol;
     const marketCapDisplay = stockProfile.company.marketCap
         ? formatMarketCapValue(stockProfile.company.marketCap)
@@ -42,7 +36,6 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
     const change = stockProfile.price?.changePercent ?? snapshot.changePercent;
     const changeDisplay =
         change === undefined || change === null ? "" : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
-    const changeClass = change === undefined || change === null ? "text-muted-foreground" : change >= 0 ? "text-green-400" : "text-red-400";
     const showProviderDebug = process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_DEBUG_PROVIDER_STATUS === "1";
 
     return (
@@ -86,7 +79,7 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                             symbol={symbolUpper}
                             company={snapshot.company || symbolUpper}
                             isInWatchlist={inWatchlist}
-                            initialAlert={symbolAlertDisplay as AlertDisplay | undefined}
+                            initialAlert={symbolAlertDisplay}
                         />
                     </div>
                 </div>

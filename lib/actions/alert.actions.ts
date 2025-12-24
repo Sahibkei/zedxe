@@ -8,7 +8,7 @@ import { Alert, type AlertItem } from '@/database/models/alert.model';
 import { connectToDatabase } from '@/database/mongoose';
 import { auth } from '@/lib/better-auth/auth';
 
-const normalizeAlert = (alert: AlertItem): AlertDisplay => ({
+export const normalizeAlert = (alert: AlertItem): AlertDisplay => ({
     id: String(alert._id),
     userId: alert.userId,
     symbol: alert.symbol,

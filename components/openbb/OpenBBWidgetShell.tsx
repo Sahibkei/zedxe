@@ -16,15 +16,16 @@ type OpenBBWidgetShellProps = {
     allowSettings?: boolean;
 };
 
-function HeaderIconButton({ children, label }: { children: ReactNode; label: string }) {
+function HeaderIcon({ children, label }: { children: ReactNode; label: string }) {
     return (
-        <button
-            type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/5 bg-white/5 text-slate-200 transition hover:border-white/10 hover:bg-white/10"
+        <span
             aria-label={label}
+            aria-disabled
+            title="Coming soon"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/5 bg-white/5 text-slate-200 opacity-60"
         >
             {children}
-        </button>
+        </span>
     );
 }
 
@@ -71,22 +72,26 @@ export function OpenBBWidgetShell({
                 <div className="flex items-center gap-2">
                     {rightControls && <div className="flex items-center gap-1">{rightControls}</div>}
                     {allowExpand && (
-                        <HeaderIconButton label="Expand widget">
+                        <HeaderIcon label="Expand widget">
                             <Maximize2 className="h-4 w-4" />
-                        </HeaderIconButton>
+                        </HeaderIcon>
                     )}
                     {allowSettings && (
-                        <HeaderIconButton label="Widget settings">
+                        <HeaderIcon label="Widget settings">
                             <Settings2 className="h-4 w-4" />
-                        </HeaderIconButton>
+                        </HeaderIcon>
                     )}
                     {allowClose && (
-                        <HeaderIconButton label="Close widget">
+                        <HeaderIcon label="Close widget">
                             <X className="h-4 w-4" />
-                        </HeaderIconButton>
+                        </HeaderIcon>
                     )}
                     {!allowExpand && !allowSettings && !allowClose && (
-                        <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/5 bg-white/5 text-slate-200">
+                        <span
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/5 bg-white/5 text-slate-200 opacity-60"
+                            aria-disabled
+                            title="Coming soon"
+                        >
                             <MoreHorizontal className="h-4 w-4" />
                         </span>
                     )}
