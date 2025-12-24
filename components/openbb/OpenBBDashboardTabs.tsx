@@ -6,12 +6,7 @@ import { cn } from "@/lib/utils";
 
 export type DashboardTabKey =
     | "overview"
-    | "financials"
-    | "technical"
-    | "comparison"
-    | "ownership"
-    | "calendar"
-    | "estimates";
+    | "financials";
 
 type TabConfig = {
     key: DashboardTabKey;
@@ -28,11 +23,6 @@ type OpenBBDashboardTabsProps = {
 const defaultTabs: TabConfig[] = [
     { key: "overview", label: "Overview" },
     { key: "financials", label: "Financials" },
-    { key: "technical", label: "Technical Analysis" },
-    { key: "comparison", label: "Comparison Analysis" },
-    { key: "ownership", label: "Ownership" },
-    { key: "calendar", label: "Company Calendar" },
-    { key: "estimates", label: "Estimates" },
 ];
 
 export function OpenBBDashboardTabs({ activeKey, onChange, className, tabs }: OpenBBDashboardTabsProps) {

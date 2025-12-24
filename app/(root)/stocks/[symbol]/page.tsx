@@ -8,7 +8,6 @@ import { getStockProfileV2 } from "@/lib/stocks/getStockProfileV2";
 import StockProfileTabs from "./StockProfileTabs";
 import { cn, formatMarketCapValue, formatPrice } from "@/lib/utils";
 import ProviderStatusDebug from "./ProviderStatusDebug";
-import { normalizeAlert } from "@/lib/utils/alerts/normalizeAlert";
 
 export default async function StockDetails({ params }: StockDetailsPageProps) {
     const { symbol } = await params;
@@ -21,8 +20,6 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
         session?.user ? getAlertsByUser(session.user.id) : Promise.resolve([]),
     ]);
 
-    const symbolAlert = alerts.find((alert) => alert.symbol === symbolUpper);
-    const symbolAlertDisplay = symbolAlert ? normalizeAlert(symbolAlert) : undefined;
     const companyName = stockProfile.company.name || stockProfile.finnhubSymbol;
     const marketCapDisplay = stockProfile.company.marketCap
         ? formatMarketCapValue(stockProfile.company.marketCap)
@@ -80,7 +77,6 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
                             symbol={symbolUpper}
                             company={snapshot.company || symbolUpper}
                             isInWatchlist={inWatchlist}
-                            initialAlert={symbolAlertDisplay}
                         />
                     </div>
                 </div>
