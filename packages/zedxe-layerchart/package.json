@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "./dist/zedxe-layerchart.js",
+  "module": "./dist/zedxe-layerchart.js",
+  "exports": {
+    ".": {
+      "import": "./dist/zedxe-layerchart.js",
+      "require": "./dist/zedxe-layerchart.js"
+    },
+    "./dist/*": "./dist/*"
+  },
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",

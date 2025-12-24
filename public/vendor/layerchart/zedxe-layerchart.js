@@ -39,6 +39,9 @@
     box-shadow: 0 10px 25px rgba(56, 189, 248, 0.15);
   }
   .bar-group .label { text-align: center; font-size: 0.75rem; color: rgba(255,255,255,0.8); }
+  .axis { display:flex; justify-content:space-between; margin-top:10px; color: rgba(255,255,255,0.55); font-size:0.75rem; }
+  .axis-label { display:inline-block; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
   .geo-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
   .geo-item { display: flex; flex-direction: column; gap: 6px; }
   .geo-head { display: flex; justify-content: space-between; color: rgba(255,255,255,0.86); font-size: 0.9rem; }
@@ -79,7 +82,7 @@
   const parseGeo = (raw) => {
     const result = parseJson(raw);
     if (!result.values.length) return result;
-    const filtered = result.values.filter((item) => typeof item?.value === "number" && typeof item?.region === "string");
+    const filtered = result.values.filter((item) => typeof item?.value === "number" && !Number.isNaN(item.value) && typeof item?.region === "string");
     if (!filtered.length) return { values: [], error: "Geo data missing required fields" };
     return { values: filtered };
   };
@@ -87,7 +90,7 @@
   const parseSankey = (raw) => {
     const result = parseJson(raw);
     if (!result.values.length) return result;
-    const filtered = result.values.filter((item) => typeof item?.value === "number" && typeof item?.source === "string" && typeof item?.target === "string");
+    const filtered = result.values.filter((item) => typeof item?.value === "number" && !Number.isNaN(item.value) && typeof item?.source === "string" && typeof item?.target === "string");
     if (!filtered.length) return { values: [], error: "Sankey data missing required fields" };
     return { values: filtered };
   };
@@ -112,7 +115,11 @@
     }
     showEmpty(container, message = "No data") {
       if (!container) return;
-      container.innerHTML = `<div class="empty">${message}</div>`;
+      container.textContent = "";
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = message;
+      container.appendChild(empty);
     }
   }
 
@@ -126,16 +133,43 @@
         return;
       }
       const maxValue = values.reduce((acc, item) => Math.max(acc, item.value || 0), 0) || 1;
-      const bars = values
-        .map((item) => {
-          const height = Math.max(4, (item.value / maxValue) * 100);
-          return `<div class="bar-group" title="${item.label}: ${item.value}">
-            <div class="bar" style="height:${height}%"></div>
-            <span class="label">${item.label}</span>
-          </div>`;
-        })
-        .join("");
-      container.innerHTML = `<div class="bars">${bars}</div>`;
+      container.textContent = "";
+      const bars = document.createElement("div");
+      bars.className = "bars";
+      const frag = document.createDocumentFragment();
+      values.forEach((item) => {
+        const group = document.createElement("div");
+        group.className = "bar-group";
+        group.setAttribute("title", `${item.label}: ${item.value}`);
+
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        bar.style.height = `${Math.max(4, (item.value / maxValue) * 100)}%`;
+        const sr = document.createElement("span");
+        sr.className = "sr-only";
+        sr.textContent = `${item.label}: ${item.value}`;
+        bar.appendChild(sr);
+
+        const label = document.createElement("span");
+        label.className = "label";
+        label.textContent = item.label;
+
+        group.append(bar, label);
+        frag.appendChild(group);
+      });
+      bars.appendChild(frag);
+
+      const axis = document.createElement("div");
+      axis.className = "axis";
+      const left = document.createElement("span");
+      left.className = "axis-label";
+      left.textContent = "Period";
+      const right = document.createElement("span");
+      right.className = "axis-label";
+      right.textContent = "Change (%)";
+      axis.append(left, right);
+
+      container.append(bars, axis);
     }
   }
 
@@ -149,16 +183,35 @@
         return;
       }
       const maxValue = values.reduce((acc, item) => Math.max(acc, item.value || 0), 0) || 1;
-      const list = values
-        .map((item) => {
-          const width = Math.max(6, (item.value / maxValue) * 100);
-          return `<li class="geo-item">
-            <div class="geo-head"><span>${item.region}</span><span class="geo-value">${item.value.toLocaleString?.() ?? item.value}</span></div>
-            <div class="geo-bar-wrap"><div class="geo-bar" style="width:${width}%"></div></div>
-          </li>`;
-        })
-        .join("");
-      container.innerHTML = `<ul class="geo-list">${list}</ul>`;
+      container.textContent = "";
+      const listEl = document.createElement("ul");
+      listEl.className = "geo-list";
+      const frag = document.createDocumentFragment();
+      values.forEach((item) => {
+        const li = document.createElement("li");
+        li.className = "geo-item";
+
+        const head = document.createElement("div");
+        head.className = "geo-head";
+        const region = document.createElement("span");
+        region.textContent = item.region;
+        const value = document.createElement("span");
+        value.className = "geo-value";
+        value.textContent = (item.value ?? 0).toLocaleString();
+        head.append(region, value);
+
+        const wrap = document.createElement("div");
+        wrap.className = "geo-bar-wrap";
+        const bar = document.createElement("div");
+        bar.className = "geo-bar";
+        bar.style.width = `${Math.max(6, (item.value / maxValue) * 100)}%`;
+        wrap.appendChild(bar);
+
+        li.append(head, wrap);
+        frag.appendChild(li);
+      });
+      listEl.appendChild(frag);
+      container.appendChild(listEl);
     }
   }
 
@@ -172,17 +225,40 @@
         return;
       }
       const maxValue = values.reduce((acc, item) => Math.max(acc, item.value || 0), 0) || 1;
-      const flows = values
-        .map((link) => {
-          const width = Math.max(6, (link.value / maxValue) * 100);
-          return `<div class="flow">
-            <div class="flow-head"><span class="flow-source">${link.source}</span><span class="flow-target">→ ${link.target}</span></div>
-            <div class="flow-bar-wrap"><div class="flow-bar" style="width:${width}%"></div></div>
-            <span class="flow-value">${link.value.toLocaleString?.() ?? link.value}</span>
-          </div>`;
-        })
-        .join("");
-      container.innerHTML = `<div class="flow-grid">${flows}</div>`;
+      container.textContent = "";
+      const grid = document.createElement("div");
+      grid.className = "flow-grid";
+      const frag = document.createDocumentFragment();
+      values.forEach((link) => {
+        const flow = document.createElement("div");
+        flow.className = "flow";
+
+        const head = document.createElement("div");
+        head.className = "flow-head";
+        const source = document.createElement("span");
+        source.className = "flow-source";
+        source.textContent = link.source;
+        const target = document.createElement("span");
+        target.className = "flow-target";
+        target.textContent = `→ ${link.target}`;
+        head.append(source, target);
+
+        const wrap = document.createElement("div");
+        wrap.className = "flow-bar-wrap";
+        const bar = document.createElement("div");
+        bar.className = "flow-bar";
+        bar.style.width = `${Math.max(6, (link.value / maxValue) * 100)}%`;
+        wrap.appendChild(bar);
+
+        const value = document.createElement("span");
+        value.className = "flow-value";
+        value.textContent = (link.value ?? 0).toLocaleString();
+
+        flow.append(head, wrap, value);
+        frag.appendChild(flow);
+      });
+      grid.appendChild(frag);
+      container.appendChild(grid);
     }
   }
 

@@ -17,7 +17,7 @@ export default function HistogramWC({ data }: HistogramWCProps) {
 
   return (
     <ChartShell title="Distribution" description="Histogram of recent moves">
-      <ErrorBoundary>
+      <ErrorBoundary componentName="HistogramWC">
         {safeData ? (
           <zedxe-histogram data={safeData} style={{ display: "block", width: "100%", minHeight: 280 }} />
         ) : (

@@ -26,7 +26,7 @@ export function parseHistogram(raw?: string | null): ParsedResult<HistogramDatum
 export function parseGeo(raw?: string | null): ParsedResult<GeoDatum> {
   const result = parseJson<GeoDatum>(raw);
   if (!result.values.length) return result;
-  const filtered = result.values.filter((item) => typeof item?.value === "number" && typeof item?.region === "string");
+  const filtered = result.values.filter((item) => typeof item?.value === "number" && !Number.isNaN(item.value) && typeof item?.region === "string");
   if (!filtered.length) {
     return { values: [], error: "Geo data missing required fields" };
   }
@@ -37,7 +37,7 @@ export function parseSankey(raw?: string | null): ParsedResult<SankeyLink> {
   const result = parseJson<SankeyLink>(raw);
   if (!result.values.length) return result;
   const filtered = result.values.filter(
-    (item) => typeof item?.value === "number" && typeof item?.source === "string" && typeof item?.target === "string"
+    (item) => typeof item?.value === "number" && !Number.isNaN(item.value) && typeof item?.source === "string" && typeof item?.target === "string"
   );
   if (!filtered.length) {
     return { values: [], error: "Sankey data missing required fields" };

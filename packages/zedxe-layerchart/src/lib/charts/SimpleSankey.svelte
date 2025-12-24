@@ -2,7 +2,7 @@
   import type { SankeyLink } from "../types";
 
   export let links: SankeyLink[] = [];
-  const maxValue = links.reduce((acc, item) => Math.max(acc, item.value || 0), 0) || 1;
+  $: maxValue = links.reduce((acc, item) => Math.max(acc, item.value || 0), 0) || 1;
 </script>
 
 <div class="sankey">
@@ -19,7 +19,7 @@
           <div class="bar-wrap">
             <div class="bar" style={`width:${Math.max(6, (link.value / maxValue) * 100)}%`}></div>
           </div>
-          <span class="value">{link.value.toLocaleString()}</span>
+          <span class="value">{(link.value ?? 0).toLocaleString()}</span>
         </div>
       {/each}
     </div>

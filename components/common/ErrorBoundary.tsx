@@ -5,6 +5,7 @@ import React from "react";
 interface ErrorBoundaryProps {
   children: React.ReactNode;
   fallback?: React.ReactNode;
+  componentName?: string;
 }
 
 interface ErrorBoundaryState {
@@ -22,7 +23,8 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("LayerChart widget crashed", error, errorInfo);
+    const label = this.props.componentName ? `${this.props.componentName} crashed` : "Component crashed";
+    console.error(label, error, errorInfo);
   }
 
   handleRetry = () => {

@@ -19,7 +19,7 @@ export default function SankeyWC({ data }: SankeyWCProps) {
 
   return (
     <ChartShell title="Revenue Flow" description="High-level segment flows">
-      <ErrorBoundary>
+      <ErrorBoundary componentName="SankeyWC">
         {safeData ? (
           <zedxe-sankey data={safeData} style={{ display: "block", width: "100%", minHeight: 280 }} />
         ) : (

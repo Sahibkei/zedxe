@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const BUNDLE_SRC = "/vendor/layerchart/zedxe-layerchart.js";
 const BUNDLE_ID = "zedxe-layerchart-bundle";
@@ -29,7 +29,6 @@ function loadLayerChartBundle() {
   loadPromise = new Promise((resolve, reject) => {
     const script = document.createElement("script");
     script.id = BUNDLE_ID;
-    script.type = "module";
     script.src = BUNDLE_SRC;
     script.async = true;
 
@@ -51,30 +50,40 @@ function loadLayerChartBundle() {
 export function useLayerChartLoader() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  const retryCountRef = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    mountedRef.current = true;
     loadLayerChartBundle()
       .then(() => {
-        if (cancelled) return;
+        if (!mountedRef.current) return;
         setReady(true);
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (!mountedRef.current) return;
         setError(err instanceof Error ? err.message : "Unable to load chart bundle");
       });
 
     return () => {
-      cancelled = true;
+        mountedRef.current = false;
     };
   }, []);
 
   const retry = () => {
     setError(null);
     setReady(false);
+    retryCountRef.current += 1;
+    const currentAttempt = retryCountRef.current;
     loadLayerChartBundle()
-      .then(() => setReady(true))
-      .catch((err) => setError(err instanceof Error ? err.message : "Unable to load chart bundle"));
+      .then(() => {
+        if (!mountedRef.current || currentAttempt !== retryCountRef.current) return;
+        setReady(true);
+      })
+      .catch((err) => {
+        if (!mountedRef.current || currentAttempt !== retryCountRef.current) return;
+        setError(err instanceof Error ? err.message : "Unable to load chart bundle");
+      });
   };
 
   return { ready, error, retry };

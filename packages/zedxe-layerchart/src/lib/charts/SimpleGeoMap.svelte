@@ -2,7 +2,7 @@
   import type { GeoDatum } from "../types";
 
   export let values: GeoDatum[] = [];
-  const maxValue = values.reduce((acc, item) => Math.max(acc, item.value || 0), 0) || 1;
+  $: maxValue = values.reduce((acc, item) => Math.max(acc, item.value || 0), 0) || 1;
 </script>
 
 <div class="geo">
@@ -14,7 +14,7 @@
         <li>
           <div class="label">
             <span>{item.region}</span>
-            <span class="value">{item.value.toLocaleString()}</span>
+            <span class="value">{(item.value ?? 0).toLocaleString()}</span>
           </div>
           <div class="bar-wrap">
             <div class="bar" style={`width:${Math.max(6, (item.value / maxValue) * 100)}%`}></div>

@@ -17,7 +17,7 @@ export default function GeoMapWC({ data }: GeoMapWCProps) {
 
   return (
     <ChartShell title="Revenue by Geography" description="Simplified regional mix">
-      <ErrorBoundary>
+      <ErrorBoundary componentName="GeoMapWC">
         {safeData ? (
           <zedxe-geo-map data={safeData} style={{ display: "block", width: "100%", minHeight: 280 }} />
         ) : (

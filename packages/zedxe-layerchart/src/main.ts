@@ -1,3 +1,3 @@
-import "./Histogram.svelte";
-import "./GeoMap.svelte";
-import "./Sankey.svelte";
+import "./lib/Histogram.svelte";
+import "./lib/GeoMap.svelte";
+import "./lib/Sankey.svelte";

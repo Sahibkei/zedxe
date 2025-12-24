@@ -50,6 +50,7 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
         change === undefined || change === null ? "" : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
     const changeClass = change === undefined || change === null ? "text-muted-foreground" : change >= 0 ? "text-green-400" : "text-red-400";
     const showProviderDebug = process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_DEBUG_PROVIDER_STATUS === "1";
+    // TODO: replace placeholder chart data with real timeframe performance when available.
     const histogramData = [
         { label: "1D", value: Number.parseFloat((snapshot.changePercent ?? 0).toFixed(2)) || 0.2 },
         { label: "1W", value: Number.parseFloat(((snapshot as Record<string, number>).weekChangePercent ?? 1.4).toFixed(2)) },
@@ -57,12 +58,14 @@ export default async function StockDetails({ params }: StockDetailsPageProps) {
         { label: "3M", value: Number.parseFloat(((snapshot as Record<string, number>).threeMonthChangePercent ?? 3.8).toFixed(2)) },
         { label: "YTD", value: Number.parseFloat(((snapshot as Record<string, number>).ytdChangePercent ?? 5.2).toFixed(2)) },
     ];
+    // TODO: replace placeholder geo revenue mix with API-backed data.
     const geoData = [
         { region: stockProfile.company.country || "United States", value: 54 },
         { region: "Europe", value: 26 },
         { region: "Asia-Pacific", value: 14 },
         { region: "Rest of World", value: 6 },
     ];
+    // TODO: replace placeholder revenue flow with API-backed data.
     const sankeyData = [
         { source: "North America", target: "Cloud", value: 32 },
         { source: "North America", target: "Devices", value: 14 },

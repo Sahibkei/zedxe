@@ -4,7 +4,7 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 export default defineConfig({
   plugins: [
     svelte({
-      emitCss: true,
+      emitCss: false,
       compilerOptions: {
         customElement: true
       }
