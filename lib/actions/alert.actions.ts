@@ -7,21 +7,7 @@ import { redirect } from 'next/navigation';
 import { Alert, type AlertItem } from '@/database/models/alert.model';
 import { connectToDatabase } from '@/database/mongoose';
 import { auth } from '@/lib/better-auth/auth';
-
-export const normalizeAlert = (alert: AlertItem): AlertDisplay => ({
-    id: String(alert._id),
-    userId: alert.userId,
-    symbol: alert.symbol,
-    company: alert.company,
-    alertName: alert.alertName,
-    condition: alert.condition,
-    thresholdValue: alert.thresholdValue,
-    frequency: alert.frequency,
-    isActive: alert.isActive,
-    createdAt: alert.createdAt,
-    lastTriggeredAt: alert.lastTriggeredAt ?? null,
-    lastPrice: alert.lastPrice ?? null,
-});
+import { normalizeAlert } from '@/lib/utils/alerts/normalizeAlert';
 
 export async function getAlertsByUser(userId: string): Promise<AlertItem[]> {
     if (!userId) return [];

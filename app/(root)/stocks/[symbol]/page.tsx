@@ -2,12 +2,13 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/better-auth/auth";
 import { getSymbolSnapshot } from "@/lib/actions/finnhub.actions";
 import { isSymbolInWatchlist } from "@/lib/actions/watchlist.actions";
-import { getAlertsByUser, normalizeAlert } from "@/lib/actions/alert.actions";
+import { getAlertsByUser } from "@/lib/actions/alert.actions";
 import StockActionBar from "./StockActionBar";
 import { getStockProfileV2 } from "@/lib/stocks/getStockProfileV2";
 import StockProfileTabs from "./StockProfileTabs";
 import { cn, formatMarketCapValue, formatPrice } from "@/lib/utils";
 import ProviderStatusDebug from "./ProviderStatusDebug";
+import { normalizeAlert } from "@/lib/utils/alerts/normalizeAlert";
 
 export default async function StockDetails({ params }: StockDetailsPageProps) {
     const { symbol } = await params;
