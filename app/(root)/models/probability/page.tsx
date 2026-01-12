@@ -55,14 +55,27 @@ const ProbabilityPage = () => {
 
     const probabilities = useMemo(() => {
         const seed = hashSeed(
-            `${symbol}|${timeframe}|${horizon}|${lookback}|${targetX}|${event}`
+            `${symbol}|${timeframe}|${horizon}|${lookback}|${event}`
         );
         const random = mulberry32(seed);
-        const u1 = random();
-        const u2 = random();
-        const u3 = random();
-        let up = clampProbability(0.05 + u1 * 0.55, 0.01, 0.8);
-        let down = clampProbability(0.05 + u2 * 0.55, 0.01, 0.8);
+        const rUp = random();
+        const rDown = random();
+        const rWithin = random();
+        const baseUp = 0.35 + rUp * 0.35;
+        const baseDown = 0.35 + rDown * 0.35;
+        const aUp = 0.06 + rUp * 0.08;
+        const aDown = 0.06 + rDown * 0.08;
+        const difficulty = targetX / (targetX + 18);
+        let up = clampProbability(
+            baseUp * Math.exp(-aUp * targetX) * (1 - 0.15 * difficulty),
+            0.01,
+            0.8
+        );
+        let down = clampProbability(
+            baseDown * Math.exp(-aDown * targetX) * (1 - 0.15 * difficulty),
+            0.01,
+            0.8
+        );
         const tailSum = up + down;
         if (tailSum > 0.95) {
             const scale = 0.95 / tailSum;
@@ -70,7 +83,7 @@ const ProbabilityPage = () => {
             down = clampProbability(down * scale, 0.01, 0.8);
         }
         const within = clampProbability(
-            1 - (up + down) + (u3 - 0.5) * 0.02,
+            1 - (up + down) + (rWithin - 0.5) * 0.01,
             0.01,
             0.98
         );
