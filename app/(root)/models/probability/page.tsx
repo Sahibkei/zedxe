@@ -18,8 +18,28 @@ const LOOKBACKS = [250, 500, 1000] as const;
 const X_PRESETS = [5, 10, 15, 20, 25] as const;
 const AS_OF = "2024-10-02 16:00 UTC";
 
-const clampProbability = (value: number) =>
-    Math.min(0.99, Math.max(0.01, value));
+const clampProbability = (value: number, min = 0.01, max = 0.99) =>
+    Math.min(max, Math.max(min, value));
+
+const hashSeed = (input: string) => {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < input.length; i += 1) {
+        hash ^= input.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return hash >>> 0;
+};
+
+const mulberry32 = (seed: number) => {
+    let t = seed;
+    return () => {
+        t += 0x6d2b79f5;
+        let x = t;
+        x = Math.imul(x ^ (x >>> 15), x | 1);
+        x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+        return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+    };
+};
 
 const formatProbability = (value: number) => `${(value * 100).toFixed(1)}%`;
 
@@ -31,13 +51,28 @@ const ProbabilityPage = () => {
     const [horizon, setHorizon] = useState(48);
     const [lookback, setLookback] = useState<number>(500);
     const [targetX, setTargetX] = useState(15);
+    const [event, setEvent] = useState<"end" | "touch">("end");
 
     const probabilities = useMemo(() => {
-        const normalized = Math.min(1, Math.max(0, targetX / 30));
-        const up = clampProbability(0.15 + normalized * 0.7);
-        const down = clampProbability(0.2 + (1 - normalized) * 0.6);
+        const seed = hashSeed(
+            `${symbol}|${timeframe}|${horizon}|${lookback}|${targetX}|${event}`
+        );
+        const random = mulberry32(seed);
+        const u1 = random();
+        const u2 = random();
+        const u3 = random();
+        let up = clampProbability(0.05 + u1 * 0.55, 0.01, 0.8);
+        let down = clampProbability(0.05 + u2 * 0.55, 0.01, 0.8);
+        const tailSum = up + down;
+        if (tailSum > 0.95) {
+            const scale = 0.95 / tailSum;
+            up = clampProbability(up * scale, 0.01, 0.8);
+            down = clampProbability(down * scale, 0.01, 0.8);
+        }
         const within = clampProbability(
-            0.1 + (1 - Math.abs(0.5 - normalized) * 1.2) * 0.7
+            1 - (up + down) + (u3 - 0.5) * 0.02,
+            0.01,
+            0.98
         );
 
         return {
@@ -45,7 +80,7 @@ const ProbabilityPage = () => {
             down,
             within,
         };
-    }, [targetX]);
+    }, [event, horizon, lookback, symbol, targetX, timeframe]);
 
     return (
         <section className="mx-auto max-w-6xl space-y-8 px-4 py-8">
@@ -241,6 +276,7 @@ const ProbabilityPage = () => {
                                     type="button"
                                     size="sm"
                                     className="border border-emerald-500/40 bg-emerald-500/15 text-emerald-100"
+                                    onClick={() => setEvent("end")}
                                 >
                                     End
                                 </Button>
@@ -274,9 +310,12 @@ const ProbabilityPage = () => {
             <div className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <h2 className="text-xl font-semibold text-white">Results</h2>
-                    <span className="text-xs uppercase tracking-wide text-gray-500">
-                        Computed from last completed candle
-                    </span>
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500">
+                        <span>Computed from last completed candle</span>
+                        <span className="rounded-full border border-gray-700 bg-gray-900/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                            Mocked (no live data yet)
+                        </span>
+                    </div>
                 </div>
                 <div className="grid gap-6 md:grid-cols-3">
                     {[
