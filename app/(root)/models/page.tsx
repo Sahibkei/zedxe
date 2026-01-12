@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
 
 const MODELS = [
@@ -6,9 +8,10 @@ const MODELS = [
         description: "Real-time probability by horizon close (END event).",
         badge: "MVP",
         badgeClass: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-        ctaLabel: "Available next update",
-        ctaDisabled: true,
-        ctaHint: "Available in next update",
+        ctaLabel: "Open model",
+        ctaDisabled: false,
+        ctaHint: "Open Probability (Now)",
+        ctaHref: "/models/probability",
     },
     {
         title: "Volatility",
@@ -61,14 +64,26 @@ const ModelsPage = () => (
                         </p>
                     </div>
                     <div className="pt-6">
-                        <Button
-                            type="button"
-                            className="w-full bg-gray-800 text-gray-500"
-                            disabled={model.ctaDisabled}
-                            title={model.ctaHint}
-                        >
-                            {model.ctaLabel}
-                        </Button>
+                        {model.ctaHref ? (
+                            <Button
+                                asChild
+                                className="w-full bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                                title={model.ctaHint}
+                            >
+                                <Link href={model.ctaHref}>
+                                    {model.ctaLabel}
+                                </Link>
+                            </Button>
+                        ) : (
+                            <Button
+                                type="button"
+                                className="w-full bg-gray-800 text-gray-500"
+                                disabled={model.ctaDisabled}
+                                title={model.ctaHint}
+                            >
+                                {model.ctaLabel}
+                            </Button>
+                        )}
                     </div>
                 </div>
             ))}
