@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,36 +12,36 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 
+type ProbabilityEvent = "end" | "touch";
+
+type ProbabilityResponse = {
+    mode: "mock" | "service";
+    as_of: string;
+    symbol: string;
+    timeframe: string;
+    horizon: number;
+    lookback: number;
+    targetX: number;
+    event: ProbabilityEvent;
+    p_up_ge_x: number;
+    p_dn_ge_x: number;
+    p_within_pm_x: number;
+    meta?: {
+        note?: string;
+    };
+};
+
 const SYMBOLS = ["EURUSD", "XAUUSD", "US500"] as const;
 const TIMEFRAMES = ["M5", "M15", "H1"] as const;
 const LOOKBACKS = [250, 500, 1000] as const;
 const X_PRESETS = [5, 10, 15, 20, 25] as const;
-const AS_OF = "2024-10-02 16:00 UTC";
 
-const clampProbability = (value: number, min = 0.01, max = 0.99) =>
-    Math.min(max, Math.max(min, value));
-
-const hashSeed = (input: string) => {
-    let hash = 0x811c9dc5;
-    for (let i = 0; i < input.length; i += 1) {
-        hash ^= input.charCodeAt(i);
-        hash = Math.imul(hash, 0x01000193);
+const formatProbability = (value?: number) => {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        return "--";
     }
-    return hash >>> 0;
+    return `${(value * 100).toFixed(1)}%`;
 };
-
-const mulberry32 = (seed: number) => {
-    let t = seed;
-    return () => {
-        t += 0x6d2b79f5;
-        let x = t;
-        x = Math.imul(x ^ (x >>> 15), x | 1);
-        x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
-        return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
-    };
-};
-
-const formatProbability = (value: number) => `${(value * 100).toFixed(1)}%`;
 
 const ProbabilityPage = () => {
     const [symbol, setSymbol] = useState<(typeof SYMBOLS)[number]>("EURUSD");
@@ -51,49 +51,89 @@ const ProbabilityPage = () => {
     const [horizon, setHorizon] = useState(48);
     const [lookback, setLookback] = useState<number>(500);
     const [targetX, setTargetX] = useState(15);
-    const [event, setEvent] = useState<"end" | "touch">("end");
+    const [event, setEvent] = useState<ProbabilityEvent>("end");
+    const [debouncedTargetX, setDebouncedTargetX] = useState(targetX);
+    const [probability, setProbability] =
+        useState<ProbabilityResponse | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [requestError, setRequestError] = useState<string | null>(null);
 
-    const probabilities = useMemo(() => {
-        const seed = hashSeed(
-            `${symbol}|${timeframe}|${horizon}|${lookback}|${event}`
-        );
-        const random = mulberry32(seed);
-        const rUp = random();
-        const rDown = random();
-        const rWithin = random();
-        const baseUp = 0.35 + rUp * 0.35;
-        const baseDown = 0.35 + rDown * 0.35;
-        const aUp = 0.06 + rUp * 0.08;
-        const aDown = 0.06 + rDown * 0.08;
-        const difficulty = targetX / (targetX + 18);
-        let up = clampProbability(
-            baseUp * Math.exp(-aUp * targetX) * (1 - 0.15 * difficulty),
-            0.01,
-            0.8
-        );
-        let down = clampProbability(
-            baseDown * Math.exp(-aDown * targetX) * (1 - 0.15 * difficulty),
-            0.01,
-            0.8
-        );
-        const tailSum = up + down;
-        if (tailSum > 0.95) {
-            const scale = 0.95 / tailSum;
-            up = clampProbability(up * scale, 0.01, 0.8);
-            down = clampProbability(down * scale, 0.01, 0.8);
-        }
-        const within = clampProbability(
-            1 - (up + down) + (rWithin - 0.5) * 0.01,
-            0.01,
-            0.98
-        );
+    useEffect(() => {
+        const handle = setTimeout(() => {
+            setDebouncedTargetX(targetX);
+        }, 150);
 
-        return {
-            up,
-            down,
-            within,
+        return () => clearTimeout(handle);
+    }, [targetX]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        const payload = {
+            symbol,
+            timeframe,
+            horizon,
+            lookback,
+            targetX: debouncedTargetX,
+            event,
         };
-    }, [event, horizon, lookback, symbol, targetX, timeframe]);
+
+        const fetchProbability = async () => {
+            setIsLoading(true);
+            setRequestError(null);
+            try {
+                const response = await fetch("/api/probability/query", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal,
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Request failed: ${response.status}`);
+                }
+
+                const data = (await response.json()) as ProbabilityResponse;
+                if (!controller.signal.aborted) {
+                    setProbability(data);
+                }
+            } catch (error) {
+                if (!controller.signal.aborted) {
+                    setRequestError("Service unavailable, showing mock.");
+                }
+            } finally {
+                if (!controller.signal.aborted) {
+                    setIsLoading(false);
+                }
+            }
+        };
+
+        fetchProbability();
+
+        return () => controller.abort();
+    }, [debouncedTargetX, event, horizon, lookback, symbol, timeframe]);
+
+    const statusBadge = useMemo(() => {
+        if (probability?.mode === "service") {
+            return {
+                label: "LIVE",
+                className:
+                    "border-emerald-500/40 bg-emerald-500/15 text-emerald-200",
+            };
+        }
+
+        if (probability?.mode === "mock") {
+            return {
+                label: "Mocked (no live data yet)",
+                className:
+                    "border-gray-700 bg-gray-900/70 text-gray-400",
+            };
+        }
+
+        return null;
+    }, [probability?.mode]);
+
+    const runLabel =
+        probability?.mode === "service" ? "Live run" : "Mocked run";
 
     return (
         <section className="mx-auto max-w-6xl space-y-8 px-4 py-8">
@@ -108,7 +148,7 @@ const ProbabilityPage = () => {
                         </p>
                     </div>
                     <span className="rounded-full border border-gray-800 bg-gray-900/60 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                        as_of: {AS_OF}
+                        as_of: {probability?.as_of ?? "--"}
                     </span>
                 </div>
             </header>
@@ -311,9 +351,12 @@ const ProbabilityPage = () => {
                         </div>
 
                         <div className="rounded-xl border border-gray-800 bg-gray-950/60 p-4 text-xs text-gray-400">
-                            Mocked run for <span className="text-gray-200">{symbol}</span> ·
-                            <span className="text-gray-200"> {timeframe}</span> · horizon
-                            <span className="text-gray-200"> {horizon}</span> bars · lookback
+                            {runLabel} for{" "}
+                            <span className="text-gray-200">{symbol}</span> ·
+                            <span className="text-gray-200"> {timeframe}</span> ·
+                            horizon
+                            <span className="text-gray-200"> {horizon}</span> bars ·
+                            lookback
                             <span className="text-gray-200"> {lookback}</span> bars.
                         </div>
                     </div>
@@ -322,29 +365,52 @@ const ProbabilityPage = () => {
 
             <div className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h2 className="text-xl font-semibold text-white">Results</h2>
+                    <div className="space-y-1">
+                        <h2 className="text-xl font-semibold text-white">
+                            Results
+                        </h2>
+                        {probability?.meta?.note ? (
+                            <p className="text-xs text-amber-200/80">
+                                {probability.meta.note}
+                            </p>
+                        ) : null}
+                        {requestError ? (
+                            <p className="text-xs text-rose-200/80">
+                                {requestError}
+                            </p>
+                        ) : null}
+                    </div>
                     <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500">
                         <span>Computed from last completed candle</span>
-                        <span className="rounded-full border border-gray-700 bg-gray-900/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                            Mocked (no live data yet)
-                        </span>
+                        {statusBadge ? (
+                            <span
+                                className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusBadge.className}`}
+                            >
+                                {statusBadge.label}
+                            </span>
+                        ) : null}
+                        {isLoading ? (
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                                Updating…
+                            </span>
+                        ) : null}
                     </div>
                 </div>
                 <div className="grid gap-6 md:grid-cols-3">
                     {[
                         {
                             label: "P(up ≥ X)",
-                            value: probabilities.up,
+                            value: probability?.p_up_ge_x,
                             tone: "text-emerald-200",
                         },
                         {
                             label: "P(down ≥ X)",
-                            value: probabilities.down,
+                            value: probability?.p_dn_ge_x,
                             tone: "text-rose-200",
                         },
                         {
                             label: "P(within ±X)",
-                            value: probabilities.within,
+                            value: probability?.p_within_pm_x,
                             tone: "text-sky-200",
                         },
                     ].map((item) => (
@@ -356,7 +422,9 @@ const ProbabilityPage = () => {
                             <p
                                 className={`mt-4 text-3xl font-semibold ${item.tone}`}
                             >
-                                {formatProbability(item.value)}
+                                {isLoading && !probability
+                                    ? "Updating…"
+                                    : formatProbability(item.value)}
                             </p>
                         </div>
                     ))}
