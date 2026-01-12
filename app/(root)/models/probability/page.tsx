@@ -69,11 +69,18 @@ const ProbabilityPage = () => {
                 <div className="grid gap-6 lg:grid-cols-2">
                     <div className="space-y-5">
                         <div className="space-y-2">
-                            <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <label
+                                id="symbol-label"
+                                className="text-xs font-semibold uppercase tracking-wide text-gray-500"
+                            >
                                 Symbol
                             </label>
                             <Select value={symbol} onValueChange={setSymbol}>
-                                <SelectTrigger className="w-full bg-gray-950 text-white">
+                                <SelectTrigger
+                                    id="symbol"
+                                    aria-labelledby="symbol-label"
+                                    className="w-full bg-gray-950 text-white"
+                                >
                                     <SelectValue placeholder="Select symbol" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -87,14 +94,21 @@ const ProbabilityPage = () => {
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <label
+                                id="timeframe-label"
+                                className="text-xs font-semibold uppercase tracking-wide text-gray-500"
+                            >
                                 Timeframe
                             </label>
                             <Select
                                 value={timeframe}
                                 onValueChange={setTimeframe}
                             >
-                                <SelectTrigger className="w-full bg-gray-950 text-white">
+                                <SelectTrigger
+                                    id="timeframe"
+                                    aria-labelledby="timeframe-label"
+                                    className="w-full bg-gray-950 text-white"
+                                >
                                     <SelectValue placeholder="Select timeframe" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -109,21 +123,32 @@ const ProbabilityPage = () => {
 
                         <div className="grid gap-4 sm:grid-cols-2">
                             <div className="space-y-2">
-                                <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                <label
+                                    htmlFor="horizon"
+                                    className="text-xs font-semibold uppercase tracking-wide text-gray-500"
+                                >
                                     Horizon (bars)
                                 </label>
                                 <Input
+                                    id="horizon"
                                     type="number"
                                     min={1}
                                     value={horizon}
-                                    onChange={(event) =>
-                                        setHorizon(Number(event.target.value))
-                                    }
+                                    onChange={(event) => {
+                                        const value =
+                                            event.currentTarget.valueAsNumber;
+                                        if (Number.isFinite(value)) {
+                                            setHorizon(Math.max(1, value));
+                                        }
+                                    }}
                                     className="border-gray-800 bg-gray-950 text-white"
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                <label
+                                    id="lookback-label"
+                                    className="text-xs font-semibold uppercase tracking-wide text-gray-500"
+                                >
                                     Lookback preset
                                 </label>
                                 <Select
@@ -132,7 +157,11 @@ const ProbabilityPage = () => {
                                         setLookback(Number(value))
                                     }
                                 >
-                                    <SelectTrigger className="w-full bg-gray-950 text-white">
+                                    <SelectTrigger
+                                        id="lookback"
+                                        aria-labelledby="lookback-label"
+                                        className="w-full bg-gray-950 text-white"
+                                    >
                                         <SelectValue placeholder="Lookback" />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -152,16 +181,24 @@ const ProbabilityPage = () => {
 
                     <div className="space-y-5">
                         <div className="space-y-2">
-                            <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <label
+                                htmlFor="target-x"
+                                className="text-xs font-semibold uppercase tracking-wide text-gray-500"
+                            >
                                 Target X
                             </label>
                             <Input
+                                id="target-x"
                                 type="number"
                                 min={1}
                                 value={targetX}
-                                onChange={(event) =>
-                                    setTargetX(Number(event.target.value))
-                                }
+                                onChange={(event) => {
+                                    const value =
+                                        event.currentTarget.valueAsNumber;
+                                    if (Number.isFinite(value)) {
+                                        setTargetX(Math.max(1, value));
+                                    }
+                                }}
                                 className="border-gray-800 bg-gray-950 text-white"
                             />
                         </div>
