@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 import { Button } from "@/components/ui/button";
 
 const MODELS = [
@@ -8,9 +6,8 @@ const MODELS = [
         description: "Real-time probability by horizon close (END event).",
         badge: "MVP",
         badgeClass: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-        ctaLabel: "Open model",
-        ctaDisabled: false,
-        ctaHref: "#",
+        ctaLabel: "Available next update",
+        ctaDisabled: true,
         ctaHint: "Available in next update",
     },
     {
@@ -20,7 +17,6 @@ const MODELS = [
         badgeClass: "border-gray-700 bg-gray-800/60 text-gray-300",
         ctaLabel: "Coming soon",
         ctaDisabled: true,
-        ctaHref: undefined,
         ctaHint: "Available in a future update",
     },
     {
@@ -30,7 +26,6 @@ const MODELS = [
         badgeClass: "border-gray-700 bg-gray-800/60 text-gray-300",
         ctaLabel: "Coming soon",
         ctaDisabled: true,
-        ctaHref: undefined,
         ctaHint: "Available in a future update",
     },
 ];
@@ -66,24 +61,14 @@ const ModelsPage = () => (
                         </p>
                     </div>
                     <div className="pt-6">
-                        {model.ctaHref && !model.ctaDisabled ? (
-                            <Button
-                                asChild
-                                className="w-full bg-yellow-500 text-black hover:bg-yellow-400"
-                                title={model.ctaHint}
-                            >
-                                <Link href={model.ctaHref}>{model.ctaLabel}</Link>
-                            </Button>
-                        ) : (
-                            <Button
-                                type="button"
-                                className="w-full bg-gray-800 text-gray-500"
-                                disabled={model.ctaDisabled}
-                                title={model.ctaHint}
-                            >
-                                {model.ctaLabel}
-                            </Button>
-                        )}
+                        <Button
+                            type="button"
+                            className="w-full bg-gray-800 text-gray-500"
+                            disabled={model.ctaDisabled}
+                            title={model.ctaHint}
+                        >
+                            {model.ctaLabel}
+                        </Button>
                     </div>
                 </div>
             ))}
