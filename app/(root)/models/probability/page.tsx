@@ -80,6 +80,7 @@ const ProbabilityPage = () => {
         const fetchProbability = async () => {
             setIsLoading(true);
             setRequestError(null);
+            setProbability(null);
             try {
                 const response = await fetch("/api/probability/query", {
                     method: "POST",
@@ -98,7 +99,8 @@ const ProbabilityPage = () => {
                 }
             } catch (error) {
                 if (!controller.signal.aborted) {
-                    setRequestError("Service unavailable, showing mock.");
+                    setProbability(null);
+                    setRequestError("Network error. Please try again.");
                 }
             } finally {
                 if (!controller.signal.aborted) {
