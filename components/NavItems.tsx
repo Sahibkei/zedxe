@@ -10,8 +10,9 @@ const NavItems = ({initialStocks}: { initialStocks: StockWithWatchlistStatus[]})
 
     const isActive = (path: string) => {
         if (path === '/') return pathname === '/';
+        if (path === '/app') return pathname === '/app';
 
-        return pathname.startsWith(path);
+        return pathname === path || pathname.startsWith(`${path}/`);
     }
 
     return (
