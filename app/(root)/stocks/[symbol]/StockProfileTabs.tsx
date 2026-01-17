@@ -1,379 +1,247 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ArrowUpRight, Globe2, Link2, MapPin, Phone } from "lucide-react";
+
+import TradingViewWidget from "@/components/TradingViewWidget";
+import OpenBBDashboardTabs, { type DashboardTabKey } from "@/components/openbb/OpenBBDashboardTabs";
+import OpenBBWidgetShell from "@/components/openbb/OpenBBWidgetShell";
+import { CANDLE_CHART_WIDGET_CONFIG } from "@/lib/constants";
 import type { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
-import { cn, formatMarketCapValue } from "@/lib/utils";
-import { formatCompactFinancialValue } from "@/utils/formatters";
+import { cn } from "@/lib/utils";
 import { FinancialStatementTable, collectExpandableIds } from "./components/FinancialStatementTable";
 
-const tabList = [
-    { key: "overview", label: "Overview" },
-    { key: "financials", label: "Financials" },
-    { key: "ratios", label: "Key Ratios" },
-    { key: "filings", label: "Filings" },
-] as const;
+type SnapshotLike = {
+    symbol: string;
+    company?: string;
+    currentPrice?: number;
+    changePercent?: number;
+    marketCap?: number;
+};
 
-type TabKey = (typeof tabList)[number]["key"];
+type StockProfileTabsProps = {
+    profile: StockProfileV2Model;
+    snapshot?: SnapshotLike;
+    priceDisplay: string;
+    marketCapDisplay: string;
+    changePercent?: number;
+};
 
-function formatNumber(value?: number, options?: Intl.NumberFormatOptions) {
-    if (value === undefined || value === null || Number.isNaN(value)) return "—";
-    return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2, ...options }).format(value);
-}
-
-function formatPercent(value?: number) {
-    if (value === undefined || value === null || Number.isNaN(value)) return "—";
-    return `${value.toFixed(2)}%`;
-}
-
-function OverviewTab({ profile }: { profile: StockProfileV2Model }) {
-    const description = profile.company.description || "Business description not available from current provider.";
-    return (
-        <div className="space-y-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground">Company</p>
-                    <p className="text-xl font-semibold">{profile.company.name || profile.finnhubSymbol}</p>
-                    {profile.company.website ? (
-                        <a
-                            href={profile.company.website}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-sm text-primary underline"
-                        >
-                            {profile.company.website}
-                        </a>
-                    ) : (
-                        <p className="text-sm text-muted-foreground">Website not available.</p>
-                    )}
-                </div>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                        <p className="text-muted-foreground">Market Cap</p>
-                        <p className="font-medium">
-                            {profile.company.marketCap ? formatMarketCapValue(profile.company.marketCap) : "—"}
-                        </p>
-                    </div>
-                    <div>
-                        <p className="text-muted-foreground">Industry</p>
-                        <p className="font-medium">{profile.company.industry || "—"}</p>
-                    </div>
-                    <div>
-                        <p className="text-muted-foreground">Country</p>
-                        <p className="font-medium">{profile.company.country || "—"}</p>
-                    </div>
-                    <div>
-                        <p className="text-muted-foreground">Exchange</p>
-                        <p className="font-medium">{profile.company.exchange || "—"}</p>
-                    </div>
-                </div>
-            </div>
-
-            <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
-                <p className="text-sm font-medium">Business Overview</p>
-                <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
-            </div>
-        </div>
-    );
-}
-
-function RatioRow({ label, value, isPercent = false }: { label: string; value?: number; isPercent?: boolean }) {
-    return (
-        <div className="flex items-center justify-between border-b last:border-b-0 py-2 text-sm">
-            <span className="text-muted-foreground">{label}</span>
-            <span className="font-medium">{isPercent ? formatPercent(value) : formatNumber(value)}</span>
-        </div>
-    );
-}
-
-function RatiosTab({ profile }: { profile: StockProfileV2Model }) {
-    const ratios = profile.metrics;
-    return (
-        <div className="rounded-lg border divide-y">
-            <RatioRow label="P/E" value={ratios.pe} />
-            <RatioRow label="P/B" value={ratios.pb} />
-            <RatioRow label="P/S" value={ratios.ps} />
-            <RatioRow label="EV/EBITDA" value={ratios.evToEbitda} />
-            <RatioRow label="Debt/Equity" value={ratios.debtToEquity} />
-            <RatioRow label="Current Ratio" value={ratios.currentRatio} />
-            <RatioRow label="Dividend Yield" value={ratios.dividendYieldPercent} isPercent />
-        </div>
-    );
-}
-
-function formatFinancialValue(value?: number, currency?: string) {
-    return formatCompactFinancialValue(value, currency);
-}
-
-function FinancialTable({
-    rows,
+const Pill = ({
+    active,
+    children,
+    onClick,
+    disabled,
     title,
-    fallbackCurrency,
 }: {
-    rows: StockProfileV2Model["financials"]["annual"];
-    title: string;
-    fallbackCurrency?: string;
-}) {
-    if (!rows || rows.length === 0) {
-        return <p className="text-sm text-muted-foreground">No data available.</p>;
-    }
+    active?: boolean;
+    children: React.ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+    title?: string;
+}) => (
+    <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-disabled={disabled}
+        title={title}
+        className={cn(
+            "rounded-lg px-3 py-1 text-xs font-semibold transition",
+            active ? "bg-sky-500/20 text-sky-100 ring-1 ring-sky-400/40" : "bg-white/5 text-slate-300",
+            disabled && "cursor-not-allowed opacity-60"
+        )}
+    >
+        {children}
+    </button>
+);
 
-    return (
-        <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-                <thead>
-                    <tr className="text-left">
-                        <th className="px-2 py-2">Period</th>
-                        <th className="px-2 py-2">Revenue</th>
-                        <th className="px-2 py-2">Gross Profit</th>
-                        <th className="px-2 py-2">Operating Income</th>
-                        <th className="px-2 py-2">Net Income</th>
-                        <th className="px-2 py-2">EPS (Diluted)</th>
-                        <th className="px-2 py-2">Operating CF</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows.map((row) => (
-                        <tr key={`${title}-${row.label}`} className="border-t">
-                            <td className="px-2 py-2 font-medium">{row.label}</td>
-                            <td className="px-2 py-2">{formatFinancialValue(row.revenue, row.currency ?? fallbackCurrency)}</td>
-                            <td className="px-2 py-2">
-                                {formatFinancialValue(row.grossProfit, row.currency ?? fallbackCurrency)}
-                            </td>
-                            <td className="px-2 py-2">
-                                {formatFinancialValue(row.operatingIncome, row.currency ?? fallbackCurrency)}
-                            </td>
-                            <td className="px-2 py-2">
-                                {formatFinancialValue(row.netIncome, row.currency ?? fallbackCurrency)}
-                            </td>
-                            <td className="px-2 py-2">{formatFinancialValue(row.eps, row.currency ?? fallbackCurrency)}</td>
-                            <td className="px-2 py-2">
-                                {formatFinancialValue(row.operatingCashFlow, row.currency ?? fallbackCurrency)}
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    );
-}
+export default function StockProfileTabs({
+    profile,
+    snapshot,
+    priceDisplay,
+    marketCapDisplay,
+    changePercent,
+}: StockProfileTabsProps) {
+    const symbol = profile.finnhubSymbol;
+    const [activeTab, setActiveTab] = useState<DashboardTabKey>("overview");
+    const [statementView, setStatementView] = useState<"income" | "balance" | "cashflow">("income");
+    const [expandedStatements, setExpandedStatements] = useState<Set<string>>(new Set());
 
-function FinancialsTab({ profile }: { profile: StockProfileV2Model }) {
-    const [financialView, setFinancialView] = useState<'summary' | 'income' | 'balance' | 'cashflow'>("summary");
-    const [expandedState, setExpandedState] = useState<Record<string, Set<string>>>({});
-    const statements = profile.financials.statements;
+    const effectiveChange = changePercent ?? snapshot?.changePercent;
+    const changeDisplay =
+        effectiveChange === undefined || effectiveChange === null || Number.isNaN(effectiveChange)
+            ? "N/A"
+            : `${effectiveChange >= 0 ? "+" : ""}${effectiveChange.toFixed(2)}%`;
+    const priceChangeClass =
+        effectiveChange === undefined || effectiveChange === null || Number.isNaN(effectiveChange)
+            ? "text-slate-400"
+            : effectiveChange >= 0
+              ? "text-emerald-400"
+              : "text-rose-400";
 
-    const financialOptions = useMemo(
-        () => [
-            { key: "summary", label: "Summary" },
-            { key: "income", label: "Income" },
-            { key: "balance", label: "Balance Sheet" },
-            { key: "cashflow", label: "Cash Flow" },
-        ],
-        []
-    );
+    const statementTabs = [
+        { key: "income", label: "Income Statement" },
+        { key: "balance", label: "Balance Sheet" },
+        { key: "cashflow", label: "Cash Flow Statement" },
+    ] as const;
 
     const activeGrid =
-        financialView === "income"
-            ? statements?.income
-            : financialView === "balance"
-              ? statements?.balanceSheet
-              : financialView === "cashflow"
-                ? statements?.cashFlow
-                : undefined;
+        statementView === "balance"
+            ? profile.financials.statements?.balanceSheet
+            : statementView === "cashflow"
+              ? profile.financials.statements?.cashFlow
+              : profile.financials.statements?.income;
 
     useEffect(() => {
-        setExpandedState({});
-    }, [profile.finnhubSymbol]);
+        if (!activeGrid?.rows) return;
+        setExpandedStatements(collectExpandableIds(activeGrid.rows));
+    }, [activeGrid]);
 
-    useEffect(() => {
-        if (!activeGrid) return;
-        setExpandedState((prev) => {
-            if (prev[financialView]) return prev;
-            return { ...prev, [financialView]: collectExpandableIds(activeGrid.rows) };
-        });
-    }, [activeGrid, financialView]);
+    const industry = profile.company.industry || "N/A";
+    const country = profile.company.country || "N/A";
+    const exchange = profile.company.exchange || "N/A";
+    const currency = profile.company.currency || "N/A";
 
-    const handleToggleRow = (rowId: string) => {
-        setExpandedState((prev) => {
-            const current = prev[financialView]
-                ? new Set(prev[financialView])
-                : collectExpandableIds(activeGrid?.rows || []);
-
-            if (current.has(rowId)) {
-                current.delete(rowId);
-            } else {
-                current.add(rowId);
-            }
-
-            return { ...prev, [financialView]: current };
-        });
-    };
-
-    const currentExpanded = expandedState[financialView];
-
-    return (
+    const renderOverview = () => (
         <div className="space-y-4">
-            <p className="text-xs text-muted-foreground">
-                Values are in reported currency; figures shown in compact format (K/M/B/T).
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-                <div
-                    className="inline-flex flex-wrap gap-1 rounded-2xl border border-border/60 bg-muted/30 p-1 text-sm"
-                    role="tablist"
-                    aria-label="Financial statements"
-                >
-                    {financialOptions.map((option) => {
-                        const isActive = financialView === option.key;
-                        return (
-                            <button
-                                key={option.key}
-                                onClick={() => setFinancialView(option.key as typeof financialView)}
-                                className={cn(
-                                    "rounded-xl px-3 py-1.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
-                                    isActive
-                                        ? "bg-primary/10 text-foreground shadow-sm ring-1 ring-primary/50"
-                                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                                )}
-                                type="button"
-                                role="tab"
-                                aria-selected={isActive}
-                            >
-                                {option.label}
-                            </button>
-                        );
-                    })}
-                </div>
-            </div>
+            <div className="grid gap-4 xl:grid-cols-[1.05fr_1.95fr]">
+                <div className="space-y-4">
+                    <OpenBBWidgetShell title="Ticker Information" symbol={symbol} height={220}>
+                        <div className="space-y-3">
+                            <div className="space-y-1">
+                                <p className="text-3xl font-semibold text-slate-50">{priceDisplay}</p>
+                                <p className={cn("text-sm font-semibold", priceChangeClass)}>{changeDisplay}</p>
+                            </div>
+                            <div className="grid gap-2 text-xs text-slate-300">
+                                <div className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-3 py-2">
+                                    <span>Currency</span>
+                                    <span className="font-semibold text-slate-100">{currency}</span>
+                                </div>
+                                <div className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-3 py-2">
+                                    <span>Market Cap</span>
+                                    <span className="font-semibold text-slate-100">{marketCapDisplay || "N/A"}</span>
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                                <span>Industry:</span>
+                                <span className="font-medium text-slate-100">{industry}</span>
+                                <span className="text-slate-500">|</span>
+                                <span>Country:</span>
+                                <span className="font-medium text-slate-100">{country}</span>
+                                <span className="text-slate-500">|</span>
+                                <span>Exchange:</span>
+                                <span className="font-medium text-slate-100">{exchange}</span>
+                            </div>
+                        </div>
+                    </OpenBBWidgetShell>
 
-            {financialView === "summary" ? (
-                <div className="space-y-6">
-                    <div className="space-y-3">
-                        <h3 className="text-lg font-semibold">Annual (last 5)</h3>
-                        <FinancialTable
-                            rows={profile.financials.annual}
-                            title="annual"
-                            fallbackCurrency={profile.company.currency}
-                        />
-                    </div>
-                    <div className="space-y-3">
-                        <h3 className="text-lg font-semibold">Quarterly (recent)</h3>
-                        <FinancialTable
-                            rows={profile.financials.quarterly}
-                            title="quarterly"
-                            fallbackCurrency={profile.company.currency}
-                        />
-                    </div>
+                    <OpenBBWidgetShell title="Ticker Profile" symbol={symbol} height={260}>
+                        <div className="space-y-3">
+                            <div className="space-y-1">
+                                <p className="text-lg font-semibold text-slate-100">{profile.company.name || symbol}</p>
+                                {profile.company.website ? (
+                                    <a
+                                        href={profile.company.website}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 text-sm text-sky-300 hover:text-sky-200"
+                                    >
+                                        <Link2 className="h-3.5 w-3.5" />
+                                        {profile.company.website}
+                                        <ArrowUpRight className="h-3.5 w-3.5" />
+                                    </a>
+                                ) : (
+                                    <p className="text-sm text-slate-400">Website not available</p>
+                                )}
+                            </div>
+                            <div className="grid gap-2 text-sm text-slate-200">
+                                <div className="flex items-center gap-2 text-slate-300">
+                                    <MapPin className="h-4 w-4 text-amber-300" />
+                                    <span>{country}</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-slate-300">
+                                    <Globe2 className="h-4 w-4 text-sky-300" />
+                                    <span>
+                                        Sector: <span className="font-semibold text-slate-100">{industry}</span>
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2 text-slate-300">
+                                    <Phone className="h-4 w-4 text-purple-300" />
+                                    <span>Exchange: {exchange}</span>
+                                </div>
+                            </div>
+                            <div className="space-y-2 rounded-xl border border-white/5 bg-white/5 p-3">
+                                <p className="text-sm font-semibold text-slate-100">Description</p>
+                                <div className="max-h-28 overflow-y-auto pr-2 text-sm leading-relaxed text-slate-300">
+                                    {profile.company.description
+                                        ? profile.company.description
+                                        : "Business description not available from the current provider."}
+                                </div>
+                            </div>
+                        </div>
+                    </OpenBBWidgetShell>
                 </div>
-            ) : (
+
+                <OpenBBWidgetShell
+                    title="Price Performance"
+                    symbol={symbol}
+                    className="min-h-[380px] overflow-hidden md:min-h-[460px]"
+                >
+                    <div className="overflow-hidden rounded-xl border border-white/5 bg-black/20">
+                        <TradingViewWidget
+                            scripUrl="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"
+                            config={CANDLE_CHART_WIDGET_CONFIG(profile.tvSymbol || symbol)}
+                            className="h-full w-full"
+                            height={520}
+                        />
+                    </div>
+                </OpenBBWidgetShell>
+            </div>
+        </div>
+    );
+
+    const renderFinancials = () => (
+        <div className="space-y-4">
+            <OpenBBWidgetShell
+                title="Financial Statements"
+                symbol={symbol}
+                rightControls={
+                    <div className="flex flex-wrap items-center gap-2">
+                        {statementTabs.map((tab) => (
+                            <Pill key={tab.key} active={statementView === tab.key} onClick={() => setStatementView(tab.key)}>
+                                {tab.label}
+                            </Pill>
+                        ))}
+                    </div>
+                }
+            >
                 <FinancialStatementTable
                     grid={activeGrid}
                     fallbackCurrency={profile.company.currency}
-                    expanded={currentExpanded}
-                    onToggleRow={handleToggleRow}
+                    expanded={expandedStatements}
+                    onToggleRow={(id) =>
+                        setExpandedStatements((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(id)) {
+                                next.delete(id);
+                            } else {
+                                next.add(id);
+                            }
+                            return next;
+                        })
+                    }
                 />
-            )}
+            </OpenBBWidgetShell>
         </div>
     );
-}
-
-function FilingsTab({ profile }: { profile: StockProfileV2Model }) {
-    if (!profile.filings || profile.filings.length === 0) {
-        return <p className="text-sm text-muted-foreground">No filings available.</p>;
-    }
-
-    return (
-        <div className="space-y-3">
-            {profile.filings.map((filing, idx) => (
-                <div key={`${filing.accessionNumber}-${idx}`} className="border rounded-lg p-3 text-sm">
-                    <div className="flex items-center justify-between">
-                        <span className="font-semibold">{filing.formType}</span>
-                        <span className="text-muted-foreground">
-                            {filing.filedAt || ""}
-                            {filing.periodEnd ? ` · Period end ${filing.periodEnd}` : ""}
-                        </span>
-                    </div>
-                    <p className="text-muted-foreground">{filing.companyName || filing.description || ""}</p>
-                    {filing.link && (
-                        <a
-                            href={filing.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 underline text-sm"
-                        >
-                            View filing
-                        </a>
-                    )}
-                </div>
-            ))}
-        </div>
-    );
-}
-
-export default function StockProfileTabs({ profile }: { profile: StockProfileV2Model }) {
-    const [activeTab, setActiveTab] = useState<TabKey>("overview");
-    const companyInfoIncomplete = !profile.company?.name || !profile.company?.website;
-    const financialsMissing = profile.financials.annual.length === 0 && profile.financials.quarterly.length === 0;
-    const fundamentalsMissing = companyInfoIncomplete || financialsMissing;
 
     return (
         <div className="space-y-4">
-            <div
-                className="inline-flex flex-wrap gap-2 rounded-2xl border border-border/60 bg-muted/30 p-1 text-sm font-medium"
-                role="tablist"
-                aria-label="Stock profile sections"
-            >
-                {tabList.map((tab) => {
-                    const isActive = activeTab === tab.key;
-                    const tabId = `${tab.key}-tab`;
-                    const panelId = `${tab.key}-panel`;
-                    return (
-                        <button
-                            key={tab.key}
-                            onClick={() => setActiveTab(tab.key)}
-                            className={cn(
-                                "rounded-xl px-4 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
-                                isActive
-                                    ? "bg-primary/10 text-foreground shadow-sm ring-1 ring-primary/60"
-                                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                            )}
-                            role="tab"
-                            type="button"
-                            id={tabId}
-                            aria-selected={isActive}
-                            aria-controls={panelId}
-                        >
-                            {tab.label}
-                        </button>
-                    );
-                })}
-            </div>
-
-            {fundamentalsMissing && (
-                <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-                    We couldn’t load fundamentals for this symbol right now. Please try again.
-                </div>
-            )}
-
-            <div className="rounded-2xl border border-border/60 bg-card/60 p-4 shadow-sm">
-                {tabList.map((tab) => {
-                    const isActive = activeTab === tab.key;
-                    const panelId = `${tab.key}-panel`;
-                    const tabId = `${tab.key}-tab`;
-                    return (
-                        <div
-                            key={tab.key}
-                            role="tabpanel"
-                            id={panelId}
-                            aria-labelledby={tabId}
-                            hidden={!isActive}
-                        >
-                            {tab.key === "overview" && isActive && <OverviewTab profile={profile} />}
-                            {tab.key === "financials" && isActive && <FinancialsTab profile={profile} />}
-                            {tab.key === "ratios" && isActive && <RatiosTab profile={profile} />}
-                            {tab.key === "filings" && isActive && <FilingsTab profile={profile} />}
-                        </div>
-                    );
-                })}
+            <OpenBBDashboardTabs activeKey={activeTab} onChange={setActiveTab} />
+            <div className="rounded-2xl border border-white/10 bg-[#0f141d]/80 p-4 shadow-2xl">
+                {activeTab === "overview" && renderOverview()}
+                {activeTab === "financials" && renderFinancials()}
             </div>
         </div>
     );
