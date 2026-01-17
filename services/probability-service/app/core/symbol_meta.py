@@ -1,12 +1,16 @@
+"""Symbol metadata derived from local OHLC files."""
+
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
-import os
 
 
 @dataclass(frozen=True)
 class SymbolMetaInfo:
+    """Metadata for a tradable symbol."""
+
     symbol: str
     timeframes: list[str]
     pip_size: float
@@ -14,7 +18,10 @@ class SymbolMetaInfo:
 
 
 class SymbolMeta:
+    """Discover available symbols/timeframes and provide sizing defaults."""
+
     def __init__(self) -> None:
+        """Build symbol metadata from the local data directory."""
         self.data_dir = Path(
             os.getenv(
                 "OHLC_DATA_DIR",
@@ -24,6 +31,7 @@ class SymbolMeta:
         self._symbols = self._load_symbols()
 
     def _load_symbols(self) -> dict[str, SymbolMetaInfo]:
+        """Scan the data directory for supported symbol/timeframe files."""
         symbols: dict[str, SymbolMetaInfo] = {}
         if not self.data_dir.exists():
             return symbols
@@ -56,6 +64,7 @@ class SymbolMeta:
         return symbols
 
     def _default_sizes(self, symbol: str) -> tuple[float, float]:
+        """Guess pip/point sizes from symbol prefixes."""
         if symbol.upper().endswith("JPY"):
             return 0.01, 0.0001
         if symbol.upper().startswith("XAU"):
@@ -65,9 +74,11 @@ class SymbolMeta:
         return 0.0001, 0.00001
 
     def list_symbols(self) -> list[SymbolMetaInfo]:
+        """Return symbol metadata entries sorted by symbol."""
         return sorted(self._symbols.values(), key=lambda item: item.symbol)
 
     def ensure_allowed(self, symbol: str, timeframe: str) -> None:
+        """Raise if a symbol/timeframe pair is unavailable."""
         info = self._symbols.get(symbol)
         if not info or timeframe not in info.timeframes:
             raise ValueError(f"symbol/timeframe not available: {symbol} {timeframe}")

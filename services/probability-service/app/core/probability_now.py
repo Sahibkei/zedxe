@@ -1,43 +1,52 @@
+"""Probability calculations for END-event queries."""
+
 from __future__ import annotations
 
 import math
 import os
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 import pandas as pd
 
 from app.core.ewma import ewma_volatility
-from app.core.schemas import ProbabilityQueryRequest, ProbabilityQueryResponse, ProbabilityMeta
+from app.core.schemas import ProbabilityMeta, ProbabilityQueryRequest, ProbabilityQueryResponse
 
 
 try:
     from scipy.stats import norm
 
     def normal_cdf(value: float) -> float:
+        """Return standard normal CDF using scipy when available."""
         return norm.cdf(value)
 
-except Exception:  # pragma: no cover - scipy optional
+except ImportError:  # pragma: no cover - scipy optional
 
     def normal_cdf(value: float) -> float:
+        """Return standard normal CDF using math.erf fallback."""
         return 0.5 * (1.0 + math.erf(value / math.sqrt(2)))
 
 
 @dataclass
 class CalculatorConfig:
+    """Configuration for probability calculator."""
+
     ewma_lambda: float
     sigma_scale: float
 
 
 class ProbabilityCalculator:
+    """Compute END-event probabilities from OHLC data."""
+
     def __init__(self) -> None:
+        """Initialize calculator with environment-driven config."""
         self.config = CalculatorConfig(
             ewma_lambda=float(os.getenv("EWMA_LAMBDA", "0.94")),
             sigma_scale=float(os.getenv("SIGMA_SCALE", "1.0")),
         )
 
     def calculate(self, df: pd.DataFrame, payload: ProbabilityQueryRequest) -> ProbabilityQueryResponse:
+        """Calculate probabilities for the provided payload."""
         closes = df["close"].to_numpy()
         if closes.size < payload.lookback + 2:
             raise ValueError("insufficient data for lookback")

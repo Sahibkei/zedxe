@@ -1,7 +1,8 @@
+"""Load local OHLC data from CSV files."""
+
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 
 import pandas as pd
@@ -12,20 +13,19 @@ logger = logging.getLogger("probability_service.data_loader")
 
 
 class DataNotFoundError(RuntimeError):
-    pass
+    """Raised when expected OHLC data cannot be loaded."""
 
 
 class DataLoader:
+    """Load OHLC data for configured symbols/timeframes."""
+
     def __init__(self, symbol_meta: SymbolMeta) -> None:
+        """Initialize the loader with the symbol metadata registry."""
         self.symbol_meta = symbol_meta
-        self.data_dir = Path(
-            os.getenv(
-                "OHLC_DATA_DIR",
-                Path(__file__).resolve().parents[2] / "data",
-            )
-        )
+        self.data_dir = Path(self.symbol_meta.data_dir)
 
     def load(self, symbol: str, timeframe: str) -> pd.DataFrame:
+        """Load OHLC data for a given symbol and timeframe."""
         symbol = symbol.strip()
         timeframe = timeframe.strip()
         self.symbol_meta.ensure_allowed(symbol, timeframe)
@@ -50,6 +50,7 @@ class DataLoader:
 
     @staticmethod
     def _normalize(df: pd.DataFrame) -> pd.DataFrame:
+        """Normalize and validate incoming OHLC dataframes."""
         expected = {"timestamp", "open", "high", "low", "close"}
         missing = expected - set(df.columns)
         if missing:

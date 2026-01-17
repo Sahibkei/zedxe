@@ -1,5 +1,8 @@
+"""API routes for the probability service."""
+
 from __future__ import annotations
 
+import pandas as pd
 from fastapi import APIRouter, HTTPException, status
 
 from app.cache.redis_cache import RedisCache
@@ -22,11 +25,13 @@ cache = RedisCache()
 
 @router.get("/health")
 def health() -> dict[str, str]:
+    """Return a basic health check payload."""
     return {"status": "ok"}
 
 
 @router.get("/v1/market/symbols", response_model=MarketSymbolsResponse)
 def market_symbols() -> MarketSymbolsResponse:
+    """List available symbols and their metadata."""
     symbols = [
         {
             "symbol": info.symbol,
@@ -41,6 +46,7 @@ def market_symbols() -> MarketSymbolsResponse:
 
 @router.post("/v1/probability/query", response_model=ProbabilityQueryResponse)
 def probability_query(payload: ProbabilityQueryRequest) -> ProbabilityQueryResponse:
+    """Calculate probabilities for the END event."""
     if payload.event == "touch":
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
@@ -54,21 +60,29 @@ def probability_query(payload: ProbabilityQueryRequest) -> ProbabilityQueryRespo
     except DataNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
+    entry_time = df["timestamp"].iloc[-2]
+    as_of = pd.Timestamp(entry_time).isoformat()
+    cache_key = cache.build_key(
+        payload.symbol,
+        payload.timeframe,
+        payload.horizon,
+        payload.lookback,
+        payload.event,
+        payload.targetX,
+        as_of,
+    )
+
+    if cache.enabled:
+        cached = cache.get(cache_key)
+        if cached:
+            return ProbabilityQueryResponse.model_validate(cached)
+
     try:
         result = calculator.calculate(df, payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     if cache.enabled:
-        cache_key = cache.build_key(
-            payload.symbol,
-            payload.timeframe,
-            payload.horizon,
-            payload.lookback,
-            payload.event,
-            result.as_of,
-            payload.targetX,
-        )
         cache.set(cache_key, result.model_dump(mode="json"))
 
     return result
@@ -76,6 +90,7 @@ def probability_query(payload: ProbabilityQueryRequest) -> ProbabilityQueryRespo
 
 @router.post("/v1/probability/surface")
 def probability_surface() -> dict[str, str]:
+    """Stub endpoint for probability surface queries."""
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
         detail="surface not implemented",

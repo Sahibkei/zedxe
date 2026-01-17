@@ -1,3 +1,5 @@
+"""Pydantic schemas for probability requests/responses."""
+
 from __future__ import annotations
 
 from typing import Literal
@@ -6,6 +8,8 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class ProbabilityQueryRequest(BaseModel):
+    """Request payload for probability query endpoint."""
+
     symbol: str
     timeframe: str
     horizon: int = Field(..., ge=1)
@@ -16,10 +20,15 @@ class ProbabilityQueryRequest(BaseModel):
     @field_validator("symbol", "timeframe")
     @classmethod
     def strip_values(cls, value: str) -> str:
-        return value.strip()
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("symbol and timeframe cannot be blank")
+        return stripped
 
 
 class ProbabilityMeta(BaseModel):
+    """Metadata returned with probability calculations."""
+
     entry: float
     sigma_1: float
     sigma_h: float
@@ -28,6 +37,8 @@ class ProbabilityMeta(BaseModel):
 
 
 class ProbabilityQueryResponse(BaseModel):
+    """Response payload for probability query endpoint."""
+
     mode: Literal["service"] = "service"
     as_of: str
     symbol: str
@@ -43,6 +54,8 @@ class ProbabilityQueryResponse(BaseModel):
 
 
 class SymbolMetaEntry(BaseModel):
+    """Symbol metadata entry for market symbols endpoint."""
+
     symbol: str
     timeframes: list[str]
     pip_size: float
@@ -50,4 +63,6 @@ class SymbolMetaEntry(BaseModel):
 
 
 class MarketSymbolsResponse(BaseModel):
+    """Response payload for available market symbols."""
+
     symbols: list[SymbolMetaEntry]
