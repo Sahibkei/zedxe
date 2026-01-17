@@ -33,7 +33,7 @@ When `PROB_SERVICE_URL` is set, the Next.js route `/api/probability/query` will
 forward requests to the service instead of using mocked data.
 
 ## Verify in browser
-- Health check: `https://<service>/health` should return `ok`.
+- Health check: `https://<service>/health` should return `{"status":"ok"}`.
 - POST a sample request (curl):
 ```bash
 curl -X POST https://<service>/v1/probability/query \
