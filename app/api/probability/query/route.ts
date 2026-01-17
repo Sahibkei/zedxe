@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { NextRequest, NextResponse } from "next/server";
 
 type ProbabilityEvent = "end" | "touch";
@@ -31,8 +33,32 @@ type ProbabilityResponse = {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const VALID_SYMBOLS = new Set(["EURUSD", "XAUUSD", "US500"]);
-const VALID_EVENTS = new Set<ProbabilityEvent>(["end", "touch"]);
+const VALID_SYMBOLS = ["EURUSD", "XAUUSD", "US500"] as const;
+const VALID_EVENTS = ["end", "touch"] as const;
+
+const requestSchema = z.object({
+    symbol: z.enum(VALID_SYMBOLS),
+    timeframe: z.string().min(1),
+    horizon: z.number().min(1),
+    lookback: z.number().min(50),
+    targetX: z.number().min(1),
+    event: z.enum(VALID_EVENTS),
+});
+
+const serviceResponseSchema = z.object({
+    as_of: z.string().optional(),
+    p_up_ge_x: z.number(),
+    p_dn_ge_x: z.number(),
+    p_within_pm_x: z.number(),
+    meta: z
+        .object({
+            note: z.string().optional(),
+            source: z.string().optional(),
+            version: z.string().optional(),
+        })
+        .strict()
+        .optional(),
+});
 
 const clampProbability = (value: number, min = 0.01, max = 0.99) =>
     Math.min(max, Math.max(min, value));
@@ -56,18 +82,6 @@ const mulberry32 = (seed: number) => {
         return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
     };
 };
-
-const parseNumber = (value: unknown) => {
-    if (typeof value === "number") return value;
-    if (typeof value === "string") {
-        const parsed = Number(value);
-        return Number.isFinite(parsed) ? parsed : null;
-    }
-    return null;
-};
-
-const isFiniteNumber = (value: unknown): value is number =>
-    typeof value === "number" && Number.isFinite(value);
 
 const buildAsOf = () => new Date(Date.now() - 5 * 60 * 1000).toISOString();
 
@@ -131,7 +145,15 @@ export async function POST(request: NextRequest) {
     let body: ProbabilityRequest | undefined;
 
     try {
-        body = (await request.json()) as ProbabilityRequest;
+        const parsedBody = await request.json();
+        const parsed = requestSchema.safeParse(parsedBody);
+        if (!parsed.success) {
+            return NextResponse.json(
+                { error: "Invalid request payload", where: "probability" },
+                { status: 400 }
+            );
+        }
+        body = parsed.data;
     } catch (error) {
         return NextResponse.json(
             { error: "Invalid JSON payload", where: "probability" },
@@ -140,67 +162,9 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-        const symbol = typeof body?.symbol === "string" ? body.symbol : "";
-        const timeframe =
-            typeof body?.timeframe === "string" ? body.timeframe : "";
-        const horizon = parseNumber(body?.horizon);
-        const lookback = parseNumber(body?.lookback);
-        const targetX = parseNumber(body?.targetX);
-        const event =
-            typeof body?.event === "string"
-                ? (body.event as ProbabilityEvent)
-                : null;
-
-        if (!symbol || !VALID_SYMBOLS.has(symbol)) {
-            return NextResponse.json(
-                { error: "symbol is required", where: "probability" },
-                { status: 400 }
-            );
-        }
-
-        if (!timeframe) {
-            return NextResponse.json(
-                { error: "timeframe is required", where: "probability" },
-                { status: 400 }
-            );
-        }
-
-        if (horizon === null || horizon < 1) {
-            return NextResponse.json(
-                { error: "horizon must be >= 1", where: "probability" },
-                { status: 400 }
-            );
-        }
-
-        if (lookback === null || lookback < 50) {
-            return NextResponse.json(
-                { error: "lookback must be >= 50", where: "probability" },
-                { status: 400 }
-            );
-        }
-
-        if (targetX === null || targetX < 1) {
-            return NextResponse.json(
-                { error: "targetX must be >= 1", where: "probability" },
-                { status: 400 }
-            );
-        }
-
-        if (!event || !VALID_EVENTS.has(event)) {
-            return NextResponse.json(
-                { error: "event must be end or touch", where: "probability" },
-                { status: 400 }
-            );
-        }
-
-        const requestPayload: ProbabilityRequest = {
-            symbol,
-            timeframe,
-            horizon,
-            lookback,
-            targetX,
-            event,
-        };
+        const requestPayload = body;
+        const { symbol, timeframe, horizon, lookback, targetX, event } =
+            requestPayload;
 
         if (event === "touch") {
             const json = NextResponse.json(
@@ -232,36 +196,34 @@ export async function POST(request: NextRequest) {
                     throw new Error(`Service returned ${response.status}`);
                 }
 
-                const data = (await response.json()) as Partial<ProbabilityResponse>;
-
-                if (
-                    !isFiniteNumber(data.p_up_ge_x) ||
-                    !isFiniteNumber(data.p_dn_ge_x) ||
-                    !isFiniteNumber(data.p_within_pm_x)
-                ) {
+                const data = await response.json();
+                const parsed = serviceResponseSchema.safeParse(data);
+                if (!parsed.success) {
                     throw new Error("Service returned invalid payload");
                 }
 
                 const json = NextResponse.json({
                     mode: "service",
-                    as_of:
-                        typeof data.as_of === "string"
-                            ? data.as_of
-                            : buildAsOf(),
+                    as_of: parsed.data.as_of ?? buildAsOf(),
                     symbol,
                     timeframe,
                     horizon,
                     lookback,
                     targetX,
                     event,
-                    p_up_ge_x: data.p_up_ge_x,
-                    p_dn_ge_x: data.p_dn_ge_x,
-                    p_within_pm_x: data.p_within_pm_x,
-                    meta: data.meta,
+                    p_up_ge_x: parsed.data.p_up_ge_x,
+                    p_dn_ge_x: parsed.data.p_dn_ge_x,
+                    p_within_pm_x: parsed.data.p_within_pm_x,
+                    meta: parsed.data.meta?.note
+                        ? { note: parsed.data.meta.note }
+                        : undefined,
                 });
                 json.headers.set("Cache-Control", "no-store");
                 return json;
             } catch (error) {
+                console.error("[probability] service failed", {
+                    error: String(error),
+                });
                 const json = NextResponse.json(
                     buildMockResponse(
                         requestPayload,

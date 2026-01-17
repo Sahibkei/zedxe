@@ -43,6 +43,55 @@ const formatProbability = (value?: number) => {
     return `${(value * 100).toFixed(1)}%`;
 };
 
+const isProbabilityResponse = (value: unknown): value is ProbabilityResponse => {
+    if (!value || typeof value !== "object") {
+        return false;
+    }
+    const data = value as Record<string, unknown>;
+    if (data.mode !== "mock" && data.mode !== "service") {
+        return false;
+    }
+    if (typeof data.as_of !== "string") {
+        return false;
+    }
+    if (typeof data.symbol !== "string" || typeof data.timeframe !== "string") {
+        return false;
+    }
+    if (
+        typeof data.horizon !== "number" ||
+        typeof data.lookback !== "number" ||
+        typeof data.targetX !== "number"
+    ) {
+        return false;
+    }
+    if (data.event !== "end" && data.event !== "touch") {
+        return false;
+    }
+    if (
+        typeof data.p_up_ge_x !== "number" ||
+        typeof data.p_dn_ge_x !== "number" ||
+        typeof data.p_within_pm_x !== "number"
+    ) {
+        return false;
+    }
+    if (data.meta !== undefined) {
+        if (typeof data.meta !== "object" || data.meta === null) {
+            return false;
+        }
+        const meta = data.meta as Record<string, unknown>;
+        if (meta.note !== undefined && typeof meta.note !== "string") {
+            return false;
+        }
+        const allowedKeys = new Set(["note"]);
+        for (const key of Object.keys(meta)) {
+            if (!allowedKeys.has(key)) {
+                return false;
+            }
+        }
+    }
+    return true;
+};
+
 const ProbabilityPage = () => {
     const [symbol, setSymbol] = useState<(typeof SYMBOLS)[number]>("EURUSD");
     const [timeframe, setTimeframe] = useState<(typeof TIMEFRAMES)[number]>(
@@ -93,9 +142,14 @@ const ProbabilityPage = () => {
                     throw new Error(`Request failed: ${response.status}`);
                 }
 
-                const data = (await response.json()) as ProbabilityResponse;
+                const data = await response.json();
                 if (!controller.signal.aborted) {
-                    setProbability(data);
+                    if (isProbabilityResponse(data)) {
+                        setProbability(data);
+                    } else {
+                        setProbability(null);
+                        setRequestError("Invalid response");
+                    }
                 }
             } catch (error) {
                 if (!controller.signal.aborted) {
