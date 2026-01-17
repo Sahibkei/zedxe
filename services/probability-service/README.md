@@ -17,6 +17,48 @@ export OHLC_DATA_DIR=./data
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+## Deploy on Render (no local machine)
+1. In Render, choose **New** → **Blueprint** and connect the GitHub repo.
+2. Render will detect `render.yaml` at the repo root; continue to deploy the
+   blueprint.
+3. After the deploy finishes, copy the public service URL (base URL without a
+   trailing slash).
+
+## Wire to Vercel
+1. In your Vercel project, open **Settings** → **Environment Variables**.
+2. Add `PROB_SERVICE_URL` with the Render base URL (no trailing slash).
+3. Redeploy the Vercel project.
+
+When `PROB_SERVICE_URL` is set, the Next.js route `/api/probability/query` will
+forward requests to the service instead of using mocked data.
+
+## Verify in browser
+- Health check: `https://<service>/health` should return `ok`.
+- POST a sample request (curl):
+```bash
+curl -X POST https://<service>/v1/probability/query \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "symbol": "EURUSD",
+    "timeframe": "M5",
+    "horizon": 12,
+    "lookback": 100,
+    "targetX": 5,
+    "event": "end"
+  }'
+```
+- Hoppscotch/Postman-friendly JSON body:
+```json
+{
+  "symbol": "EURUSD",
+  "timeframe": "M5",
+  "horizon": 12,
+  "lookback": 100,
+  "targetX": 5,
+  "event": "end"
+}
+```
+
 ## Connect from ZedXe
 ```bash
 export PROB_SERVICE_URL=http://localhost:8000

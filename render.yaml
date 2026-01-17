@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: zedxe-probability-service
+    env: docker
+    rootDir: services/probability-service
+    dockerfilePath: Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: OHLC_DATA_DIR
+        value: services/probability-service/data
+      - key: LOG_LEVEL
+        value: INFO
+      - key: EWMA_LAMBDA
+        value: "0.94"
+      - key: SIGMA_SCALE
+        value: "1.0"
+      - key: REDIS_URL
+        value: ""
+      - key: REDIS_TTL
+        value: "90"
