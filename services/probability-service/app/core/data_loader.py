@@ -26,8 +26,8 @@ class DataLoader:
 
     def load(self, symbol: str, timeframe: str) -> pd.DataFrame:
         """Load OHLC data for a given symbol and timeframe."""
-        symbol = symbol.strip()
-        timeframe = timeframe.strip()
+        symbol = self.symbol_meta.normalize_symbol(symbol)
+        timeframe = self.symbol_meta.normalize_timeframe(timeframe)
         self.symbol_meta.ensure_allowed(symbol, timeframe)
 
         filename = f"{symbol}_{timeframe}.csv"

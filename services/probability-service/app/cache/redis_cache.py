@@ -28,8 +28,32 @@ class RedisCache:
         """Initialize cache client based on environment config."""
         self.url = os.getenv("REDIS_URL")
         self.enabled = bool(self.url) and redis is not None
-        self.client = redis.from_url(self.url) if self.enabled else None
-        self.ttl = int(os.getenv("REDIS_TTL", "90"))
+        self.client = None
+        self.ttl = self._parse_ttl(os.getenv("REDIS_TTL"))
+
+        if self.enabled:
+            try:
+                self.client = redis.from_url(self.url)
+            except RedisError as exc:
+                logger.warning("Redis client init failed: %s", exc)
+                self.enabled = False
+                self.client = None
+
+    @staticmethod
+    def _parse_ttl(value: str | None) -> int:
+        """Parse TTL from env, falling back to default on invalid input."""
+        default_ttl = 90
+        if value is None:
+            return default_ttl
+        try:
+            ttl = int(value)
+        except (TypeError, ValueError):
+            logger.warning("Invalid REDIS_TTL=%s; using default %s", value, default_ttl)
+            return default_ttl
+        if ttl <= 0:
+            logger.warning("Invalid REDIS_TTL=%s; using default %s", value, default_ttl)
+            return default_ttl
+        return ttl
 
     def build_key(
         self,
@@ -46,7 +70,7 @@ class RedisCache:
 
     def get(self, key: str) -> Any | None:
         """Fetch cached payload if available."""
-        if not self.enabled:
+        if not self.enabled or self.client is None:
             return None
         try:
             cached = self.client.get(key)
@@ -59,7 +83,7 @@ class RedisCache:
 
     def set(self, key: str, value: Any) -> None:
         """Store payload in cache, ignoring any redis errors."""
-        if not self.enabled:
+        if not self.enabled or self.client is None:
             return
         try:
             self.client.setex(key, self.ttl, json.dumps(value))

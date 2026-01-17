@@ -14,6 +14,11 @@ load_dotenv()
 
 level_name = os.getenv("LOG_LEVEL", "INFO").upper()
 level = logging.getLevelNamesMapping().get(level_name, logging.INFO)
+if level_name not in logging.getLevelNamesMapping():
+    logging.getLogger("probability_service").warning(
+        "Invalid LOG_LEVEL=%s; defaulting to INFO",
+        level_name,
+    )
 logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("probability_service")
 

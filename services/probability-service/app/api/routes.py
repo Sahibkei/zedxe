@@ -53,12 +53,26 @@ def probability_query(payload: ProbabilityQueryRequest) -> ProbabilityQueryRespo
             detail="touch event not implemented",
         )
 
+    payload.symbol = symbol_meta.normalize_symbol(payload.symbol)
+    payload.timeframe = symbol_meta.normalize_timeframe(payload.timeframe)
+
     try:
         df = loader.load(payload.symbol, payload.timeframe)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except DataNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    required_columns = {"timestamp", "close"}
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        detail = f"Missing required columns: {', '.join(sorted(missing_columns))}"
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+    if len(df.index) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Not enough candles to compute as_of; need at least 2 rows.",
+        )
 
     entry_time = df["timestamp"].iloc[-2]
     as_of = pd.Timestamp(entry_time).isoformat()

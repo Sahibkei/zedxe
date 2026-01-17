@@ -43,6 +43,8 @@ class SymbolMeta:
             if "_" not in name:
                 continue
             symbol, timeframe = name.split("_", 1)
+            symbol = self.normalize_symbol(symbol)
+            timeframe = self.normalize_timeframe(timeframe)
             info = symbols.get(symbol)
             if info:
                 timeframes = sorted(set(info.timeframes + [timeframe]))
@@ -79,6 +81,18 @@ class SymbolMeta:
 
     def ensure_allowed(self, symbol: str, timeframe: str) -> None:
         """Raise if a symbol/timeframe pair is unavailable."""
+        symbol = self.normalize_symbol(symbol)
+        timeframe = self.normalize_timeframe(timeframe)
         info = self._symbols.get(symbol)
         if not info or timeframe not in info.timeframes:
             raise ValueError(f"symbol/timeframe not available: {symbol} {timeframe}")
+
+    @staticmethod
+    def normalize_symbol(symbol: str) -> str:
+        """Normalize symbol strings to a canonical form."""
+        return symbol.strip().upper()
+
+    @staticmethod
+    def normalize_timeframe(timeframe: str) -> str:
+        """Normalize timeframe strings to a canonical form."""
+        return timeframe.strip().upper()
