@@ -1,257 +1,346 @@
 import { z } from "zod";
 
 import { NextRequest, NextResponse } from "next/server";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 
 type ProbabilityEvent = "end" | "touch";
 
 type ProbabilityRequest = {
     symbol: string;
     timeframe: string;
-    horizon: number;
-    lookback: number;
+    horizonBars: number;
+    lookbackBars: number;
     targetX: number;
     event: ProbabilityEvent;
 };
 
 type ProbabilityResponse = {
-    mode: "mock" | "service";
-    as_of: string;
-    symbol: string;
-    timeframe: string;
-    horizon: number;
-    lookback: number;
-    targetX: number;
-    event: ProbabilityEvent;
-    p_up_ge_x: number;
-    p_dn_ge_x: number;
-    p_within_pm_x: number;
-    meta?: {
+    meta: {
+        symbol: string;
+        timeframe: string;
+        horizonBars: number;
+        lookbackBars: number;
+        targetX: number;
+        event: ProbabilityEvent;
+        as_of: string;
+        source: "local_csv";
+        pip_size: number;
+        point_size: number;
         note?: string;
+    };
+    prob: {
+        up_ge_x: number;
+        down_ge_x: number;
+        within_pm_x: number;
     };
 };
 
+type OhlcBar = {
+    timestamp: Date;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+};
+
+class ProbabilityError extends Error {
+    status: number;
+
+    constructor(message: string, status = 400) {
+        super(message);
+        this.status = status;
+    }
+}
+
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const VALID_SYMBOLS = ["EURUSD", "XAUUSD", "US500"] as const;
-const VALID_EVENTS = ["end", "touch"] as const;
+const DATA_DIR = path.join(process.cwd(), "data", "ohlc");
+const DEFAULT_PIP_SIZE = 0.0001;
+const DEFAULT_POINT_SIZE = 0.0001;
+const EWMA_LAMBDA = 0.94;
+const SIGMA_SCALE = 1.0;
 
-const requestSchema = z.object({
-    symbol: z.enum(VALID_SYMBOLS),
-    timeframe: z.string().min(1),
-    horizon: z.number().min(1),
-    lookback: z.number().min(50),
-    targetX: z.number().min(1),
-    event: z.enum(VALID_EVENTS),
-});
+const SYMBOL_META: Record<string, { pip_size: number; point_size: number }> = {
+    EURUSD: { pip_size: 0.0001, point_size: 0.00001 },
+    XAUUSD: { pip_size: 0.1, point_size: 0.01 },
+};
 
-const serviceResponseSchema = z.object({
-    as_of: z.string().optional(),
-    p_up_ge_x: z.number(),
-    p_dn_ge_x: z.number(),
-    p_within_pm_x: z.number(),
-    meta: z
-        .object({
-            note: z.string().optional(),
-            source: z.string().optional(),
-            version: z.string().optional(),
-        })
-        .strict()
-        .optional(),
-});
+const requestSchema = z
+    .object({
+        symbol: z.string().min(1),
+        timeframe: z.string().min(1),
+        horizonBars: z.coerce.number().int().min(1),
+        lookbackBars: z.coerce.number().int().min(50),
+        targetX: z.coerce.number().min(1),
+        event: z.enum(["end", "touch"]),
+    })
+    .strict();
 
-const clampProbability = (value: number, min = 0.01, max = 0.99) =>
+const clamp = (value: number, min = 0, max = 1) =>
     Math.min(max, Math.max(min, value));
 
-const hashSeed = (input: string) => {
-    let hash = 0x811c9dc5;
-    for (let i = 0; i < input.length; i += 1) {
-        hash ^= input.charCodeAt(i);
-        hash = Math.imul(hash, 0x01000193);
-    }
-    return hash >>> 0;
+const erf = (value: number) => {
+    const sign = value >= 0 ? 1 : -1;
+    const x = Math.abs(value);
+    const a1 = 0.254829592;
+    const a2 = -0.284496736;
+    const a3 = 1.421413741;
+    const a4 = -1.453152027;
+    const a5 = 1.061405429;
+    const p = 0.3275911;
+
+    const t = 1 / (1 + p * x);
+    const y =
+        1 -
+        (((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t) *
+            Math.exp(-x * x);
+
+    return sign * y;
 };
 
-const mulberry32 = (seed: number) => {
-    let t = seed;
-    return () => {
-        t += 0x6d2b79f5;
-        let x = t;
-        x = Math.imul(x ^ (x >>> 15), x | 1);
-        x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
-        return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
-    };
-};
+const normalCdf = (value: number) => 0.5 * (1 + erf(value / Math.SQRT2));
 
-const buildAsOf = () => new Date(Date.now() - 5 * 60 * 1000).toISOString();
+const normalizeRequest = (payload: unknown): ProbabilityRequest => {
+    if (!payload || typeof payload !== "object") {
+        throw new ProbabilityError("Invalid JSON payload", 400);
+    }
+    const data = payload as Record<string, unknown>;
+    const horizonBars =
+        data.horizonBars ??
+        data.horizon ??
+        data.horizon_bars ??
+        data.horizonBars;
+    const lookbackBars =
+        data.lookbackBars ??
+        data.lookback ??
+        data.lookback_bars ??
+        data.lookbackBars;
 
-const buildMockResponse = (
-    request: ProbabilityRequest,
-    note?: string
-): ProbabilityResponse => {
-    const seed = hashSeed(
-        `${request.symbol}|${request.timeframe}|${request.horizon}|${request.lookback}|${request.event}`
-    );
-    const random = mulberry32(seed);
-    const rUp = random();
-    const rDown = random();
-    const rWithin = random();
-    const baseUp = 0.35 + rUp * 0.35;
-    const baseDown = 0.35 + rDown * 0.35;
-    const aUp = 0.06 + rUp * 0.08;
-    const aDown = 0.06 + rDown * 0.08;
-    const difficulty = request.targetX / (request.targetX + 18);
+    const parsed = requestSchema.safeParse({
+        symbol: data.symbol,
+        timeframe: data.timeframe,
+        horizonBars,
+        lookbackBars,
+        targetX: data.targetX,
+        event: data.event,
+    });
 
-    let up = clampProbability(
-        baseUp * Math.exp(-aUp * request.targetX) * (1 - 0.15 * difficulty),
-        0.01,
-        0.8
-    );
-    let down = clampProbability(
-        baseDown * Math.exp(-aDown * request.targetX) * (1 - 0.15 * difficulty),
-        0.01,
-        0.8
-    );
-    const tailSum = up + down;
-    if (tailSum > 0.95) {
-        const scale = 0.95 / tailSum;
-        up = clampProbability(up * scale, 0.01, 0.8);
-        down = clampProbability(down * scale, 0.01, 0.8);
+    if (!parsed.success) {
+        throw new ProbabilityError("Invalid request payload", 400);
     }
 
-    const within = clampProbability(
-        1 - (up + down) + (rWithin - 0.5) * 0.01,
-        0.01,
-        0.98
-    );
+    return parsed.data;
+};
 
-    return {
-        mode: "mock",
-        as_of: buildAsOf(),
-        symbol: request.symbol,
-        timeframe: request.timeframe,
-        horizon: request.horizon,
-        lookback: request.lookback,
-        targetX: request.targetX,
-        event: request.event,
-        p_up_ge_x: up,
-        p_dn_ge_x: down,
-        p_within_pm_x: within,
-        meta: note ? { note } : undefined,
+const parseCsv = (content: string): OhlcBar[] => {
+    const lines = content.split(/\r?\n/).filter(Boolean);
+    if (lines.length < 2) {
+        return [];
+    }
+    const header = lines[0].split(",").map((value) => value.trim());
+    const indices = {
+        timestamp: header.indexOf("timestamp"),
+        open: header.indexOf("open"),
+        high: header.indexOf("high"),
+        low: header.indexOf("low"),
+        close: header.indexOf("close"),
     };
+
+    if (Object.values(indices).some((index) => index === -1)) {
+        throw new ProbabilityError("CSV missing required columns", 500);
+    }
+
+    const rows: OhlcBar[] = [];
+
+    for (const line of lines.slice(1)) {
+        const parts = line.split(",");
+        if (parts.length < header.length) {
+            continue;
+        }
+        const timestamp = new Date(parts[indices.timestamp]);
+        const open = Number(parts[indices.open]);
+        const high = Number(parts[indices.high]);
+        const low = Number(parts[indices.low]);
+        const close = Number(parts[indices.close]);
+
+        if (
+            !Number.isFinite(open) ||
+            !Number.isFinite(high) ||
+            !Number.isFinite(low) ||
+            !Number.isFinite(close) ||
+            Number.isNaN(timestamp.getTime())
+        ) {
+            continue;
+        }
+
+        rows.push({ timestamp, open, high, low, close });
+    }
+
+    return rows.sort(
+        (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
+    );
+};
+
+const resampleBars = (bars: OhlcBar[], multiple: number): OhlcBar[] => {
+    const output: OhlcBar[] = [];
+    for (let i = 0; i + multiple <= bars.length; i += multiple) {
+        const chunk = bars.slice(i, i + multiple);
+        const open = chunk[0].open;
+        const close = chunk[chunk.length - 1].close;
+        const high = Math.max(...chunk.map((bar) => bar.high));
+        const low = Math.min(...chunk.map((bar) => bar.low));
+        const timestamp = chunk[chunk.length - 1].timestamp;
+        output.push({ timestamp, open, high, low, close });
+    }
+    return output;
+};
+
+const loadOhlcData = async (
+    symbol: string,
+    timeframe: string
+): Promise<{ bars: OhlcBar[]; derivedFrom?: string }> => {
+    const fileName = `${symbol}_${timeframe}.sample.csv`;
+    const filePath = path.join(DATA_DIR, fileName);
+
+    try {
+        const content = await fs.readFile(filePath, "utf8");
+        const bars = parseCsv(content);
+        return { bars };
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw error;
+        }
+    }
+
+    const timeframeMultipliers: Record<string, number> = {
+        M15: 3,
+        M30: 6,
+        H1: 12,
+    };
+
+    const multiple = timeframeMultipliers[timeframe];
+    if (!multiple) {
+        throw new ProbabilityError("symbol/timeframe not available", 404);
+    }
+
+    const baseFile = path.join(DATA_DIR, `${symbol}_M5.sample.csv`);
+    try {
+        const baseContent = await fs.readFile(baseFile, "utf8");
+        const baseBars = parseCsv(baseContent);
+        const bars = resampleBars(baseBars, multiple);
+        return { bars, derivedFrom: "M5" };
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+            throw new ProbabilityError("symbol/timeframe not available", 404);
+        }
+        throw error;
+    }
+};
+
+const computeEwmaVariance = (returns: number[]) => {
+    let variance = returns[0] * returns[0];
+    for (const value of returns.slice(1)) {
+        variance = EWMA_LAMBDA * variance + (1 - EWMA_LAMBDA) * value * value;
+    }
+    return variance;
 };
 
 export async function POST(request: NextRequest) {
-    let body: ProbabilityRequest | undefined;
-
     try {
-        const parsedBody = await request.json();
-        const parsed = requestSchema.safeParse(parsedBody);
-        if (!parsed.success) {
-            return NextResponse.json(
-                { error: "Invalid request payload", where: "probability" },
-                { status: 400 }
-            );
+        const body = normalizeRequest(await request.json());
+
+        if (body.event === "touch") {
+            throw new ProbabilityError("touch event not supported", 400);
         }
-        body = parsed.data;
-    } catch (error) {
-        return NextResponse.json(
-            { error: "Invalid JSON payload", where: "probability" },
-            { status: 400 }
+
+        const { bars, derivedFrom } = await loadOhlcData(
+            body.symbol,
+            body.timeframe
         );
-    }
 
-    try {
-        const requestPayload = body;
-        const { symbol, timeframe, horizon, lookback, targetX, event } =
-            requestPayload;
-
-        if (event === "touch") {
-            const json = NextResponse.json(
-                buildMockResponse(
-                    requestPayload,
-                    "Touch event not implemented yet"
-                )
-            );
-            json.headers.set("Cache-Control", "no-store");
-            return json;
+        if (bars.length < body.lookbackBars + 3) {
+            throw new ProbabilityError("insufficient data length", 422);
         }
 
-        const serviceUrl = process.env.PROB_SERVICE_URL;
-        if (serviceUrl) {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 2000);
-            try {
-                const response = await fetch(
-                    `${serviceUrl.replace(/\/$/, "")}/v1/probability/query`,
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(requestPayload),
-                        signal: controller.signal,
-                    }
-                );
-
-                if (!response.ok) {
-                    throw new Error(`Service returned ${response.status}`);
-                }
-
-                const data = await response.json();
-                const parsed = serviceResponseSchema.safeParse(data);
-                if (!parsed.success) {
-                    throw new Error("Service returned invalid payload");
-                }
-
-                const json = NextResponse.json({
-                    mode: "service",
-                    as_of: parsed.data.as_of ?? buildAsOf(),
-                    symbol,
-                    timeframe,
-                    horizon,
-                    lookback,
-                    targetX,
-                    event,
-                    p_up_ge_x: parsed.data.p_up_ge_x,
-                    p_dn_ge_x: parsed.data.p_dn_ge_x,
-                    p_within_pm_x: parsed.data.p_within_pm_x,
-                    meta: parsed.data.meta?.note
-                        ? { note: parsed.data.meta.note }
-                        : undefined,
-                });
-                json.headers.set("Cache-Control", "no-store");
-                return json;
-            } catch (error) {
-                console.error("[probability] service failed", {
-                    error: String(error),
-                });
-                const json = NextResponse.json(
-                    buildMockResponse(
-                        requestPayload,
-                        "Service unavailable, showing mock"
-                    )
-                );
-                json.headers.set("Cache-Control", "no-store");
-                return json;
-            } finally {
-                clearTimeout(timeout);
-            }
+        const entryIndex = bars.length - 2;
+        const entry = bars[entryIndex];
+        const startIndex = entryIndex - body.lookbackBars;
+        if (startIndex < 1) {
+            throw new ProbabilityError("insufficient data length", 422);
         }
 
-        const json = NextResponse.json(
-            buildMockResponse(requestPayload, "Mocked (no service configured)")
-        );
+        const window = bars.slice(startIndex, entryIndex + 1);
+        const returns: number[] = [];
+        for (let i = 1; i < window.length; i += 1) {
+            returns.push(Math.log(window[i].close / window[i - 1].close));
+        }
+
+        if (returns.length === 0) {
+            throw new ProbabilityError("insufficient return series", 422);
+        }
+
+        const variance = computeEwmaVariance(returns);
+        const sigma1 = Math.sqrt(variance);
+        const sigmaH = sigma1 * Math.sqrt(body.horizonBars) * SIGMA_SCALE;
+        if (!Number.isFinite(sigmaH) || sigmaH <= 0) {
+            throw new ProbabilityError("invalid volatility", 422);
+        }
+
+        const symbolMeta = SYMBOL_META[body.symbol];
+        const pipSize = symbolMeta?.pip_size ?? DEFAULT_PIP_SIZE;
+        const pointSize = symbolMeta?.point_size ?? DEFAULT_POINT_SIZE;
+        const delta = body.targetX * pipSize;
+        const rThresh = Math.log((entry.close + delta) / entry.close);
+        const zScore = rThresh / sigmaH;
+        const pUp = clamp(1 - normalCdf(zScore));
+        const pDown = clamp(normalCdf(-zScore));
+        const pWithin = clamp(1 - pUp - pDown);
+        const notes: string[] = [];
+        if (derivedFrom) {
+            notes.push(`Derived from ${derivedFrom} bars`);
+        }
+        if (!symbolMeta) {
+            notes.push("Unknown symbol; using default pip/point sizes");
+        }
+
+        const response: ProbabilityResponse = {
+            meta: {
+                symbol: body.symbol,
+                timeframe: body.timeframe,
+                horizonBars: body.horizonBars,
+                lookbackBars: body.lookbackBars,
+                targetX: body.targetX,
+                event: body.event,
+                as_of: entry.timestamp.toISOString(),
+                source: "local_csv",
+                pip_size: pipSize,
+                point_size: pointSize,
+                note: notes.length > 0 ? notes.join(". ") : undefined,
+            },
+            prob: {
+                up_ge_x: pUp,
+                down_ge_x: pDown,
+                within_pm_x: pWithin,
+            },
+        };
+
+        const json = NextResponse.json(response);
         json.headers.set("Cache-Control", "no-store");
         return json;
     } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        console.error("POST /api/probability/query error", error);
+        const status =
+            error instanceof ProbabilityError ? error.status : 500;
         const json = NextResponse.json(
             {
                 error: "Failed to query probability",
                 detail: message,
                 where: "probability",
             },
-            { status: 502 }
+            { status }
         );
         json.headers.set("Cache-Control", "no-store");
         return json;

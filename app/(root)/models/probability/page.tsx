@@ -14,13 +14,15 @@ import {
 
 type ProbabilityEvent = "end" | "touch";
 
+type ProbabilityMode = "mock" | "service";
+
 type ProbabilityResponse = {
-    mode: "mock" | "service";
+    mode: ProbabilityMode;
     as_of: string;
     symbol: string;
     timeframe: string;
-    horizon: number;
-    lookback: number;
+    horizonBars: number;
+    lookbackBars: number;
     targetX: number;
     event: ProbabilityEvent;
     p_up_ge_x: number;
@@ -28,6 +30,26 @@ type ProbabilityResponse = {
     p_within_pm_x: number;
     meta?: {
         note?: string;
+        source?: string;
+    };
+};
+
+type ApiProbabilityResponse = {
+    meta: {
+        symbol: string;
+        timeframe: string;
+        horizonBars: number;
+        lookbackBars: number;
+        targetX: number;
+        event: ProbabilityEvent;
+        as_of: string;
+        source: string;
+        note?: string;
+    };
+    prob: {
+        up_ge_x: number;
+        down_ge_x: number;
+        within_pm_x: number;
     };
 };
 
@@ -43,54 +65,158 @@ const formatProbability = (value?: number) => {
     return `${(value * 100).toFixed(1)}%`;
 };
 
-const isProbabilityResponse = (value: unknown): value is ProbabilityResponse => {
+const clampProbability = (value: number, min = 0.01, max = 0.99) =>
+    Math.min(max, Math.max(min, value));
+
+const hashSeed = (input: string) => {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < input.length; i += 1) {
+        hash ^= input.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return hash >>> 0;
+};
+
+const mulberry32 = (seed: number) => {
+    let t = seed;
+    return () => {
+        t += 0x6d2b79f5;
+        let x = t;
+        x = Math.imul(x ^ (x >>> 15), x | 1);
+        x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+        return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+    };
+};
+
+const buildMockResponse = ({
+    symbol,
+    timeframe,
+    horizonBars,
+    lookbackBars,
+    targetX,
+    event,
+    note,
+}: {
+    symbol: string;
+    timeframe: string;
+    horizonBars: number;
+    lookbackBars: number;
+    targetX: number;
+    event: ProbabilityEvent;
+    note?: string;
+}): ProbabilityResponse => {
+    const seed = hashSeed(
+        `${symbol}|${timeframe}|${horizonBars}|${lookbackBars}|${event}`
+    );
+    const random = mulberry32(seed);
+    const rUp = random();
+    const rDown = random();
+    const rWithin = random();
+    const baseUp = 0.35 + rUp * 0.35;
+    const baseDown = 0.35 + rDown * 0.35;
+    const aUp = 0.06 + rUp * 0.08;
+    const aDown = 0.06 + rDown * 0.08;
+    const difficulty = targetX / (targetX + 18);
+
+    let up = clampProbability(
+        baseUp * Math.exp(-aUp * targetX) * (1 - 0.15 * difficulty),
+        0.01,
+        0.8
+    );
+    let down = clampProbability(
+        baseDown * Math.exp(-aDown * targetX) * (1 - 0.15 * difficulty),
+        0.01,
+        0.8
+    );
+    const tailSum = up + down;
+    if (tailSum > 0.95) {
+        const scale = 0.95 / tailSum;
+        up = clampProbability(up * scale, 0.01, 0.8);
+        down = clampProbability(down * scale, 0.01, 0.8);
+    }
+
+    const within = clampProbability(
+        1 - (up + down) + (rWithin - 0.5) * 0.01,
+        0.01,
+        0.98
+    );
+
+    return {
+        mode: "mock",
+        as_of: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        symbol,
+        timeframe,
+        horizonBars,
+        lookbackBars,
+        targetX,
+        event,
+        p_up_ge_x: up,
+        p_dn_ge_x: down,
+        p_within_pm_x: within,
+        meta: note ? { note } : undefined,
+    };
+};
+
+const isApiProbabilityResponse = (
+    value: unknown
+): value is ApiProbabilityResponse => {
     if (!value || typeof value !== "object") {
         return false;
     }
     const data = value as Record<string, unknown>;
-    if (data.mode !== "mock" && data.mode !== "service") {
+    if (typeof data.meta !== "object" || data.meta === null) {
         return false;
     }
-    if (typeof data.as_of !== "string") {
+    if (typeof data.prob !== "object" || data.prob === null) {
         return false;
     }
-    if (typeof data.symbol !== "string" || typeof data.timeframe !== "string") {
-        return false;
-    }
-    if (
-        typeof data.horizon !== "number" ||
-        typeof data.lookback !== "number" ||
-        typeof data.targetX !== "number"
-    ) {
-        return false;
-    }
-    if (data.event !== "end" && data.event !== "touch") {
+    const meta = data.meta as Record<string, unknown>;
+    const prob = data.prob as Record<string, unknown>;
+
+    if (typeof meta.symbol !== "string" || typeof meta.timeframe !== "string") {
         return false;
     }
     if (
-        typeof data.p_up_ge_x !== "number" ||
-        typeof data.p_dn_ge_x !== "number" ||
-        typeof data.p_within_pm_x !== "number"
+        typeof meta.horizonBars !== "number" ||
+        typeof meta.lookbackBars !== "number" ||
+        typeof meta.targetX !== "number"
     ) {
         return false;
     }
-    if (data.meta !== undefined) {
-        if (typeof data.meta !== "object" || data.meta === null) {
-            return false;
-        }
-        const meta = data.meta as Record<string, unknown>;
-        if (meta.note !== undefined && typeof meta.note !== "string") {
-            return false;
-        }
-        const allowedKeys = new Set(["note"]);
-        for (const key of Object.keys(meta)) {
-            if (!allowedKeys.has(key)) {
-                return false;
-            }
-        }
+    if (meta.event !== "end" && meta.event !== "touch") {
+        return false;
+    }
+    if (typeof meta.as_of !== "string" || typeof meta.source !== "string") {
+        return false;
+    }
+    if (
+        typeof prob.up_ge_x !== "number" ||
+        typeof prob.down_ge_x !== "number" ||
+        typeof prob.within_pm_x !== "number"
+    ) {
+        return false;
     }
     return true;
 };
+
+const toProbabilityResponse = (
+    payload: ApiProbabilityResponse
+): ProbabilityResponse => ({
+    mode: "service",
+    as_of: payload.meta.as_of,
+    symbol: payload.meta.symbol,
+    timeframe: payload.meta.timeframe,
+    horizonBars: payload.meta.horizonBars,
+    lookbackBars: payload.meta.lookbackBars,
+    targetX: payload.meta.targetX,
+    event: payload.meta.event,
+    p_up_ge_x: payload.prob.up_ge_x,
+    p_dn_ge_x: payload.prob.down_ge_x,
+    p_within_pm_x: payload.prob.within_pm_x,
+    meta: payload.meta.note
+        ? { note: payload.meta.note, source: payload.meta.source }
+        : { source: payload.meta.source },
+});
 
 const ProbabilityPage = () => {
     const [symbol, setSymbol] = useState<(typeof SYMBOLS)[number]>("EURUSD");
@@ -120,8 +246,8 @@ const ProbabilityPage = () => {
         const payload = {
             symbol,
             timeframe,
-            horizon,
-            lookback,
+            horizonBars: horizon,
+            lookbackBars: lookback,
             targetX: debouncedTargetX,
             event,
         };
@@ -144,17 +270,35 @@ const ProbabilityPage = () => {
 
                 const data = await response.json();
                 if (!controller.signal.aborted) {
-                    if (isProbabilityResponse(data)) {
-                        setProbability(data);
-                    } else {
-                        setProbability(null);
-                        setRequestError("Invalid response");
+                    if (isApiProbabilityResponse(data)) {
+                        setProbability(toProbabilityResponse(data));
+                        return;
                     }
+                    const fallback = buildMockResponse({
+                        symbol,
+                        timeframe,
+                        horizonBars: horizon,
+                        lookbackBars: lookback,
+                        targetX: debouncedTargetX,
+                        event,
+                        note: "Mocked (invalid response)",
+                    });
+                    setProbability(fallback);
+                    setRequestError("Invalid response. Showing mocked data.");
                 }
             } catch (error) {
                 if (!controller.signal.aborted) {
-                    setProbability(null);
-                    setRequestError("Network error. Please try again.");
+                    const fallback = buildMockResponse({
+                        symbol,
+                        timeframe,
+                        horizonBars: horizon,
+                        lookbackBars: lookback,
+                        targetX: debouncedTargetX,
+                        event,
+                        note: "Mocked (API unavailable)",
+                    });
+                    setProbability(fallback);
+                    setRequestError("Live data unavailable. Showing mock.");
                 }
             } finally {
                 if (!controller.signal.aborted) {
@@ -171,7 +315,7 @@ const ProbabilityPage = () => {
     const statusBadge = useMemo(() => {
         if (probability?.mode === "service") {
             return {
-                label: "LIVE",
+                label: "LIVE (local)",
                 className:
                     "border-emerald-500/40 bg-emerald-500/15 text-emerald-200",
             };
@@ -179,9 +323,8 @@ const ProbabilityPage = () => {
 
         if (probability?.mode === "mock") {
             return {
-                label: "Mocked (no live data yet)",
-                className:
-                    "border-gray-700 bg-gray-900/70 text-gray-400",
+                label: "MOCKED",
+                className: "border-gray-700 bg-gray-900/70 text-gray-400",
             };
         }
 

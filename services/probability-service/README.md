@@ -24,13 +24,15 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 3. After the deploy finishes, copy the public service URL (base URL without a
    trailing slash).
 
-## Wire to Vercel
+## Wire to Vercel (optional)
+`PROB_SERVICE_URL` is now optional because the Next.js API computes END-event
+probabilities locally from repo-shipped CSVs by default.
+
+If you still want to point ZedXe at this FastAPI service in the future, keep
+the Render URL handy:
 1. In your Vercel project, open **Settings** → **Environment Variables**.
 2. Add `PROB_SERVICE_URL` with the Render base URL (no trailing slash).
 3. Redeploy the Vercel project.
-
-When `PROB_SERVICE_URL` is set, the Next.js route `/api/probability/query` will
-forward requests to the service instead of using mocked data.
 
 ## Verify in browser
 - Health check: `https://<service>/health` should return `{"status":"ok"}`.
@@ -63,7 +65,8 @@ curl -X POST https://<service>/v1/probability/query \
 ```bash
 export PROB_SERVICE_URL=http://localhost:8000
 ```
-Then ZedXe `/models/probability` should return `mode="service"`.
+Then ZedXe `/models/probability` can be updated to route to the service again
+if desired.
 
 ## Data files
 The service loads OHLC CSV files from `OHLC_DATA_DIR` if set, otherwise it uses
