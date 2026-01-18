@@ -49,9 +49,8 @@ const normalizeSymbol = (symbol: string) => symbol.replace("/", "").toUpperCase(
 const symbolSchema = z
     .string()
     .trim()
-    .min(3)
-    .max(10)
-    .regex(/^[A-Z/]+$/)
+    .transform((value) => value.toUpperCase().replace(/[^A-Z]/g, ""))
+    .pipe(z.string().min(3).max(10).regex(/^[A-Z]+$/))
     .refine((value) => normalizeSymbol(value) === "EURUSD", {
         message: "Unsupported symbol",
     });

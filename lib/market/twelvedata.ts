@@ -44,7 +44,7 @@ const normalizeSymbolForApi = (symbol: string) => {
 };
 
 const sortCandlesOldestFirst = (candles: Candle[]) =>
-    candles.sort((a, b) => a.datetime.localeCompare(b.datetime));
+    [...candles].sort((a, b) => a.datetime.localeCompare(b.datetime));
 
 export const fetchTimeSeries = async ({
     symbol,
