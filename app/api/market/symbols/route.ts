@@ -14,9 +14,21 @@ const SYMBOL_META: Record<string, { pip_size: number; point_size: number }> = {
 
 const DEFAULT_PIP_SIZE = 0.0001;
 const DEFAULT_POINT_SIZE = 0.0001;
+const TIMEFRAME_MULTIPLIERS: Record<string, number> = {
+    M15: 3,
+    M30: 6,
+    H1: 12,
+};
+
+const countCsvRows = async (filePath: string) => {
+    const content = await fs.readFile(filePath, "utf8");
+    const lines = content.split(/\r?\n/).filter(Boolean);
+    return Math.max(0, lines.length - 1);
+};
 
 export async function GET() {
     const symbols = new Map<string, Set<string>>();
+    const barsBySymbol = new Map<string, Record<string, number>>();
 
     try {
         const files = await fs.readdir(DATA_DIR);
@@ -33,10 +45,21 @@ export async function GET() {
             }
             symbols.get(symbol)?.add(timeframe);
 
+            const filePath = path.join(DATA_DIR, file);
+            const rows = await countCsvRows(filePath);
+            if (!barsBySymbol.has(symbol)) {
+                barsBySymbol.set(symbol, {});
+            }
+            barsBySymbol.get(symbol)![timeframe] = rows;
+
             if (timeframe === "M5") {
-                symbols.get(symbol)?.add("M15");
-                symbols.get(symbol)?.add("M30");
-                symbols.get(symbol)?.add("H1");
+                const derived = barsBySymbol.get(symbol)!;
+                for (const [derivedTimeframe, multiple] of Object.entries(
+                    TIMEFRAME_MULTIPLIERS
+                )) {
+                    symbols.get(symbol)?.add(derivedTimeframe);
+                    derived[derivedTimeframe] = Math.floor(rows / multiple);
+                }
             }
         }
     } catch (error) {
@@ -51,6 +74,7 @@ export async function GET() {
                 timeframes: Array.from(timeframes).sort(),
                 pip_size: meta?.pip_size ?? DEFAULT_PIP_SIZE,
                 point_size: meta?.point_size ?? DEFAULT_POINT_SIZE,
+                bars_by_timeframe: barsBySymbol.get(symbol) ?? {},
             };
         }
     );

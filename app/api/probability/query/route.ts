@@ -22,12 +22,12 @@ type ProbabilityResponse = {
         horizonBars: number;
         lookbackBars: number;
         requestedLookbackBars: number;
-        effectiveLookbackBars: number;
-        lookbackClamped: boolean;
+        availableBars: number;
+        clampedLookback: boolean;
         targetX: number;
         event: ProbabilityEvent;
         as_of: string;
-        source: "local_csv";
+        source: "local";
         pip_size: number;
         point_size: number;
         note?: string;
@@ -65,6 +65,8 @@ const DEFAULT_PIP_SIZE = 0.0001;
 const DEFAULT_POINT_SIZE = 0.0001;
 const EWMA_LAMBDA = 0.94;
 const SIGMA_SCALE = 1.0;
+const SYMBOL_REGEX = /^[A-Z0-9_]{2,15}$/;
+const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"] as const;
 
 const SYMBOL_META: Record<string, { pip_size: number; point_size: number }> = {
     EURUSD: { pip_size: 0.0001, point_size: 0.00001 },
@@ -73,10 +75,10 @@ const SYMBOL_META: Record<string, { pip_size: number; point_size: number }> = {
 
 const requestSchema = z
     .object({
-        symbol: z.string().min(1),
-        timeframe: z.string().min(1),
+        symbol: z.string().min(2).max(15).regex(SYMBOL_REGEX),
+        timeframe: z.enum(TIMEFRAMES),
         horizonBars: z.coerce.number().int().min(1),
-        lookbackBars: z.coerce.number().int().min(50),
+        lookbackBars: z.coerce.number().int().min(1),
         targetX: z.coerce.number().min(1),
         event: z.enum(["end", "touch"]),
     })
@@ -114,6 +116,10 @@ const normalizeRequest = (payload: unknown): ProbabilityRequest => {
         throw new ProbabilityError("Invalid JSON payload", 400);
     }
     const data = payload as Record<string, unknown>;
+    const rawSymbol =
+        typeof data.symbol === "string" ? data.symbol.toUpperCase() : "";
+    const rawTimeframe =
+        typeof data.timeframe === "string" ? data.timeframe.toUpperCase() : "";
     const horizonBars =
         data.horizonBars ??
         data.horizon ??
@@ -126,8 +132,8 @@ const normalizeRequest = (payload: unknown): ProbabilityRequest => {
         data.lookbackBars;
 
     const parsed = requestSchema.safeParse({
-        symbol: data.symbol,
-        timeframe: data.timeframe,
+        symbol: rawSymbol,
+        timeframe: rawTimeframe,
         horizonBars,
         lookbackBars,
         targetX: data.targetX,
@@ -139,6 +145,50 @@ const normalizeRequest = (payload: unknown): ProbabilityRequest => {
     }
 
     return parsed.data;
+};
+
+/** Discover available symbol/timeframe datasets from local CSV files. */
+const discoverDatasets = async (): Promise<
+    Map<string, Set<string>>
+> => {
+    const result = new Map<string, Set<string>>();
+    const files = await fs.readdir(DATA_DIR);
+    for (const file of files) {
+        const match = file.match(/^([A-Za-z0-9_]+)_([A-Za-z0-9]+)\.sample\.csv$/);
+        if (!match) {
+            continue;
+        }
+        const [, symbol, timeframe] = match;
+        const normalizedSymbol = symbol.toUpperCase();
+        const normalizedTimeframe = timeframe.toUpperCase();
+        if (!result.has(normalizedSymbol)) {
+            result.set(normalizedSymbol, new Set());
+        }
+        result.get(normalizedSymbol)?.add(normalizedTimeframe);
+    }
+    return result;
+};
+
+/** Validate that the requested symbol/timeframe is available locally. */
+const ensureDatasetAvailable = async (
+    symbol: string,
+    timeframe: string
+) => {
+    const datasets = await discoverDatasets();
+    const timeframes = datasets.get(symbol);
+    if (!timeframes) {
+        throw new ProbabilityError("Unknown symbol", 400);
+    }
+    if (timeframes.has(timeframe)) {
+        return;
+    }
+    if (
+        timeframes.has("M5") &&
+        ["M15", "M30", "H1"].includes(timeframe)
+    ) {
+        return;
+    }
+    throw new ProbabilityError("symbol/timeframe not available", 400);
 };
 
 /** Parse OHLC rows from a CSV string and sort by timestamp. */
@@ -281,11 +331,19 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
     try {
-        const body = normalizeRequest(await request.json());
+        let rawPayload: unknown;
+        try {
+            rawPayload = await request.json();
+        } catch (error) {
+            throw new ProbabilityError("invalid JSON", 400);
+        }
+        const body = normalizeRequest(rawPayload);
 
         if (body.event === "touch") {
             throw new ProbabilityError("touch event not supported", 400);
         }
+
+        await ensureDatasetAvailable(body.symbol, body.timeframe);
 
         const { bars, derivedFrom } = await loadOhlcData(
             body.symbol,
@@ -294,18 +352,14 @@ export async function POST(request: NextRequest) {
 
         const entryIndex = bars.length - 2;
         const entry = bars[entryIndex];
-        const bufferBars = Math.max(1, body.horizonBars);
-        const maxLookback = entryIndex - 1 - bufferBars;
-        const minLookback = 20;
-        if (maxLookback < minLookback) {
+        if (bars.length < 23) {
             throw new ProbabilityError("insufficient data length", 422);
         }
-        const effectiveLookbackBars = Math.max(
-            minLookback,
-            Math.min(body.lookbackBars, maxLookback)
-        );
-        const lookbackClamped = effectiveLookbackBars !== body.lookbackBars;
-        const startIndex = entryIndex - effectiveLookbackBars;
+        const requestedLookbackBars = body.lookbackBars;
+        const maxLookback = Math.max(20, bars.length - 3);
+        const lookbackBars = Math.min(requestedLookbackBars, maxLookback);
+        const clampedLookback = requestedLookbackBars > lookbackBars;
+        const startIndex = entryIndex - lookbackBars;
         const window = bars.slice(startIndex, entryIndex + 1);
         const returns: number[] = [];
         for (let i = 1; i < window.length; i += 1) {
@@ -327,15 +381,12 @@ export async function POST(request: NextRequest) {
         const pipSize = symbolMeta?.pip_size ?? DEFAULT_PIP_SIZE;
         const pointSize = symbolMeta?.point_size ?? DEFAULT_POINT_SIZE;
         const delta = body.targetX * pipSize;
-        const mu = 0;
         const rUp = Math.log((entry.close + delta) / entry.close);
-        const zUp = (rUp - mu) / sigmaH;
-        const pUp = clamp(1 - normalCdf(zUp));
+        const pUp = clamp(1 - normalCdf(rUp / sigmaH));
         let pDown = 0;
         if (entry.close > delta) {
             const rDown = Math.log((entry.close - delta) / entry.close);
-            const zDown = (rDown - mu) / sigmaH;
-            pDown = clamp(normalCdf(zDown));
+            pDown = clamp(normalCdf(rDown / sigmaH));
         }
         const pWithin = clamp(1 - pUp - pDown);
         const notes: string[] = [];
@@ -351,14 +402,14 @@ export async function POST(request: NextRequest) {
                 symbol: body.symbol,
                 timeframe: body.timeframe,
                 horizonBars: body.horizonBars,
-                lookbackBars: effectiveLookbackBars,
-                requestedLookbackBars: body.lookbackBars,
-                effectiveLookbackBars,
-                lookbackClamped,
+                lookbackBars,
+                requestedLookbackBars,
+                availableBars: bars.length,
+                clampedLookback,
                 targetX: body.targetX,
                 event: body.event,
                 as_of: entry.timestamp.toISOString(),
-                source: "local_csv",
+                source: "local",
                 pip_size: pipSize,
                 point_size: pointSize,
                 note: notes.length > 0 ? notes.join(". ") : undefined,

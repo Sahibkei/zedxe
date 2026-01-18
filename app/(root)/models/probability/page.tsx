@@ -32,8 +32,8 @@ type ProbabilityResponse = {
         note?: string;
         source?: string;
         requestedLookbackBars?: number;
-        effectiveLookbackBars?: number;
-        lookbackClamped?: boolean;
+        availableBars?: number;
+        clampedLookback?: boolean;
     };
 };
 
@@ -44,8 +44,8 @@ type ApiProbabilityResponse = {
         horizonBars: number;
         lookbackBars: number;
         requestedLookbackBars: number;
-        effectiveLookbackBars: number;
-        lookbackClamped: boolean;
+        availableBars: number;
+        clampedLookback: boolean;
         targetX: number;
         event: ProbabilityEvent;
         as_of: string;
@@ -63,6 +63,16 @@ const SYMBOLS = ["EURUSD", "XAUUSD", "US500"] as const;
 const TIMEFRAMES = ["M5", "M15", "H1"] as const;
 const LOOKBACKS = [250, 500, 1000] as const;
 const X_PRESETS = [5, 10, 15, 20, 25] as const;
+
+type MarketSymbolsResponse = {
+    symbols: Array<{
+        symbol: string;
+        timeframes: string[];
+        pip_size: number;
+        point_size: number;
+        bars_by_timeframe: Record<string, number>;
+    }>;
+};
 
 const formatProbability = (value?: number) => {
     if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -191,10 +201,10 @@ const isApiProbabilityResponse = (
     if (typeof meta.requestedLookbackBars !== "number") {
         return false;
     }
-    if (typeof meta.effectiveLookbackBars !== "number") {
+    if (typeof meta.availableBars !== "number") {
         return false;
     }
-    if (typeof meta.lookbackClamped !== "boolean") {
+    if (typeof meta.clampedLookback !== "boolean") {
         return false;
     }
     if (typeof meta.targetX !== "number") {
@@ -234,8 +244,8 @@ const toProbabilityResponse = (
         note: payload.meta.note,
         source: payload.meta.source,
         requestedLookbackBars: payload.meta.requestedLookbackBars,
-        effectiveLookbackBars: payload.meta.effectiveLookbackBars,
-        lookbackClamped: payload.meta.lookbackClamped,
+        availableBars: payload.meta.availableBars,
+        clampedLookback: payload.meta.clampedLookback,
     },
 });
 
@@ -253,6 +263,69 @@ const ProbabilityPage = () => {
         useState<ProbabilityResponse | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [requestError, setRequestError] = useState<string | null>(null);
+    const [marketSymbols, setMarketSymbols] =
+        useState<MarketSymbolsResponse | null>(null);
+
+    useEffect(() => {
+        let isMounted = true;
+        const fetchSymbols = async () => {
+            try {
+                const response = await fetch("/api/market/symbols");
+                if (!response.ok) {
+                    throw new Error("Failed to fetch symbols");
+                }
+                const data = (await response.json()) as MarketSymbolsResponse;
+                if (isMounted) {
+                    setMarketSymbols(data);
+                }
+            } catch (error) {
+                if (isMounted) {
+                    setMarketSymbols(null);
+                }
+            }
+        };
+
+        fetchSymbols();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    const availableBars = useMemo(() => {
+        const symbolEntry = marketSymbols?.symbols.find(
+            (entry) => entry.symbol === symbol
+        );
+        if (!symbolEntry) {
+            return null;
+        }
+        const bars = symbolEntry.bars_by_timeframe[timeframe];
+        return typeof bars === "number" ? bars : null;
+    }, [marketSymbols, symbol, timeframe]);
+
+    const maxAllowedLookback = useMemo(() => {
+        if (availableBars === null) {
+            return null;
+        }
+        return Math.max(1, availableBars - 3);
+    }, [availableBars]);
+
+    useEffect(() => {
+        if (maxAllowedLookback === null) {
+            return;
+        }
+        if (lookback <= maxAllowedLookback) {
+            return;
+        }
+        const validPresets = LOOKBACKS.filter(
+            (value) => value <= maxAllowedLookback
+        );
+        if (validPresets.length > 0) {
+            setLookback(validPresets[validPresets.length - 1]);
+            return;
+        }
+        setLookback(maxAllowedLookback);
+    }, [lookback, maxAllowedLookback]);
 
     useEffect(() => {
         const handle = setTimeout(() => {
@@ -354,6 +427,8 @@ const ProbabilityPage = () => {
 
     const runLabel =
         probability?.mode === "service" ? "Live run" : "Mocked run";
+    const lookbackDisplay =
+        probability?.meta?.lookbackBars ?? lookback;
 
     return (
         <section className="mx-auto max-w-6xl space-y-8 px-4 py-8">
@@ -473,17 +548,25 @@ const ProbabilityPage = () => {
                                         <SelectValue placeholder="Lookback" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {LOOKBACKS.map((item) => (
+                                    {LOOKBACKS.map((item) => {
+                                        const disabled =
+                                            maxAllowedLookback !== null &&
+                                            item > maxAllowedLookback;
+                                        if (disabled) {
+                                            return null;
+                                        }
+                                        return (
                                             <SelectItem
                                                 key={item}
                                                 value={String(item)}
                                             >
                                                 {item} bars
                                             </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                                        );
+                                    })}
+                                </SelectContent>
+                            </Select>
+                        </div>
                         </div>
                     </div>
 
@@ -577,7 +660,11 @@ const ProbabilityPage = () => {
                             horizon
                             <span className="text-gray-200"> {horizon}</span> bars ·
                             lookback
-                            <span className="text-gray-200"> {lookback}</span> bars.
+                            <span className="text-gray-200">
+                                {" "}
+                                {lookbackDisplay}
+                            </span>{" "}
+                            bars.
                         </div>
                     </div>
                 </div>
@@ -594,16 +681,12 @@ const ProbabilityPage = () => {
                                 {probability.meta.note}
                             </p>
                         ) : null}
-                        {probability?.meta?.lookbackClamped &&
-                        typeof probability.meta.requestedLookbackBars ===
-                            "number" &&
-                        typeof probability.meta.effectiveLookbackBars ===
-                            "number" ? (
+                        {probability?.meta?.clampedLookback &&
+                        typeof probability.meta.lookbackBars === "number" ? (
                             <p className="text-xs text-amber-200/80">
-                                Lookback clamped from{" "}
-                                {probability.meta.requestedLookbackBars} to{" "}
-                                {probability.meta.effectiveLookbackBars} due to
-                                sample data length.
+                                Lookback clamped to{" "}
+                                {probability.meta.lookbackBars} due to sample
+                                dataset length.
                             </p>
                         ) : null}
                         {requestError ? (
