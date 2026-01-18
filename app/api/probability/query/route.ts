@@ -41,6 +41,9 @@ type ProbabilityResponse = {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const TWELVEDATA_MAX_POINTS = 5000;
+const OUTPUT_PAD = 5;
+
 const TIMEFRAMES = ["M5", "M15", "M30", "H1"] as const;
 const EVENTS = ["end"] as const;
 
@@ -122,9 +125,17 @@ const ewmaVolatility = (returns: number[], lambda = 0.94) => {
 };
 
 const parseAsOf = (datetime: string) => {
-    const normalized = datetime.includes("T")
-        ? datetime
-        : datetime.replace(" ", "T") + "Z";
+    const trimmed = datetime.trim();
+    if (!trimmed) {
+        return new Date().toISOString();
+    }
+    const withTime = trimmed.includes("T")
+        ? trimmed
+        : trimmed.replace(" ", "T");
+    const hasTimezone =
+        /[zZ]$/.test(withTime) ||
+        /[+-]\d{2}:?\d{2}$/.test(withTime);
+    const normalized = hasTimezone ? withTime : `${withTime}Z`;
     const parsed = new Date(normalized);
     if (Number.isNaN(parsed.getTime())) {
         return new Date().toISOString();
@@ -252,7 +263,17 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(response);
     }
 
-    const outputsize = payload.lookbackBars + payload.horizonBars + 5;
+    const requestedOutputsize =
+        payload.lookbackBars + payload.horizonBars + OUTPUT_PAD;
+    const outputsize = Math.min(requestedOutputsize, TWELVEDATA_MAX_POINTS);
+    const maxLookbackGivenClamp = Math.max(
+        0,
+        outputsize - payload.horizonBars - OUTPUT_PAD
+    );
+    const clampedLookbackBars = Math.min(
+        payload.lookbackBars,
+        maxLookbackGivenClamp
+    );
     const timeSeries = await fetchTimeSeries({
         symbol: payload.symbol,
         timeframe: payload.timeframe,
@@ -282,15 +303,20 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    const maxLookback = Math.max(0, candles.length - payload.horizonBars - 1);
+    const maxLookbackFromCandles = Math.max(
+        0,
+        candles.length - payload.horizonBars - 1
+    );
     const effectiveLookbackBars = Math.min(
-        payload.lookbackBars,
-        Math.max(1, maxLookback)
+        clampedLookbackBars,
+        Math.max(1, maxLookbackFromCandles)
     );
 
     const wasClamped = effectiveLookbackBars < payload.lookbackBars;
     const clampReason = wasClamped
-        ? "insufficient_candles"
+        ? clampedLookbackBars < payload.lookbackBars
+            ? "outputsize_limit"
+            : "insufficient_candles"
         : undefined;
 
     const lookbackStart = entryIndex - effectiveLookbackBars;

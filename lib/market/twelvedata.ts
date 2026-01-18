@@ -9,7 +9,7 @@ export type Candle = {
 };
 
 export type TwelveDataError = {
-    type: "missing_api_key" | "api_error" | "invalid_response";
+    type: "missing_api_key" | "api_error" | "invalid_response" | "timeout";
     message: string;
     status?: number;
     code?: number;
@@ -46,6 +46,18 @@ const normalizeSymbolForApi = (symbol: string) => {
 const sortCandlesOldestFirst = (candles: Candle[]) =>
     [...candles].sort((a, b) => a.datetime.localeCompare(b.datetime));
 
+const getTimeoutMs = () => {
+    const raw = process.env.TWELVEDATA_TIMEOUT_MS;
+    if (!raw) {
+        return 8000;
+    }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return 8000;
+    }
+    return Math.floor(parsed);
+};
+
 export const fetchTimeSeries = async ({
     symbol,
     timeframe,
@@ -73,12 +85,25 @@ export const fetchTimeSeries = async ({
     url.searchParams.set("outputsize", String(outputsize));
     url.searchParams.set("apikey", apiKey);
 
+    const controller = new AbortController();
+    const timeoutMs = getTimeoutMs();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
     try {
         response = await fetch(url.toString(), {
             next: { revalidate: 60 },
+            signal: controller.signal,
         });
     } catch (error) {
+        if (controller.signal.aborted) {
+            return {
+                ok: false,
+                error: {
+                    type: "timeout",
+                    message: `TwelveData request timed out after ${timeoutMs}ms`,
+                },
+            };
+        }
         return {
             ok: false,
             error: {
@@ -86,6 +111,8 @@ export const fetchTimeSeries = async ({
                 message: `Failed to reach TwelveData: ${String(error)}`,
             },
         };
+    } finally {
+        clearTimeout(timeout);
     }
 
     let payload: unknown;
@@ -157,20 +184,31 @@ export const fetchTimeSeries = async ({
     }
 
     const candles = values
-        .map((value) => ({
-            datetime: String(value.datetime),
-            open: Number(value.open),
-            high: Number(value.high),
-            low: Number(value.low),
-            close: Number(value.close),
-        }))
+        .map((value) => {
+            const datetime =
+                typeof value.datetime === "string"
+                    ? value.datetime.trim()
+                    : value.datetime
+                    ? String(value.datetime).trim()
+                    : "";
+            if (!datetime) {
+                return null;
+            }
+            return {
+                datetime,
+                open: Number(value.open),
+                high: Number(value.high),
+                low: Number(value.low),
+                close: Number(value.close),
+            };
+        })
         .filter(
-            (value) =>
+            (value): value is Candle =>
+                Boolean(value) &&
                 Number.isFinite(value.open) &&
                 Number.isFinite(value.high) &&
                 Number.isFinite(value.low) &&
-                Number.isFinite(value.close) &&
-                Boolean(value.datetime)
+                Number.isFinite(value.close)
         );
 
     if (!candles.length) {
