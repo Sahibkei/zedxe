@@ -31,6 +31,9 @@ type ProbabilityResponse = {
     meta?: {
         note?: string;
         source?: string;
+        requestedLookbackBars?: number;
+        effectiveLookbackBars?: number;
+        lookbackClamped?: boolean;
     };
 };
 
@@ -40,6 +43,9 @@ type ApiProbabilityResponse = {
         timeframe: string;
         horizonBars: number;
         lookbackBars: number;
+        requestedLookbackBars: number;
+        effectiveLookbackBars: number;
+        lookbackClamped: boolean;
         targetX: number;
         event: ProbabilityEvent;
         as_of: string;
@@ -176,11 +182,22 @@ const isApiProbabilityResponse = (
     if (typeof meta.symbol !== "string" || typeof meta.timeframe !== "string") {
         return false;
     }
-    if (
-        typeof meta.horizonBars !== "number" ||
-        typeof meta.lookbackBars !== "number" ||
-        typeof meta.targetX !== "number"
-    ) {
+    if (typeof meta.horizonBars !== "number") {
+        return false;
+    }
+    if (typeof meta.lookbackBars !== "number") {
+        return false;
+    }
+    if (typeof meta.requestedLookbackBars !== "number") {
+        return false;
+    }
+    if (typeof meta.effectiveLookbackBars !== "number") {
+        return false;
+    }
+    if (typeof meta.lookbackClamped !== "boolean") {
+        return false;
+    }
+    if (typeof meta.targetX !== "number") {
         return false;
     }
     if (meta.event !== "end" && meta.event !== "touch") {
@@ -213,9 +230,13 @@ const toProbabilityResponse = (
     p_up_ge_x: payload.prob.up_ge_x,
     p_dn_ge_x: payload.prob.down_ge_x,
     p_within_pm_x: payload.prob.within_pm_x,
-    meta: payload.meta.note
-        ? { note: payload.meta.note, source: payload.meta.source }
-        : { source: payload.meta.source },
+    meta: {
+        note: payload.meta.note,
+        source: payload.meta.source,
+        requestedLookbackBars: payload.meta.requestedLookbackBars,
+        effectiveLookbackBars: payload.meta.effectiveLookbackBars,
+        lookbackClamped: payload.meta.lookbackClamped,
+    },
 });
 
 const ProbabilityPage = () => {
@@ -571,6 +592,18 @@ const ProbabilityPage = () => {
                         {probability?.meta?.note ? (
                             <p className="text-xs text-amber-200/80">
                                 {probability.meta.note}
+                            </p>
+                        ) : null}
+                        {probability?.meta?.lookbackClamped &&
+                        typeof probability.meta.requestedLookbackBars ===
+                            "number" &&
+                        typeof probability.meta.effectiveLookbackBars ===
+                            "number" ? (
+                            <p className="text-xs text-amber-200/80">
+                                Lookback clamped from{" "}
+                                {probability.meta.requestedLookbackBars} to{" "}
+                                {probability.meta.effectiveLookbackBars} due to
+                                sample data length.
                             </p>
                         ) : null}
                         {requestError ? (

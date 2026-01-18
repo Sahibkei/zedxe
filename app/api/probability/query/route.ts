@@ -21,6 +21,9 @@ type ProbabilityResponse = {
         timeframe: string;
         horizonBars: number;
         lookbackBars: number;
+        requestedLookbackBars: number;
+        effectiveLookbackBars: number;
+        lookbackClamped: boolean;
         targetX: number;
         event: ProbabilityEvent;
         as_of: string;
@@ -82,6 +85,7 @@ const requestSchema = z
 const clamp = (value: number, min = 0, max = 1) =>
     Math.min(max, Math.max(min, value));
 
+/** Error function approximation for normal CDF. */
 const erf = (value: number) => {
     const sign = value >= 0 ? 1 : -1;
     const x = Math.abs(value);
@@ -101,8 +105,10 @@ const erf = (value: number) => {
     return sign * y;
 };
 
+/** Standard normal cumulative distribution function. */
 const normalCdf = (value: number) => 0.5 * (1 + erf(value / Math.SQRT2));
 
+/** Normalize request payload shape for the probability computation. */
 const normalizeRequest = (payload: unknown): ProbabilityRequest => {
     if (!payload || typeof payload !== "object") {
         throw new ProbabilityError("Invalid JSON payload", 400);
@@ -135,6 +141,7 @@ const normalizeRequest = (payload: unknown): ProbabilityRequest => {
     return parsed.data;
 };
 
+/** Parse OHLC rows from a CSV string and sort by timestamp. */
 const parseCsv = (content: string): OhlcBar[] => {
     const lines = content.split(/\r?\n/).filter(Boolean);
     if (lines.length < 2) {
@@ -184,6 +191,7 @@ const parseCsv = (content: string): OhlcBar[] => {
     );
 };
 
+/** Resample M5 bars into higher timeframes using OHLC aggregation. */
 const resampleBars = (bars: OhlcBar[], multiple: number): OhlcBar[] => {
     const output: OhlcBar[] = [];
     for (let i = 0; i + multiple <= bars.length; i += multiple) {
@@ -198,6 +206,7 @@ const resampleBars = (bars: OhlcBar[], multiple: number): OhlcBar[] => {
     return output;
 };
 
+/** Load OHLC data from local CSVs, optionally resampling from M5. */
 const loadOhlcData = async (
     symbol: string,
     timeframe: string
@@ -240,6 +249,7 @@ const loadOhlcData = async (
     }
 };
 
+/** Compute EWMA variance over a return series. */
 const computeEwmaVariance = (returns: number[]) => {
     let variance = returns[0] * returns[0];
     for (const value of returns.slice(1)) {
@@ -248,6 +258,27 @@ const computeEwmaVariance = (returns: number[]) => {
     return variance;
 };
 
+/**
+ * GET handler to describe the POST-only probability endpoint.
+ */
+export async function GET() {
+    return NextResponse.json({
+        message: "POST required for probability queries.",
+        example: {
+            symbol: "EURUSD",
+            timeframe: "M15",
+            horizonBars: 48,
+            lookbackBars: 500,
+            targetX: 20,
+            event: "end",
+        },
+    });
+}
+
+/**
+ * POST handler for END-event probability queries.
+ * Computes probabilities from local CSV OHLC data.
+ */
 export async function POST(request: NextRequest) {
     try {
         const body = normalizeRequest(await request.json());
@@ -261,17 +292,20 @@ export async function POST(request: NextRequest) {
             body.timeframe
         );
 
-        if (bars.length < body.lookbackBars + 3) {
-            throw new ProbabilityError("insufficient data length", 422);
-        }
-
         const entryIndex = bars.length - 2;
         const entry = bars[entryIndex];
-        const startIndex = entryIndex - body.lookbackBars;
-        if (startIndex < 1) {
+        const bufferBars = Math.max(1, body.horizonBars);
+        const maxLookback = entryIndex - 1 - bufferBars;
+        const minLookback = 20;
+        if (maxLookback < minLookback) {
             throw new ProbabilityError("insufficient data length", 422);
         }
-
+        const effectiveLookbackBars = Math.max(
+            minLookback,
+            Math.min(body.lookbackBars, maxLookback)
+        );
+        const lookbackClamped = effectiveLookbackBars !== body.lookbackBars;
+        const startIndex = entryIndex - effectiveLookbackBars;
         const window = bars.slice(startIndex, entryIndex + 1);
         const returns: number[] = [];
         for (let i = 1; i < window.length; i += 1) {
@@ -293,10 +327,16 @@ export async function POST(request: NextRequest) {
         const pipSize = symbolMeta?.pip_size ?? DEFAULT_PIP_SIZE;
         const pointSize = symbolMeta?.point_size ?? DEFAULT_POINT_SIZE;
         const delta = body.targetX * pipSize;
-        const rThresh = Math.log((entry.close + delta) / entry.close);
-        const zScore = rThresh / sigmaH;
-        const pUp = clamp(1 - normalCdf(zScore));
-        const pDown = clamp(normalCdf(-zScore));
+        const mu = 0;
+        const rUp = Math.log((entry.close + delta) / entry.close);
+        const zUp = (rUp - mu) / sigmaH;
+        const pUp = clamp(1 - normalCdf(zUp));
+        let pDown = 0;
+        if (entry.close > delta) {
+            const rDown = Math.log((entry.close - delta) / entry.close);
+            const zDown = (rDown - mu) / sigmaH;
+            pDown = clamp(normalCdf(zDown));
+        }
         const pWithin = clamp(1 - pUp - pDown);
         const notes: string[] = [];
         if (derivedFrom) {
@@ -311,7 +351,10 @@ export async function POST(request: NextRequest) {
                 symbol: body.symbol,
                 timeframe: body.timeframe,
                 horizonBars: body.horizonBars,
-                lookbackBars: body.lookbackBars,
+                lookbackBars: effectiveLookbackBars,
+                requestedLookbackBars: body.lookbackBars,
+                effectiveLookbackBars,
+                lookbackClamped,
                 targetX: body.targetX,
                 event: body.event,
                 as_of: entry.timestamp.toISOString(),
