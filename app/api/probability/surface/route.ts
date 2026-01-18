@@ -29,7 +29,8 @@ const requestSchema = z
         timeframe: z.enum(TIMEFRAMES),
         horizonBars: z.number().int(),
         lookbackBars: z.number().int(),
-        event: z.enum(EVENTS),
+        event: z.literal("end"),
+        targetXs: z.array(z.number().int()).optional(),
     })
     .strict();
 
@@ -100,7 +101,13 @@ export async function POST(request: NextRequest) {
                       (parsedBody as Record<string, unknown>).lookbackBars ??
                       (parsedBody as Record<string, unknown>).lookback,
                   event: (parsedBody as Record<string, unknown>).event,
-                  targetXs: (parsedBody as Record<string, unknown>).targetXs,
+                  ...((parsedBody as Record<string, unknown>).targetXs !==
+                  undefined
+                      ? {
+                            targetXs: (parsedBody as Record<string, unknown>)
+                                .targetXs,
+                        }
+                      : {}),
               }
             : parsedBody;
 
