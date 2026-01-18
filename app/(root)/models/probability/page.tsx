@@ -12,27 +12,53 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 
-type ProbabilityEvent = "end" | "touch";
+type ProbabilityEvent = "end";
 
 type ProbabilityResponse = {
-    mode: "mock" | "service";
-    as_of: string;
-    symbol: string;
-    timeframe: string;
-    horizon: number;
-    lookback: number;
-    targetX: number;
-    event: ProbabilityEvent;
-    p_up_ge_x: number;
-    p_dn_ge_x: number;
-    p_within_pm_x: number;
-    meta?: {
-        note?: string;
+    status: "OK" | "MOCKED";
+    message?: string;
+    meta: {
+        symbol: string;
+        timeframe: string;
+        horizonBars: number;
+        requestedLookbackBars: number;
+        effectiveLookbackBars: number;
+        targetX: number;
+        event: ProbabilityEvent;
+        asOf: string;
+        dataSource: "twelvedata" | "mock";
+        wasClamped?: boolean;
+        clampReason?: string;
+    };
+    prob: {
+        up_ge_x: number;
+        down_ge_x: number;
+        within_pm_x: number;
     };
 };
 
-const SYMBOLS = ["EURUSD", "XAUUSD", "US500"] as const;
-const TIMEFRAMES = ["M5", "M15", "H1"] as const;
+type MarketSymbol = {
+    symbol: string;
+    timeframes: string[];
+    pip_size: number;
+    point_size: number;
+};
+
+type MarketSymbolsResponse = {
+    symbols: MarketSymbol[];
+    timeframes: string[];
+    data_source: "twelvedata" | "mock";
+};
+
+const DEFAULT_SYMBOLS: MarketSymbol[] = [
+    {
+        symbol: "EURUSD",
+        timeframes: ["M5", "M15", "M30", "H1"],
+        pip_size: 0.0001,
+        point_size: 0.00001,
+    },
+];
+
 const LOOKBACKS = [250, 500, 1000] as const;
 const X_PRESETS = [5, 10, 15, 20, 25] as const;
 
@@ -48,57 +74,58 @@ const isProbabilityResponse = (value: unknown): value is ProbabilityResponse => 
         return false;
     }
     const data = value as Record<string, unknown>;
-    if (data.mode !== "mock" && data.mode !== "service") {
+    if (data.status !== "OK" && data.status !== "MOCKED") {
         return false;
     }
-    if (typeof data.as_of !== "string") {
+    if (typeof data.meta !== "object" || data.meta === null) {
         return false;
     }
-    if (typeof data.symbol !== "string" || typeof data.timeframe !== "string") {
+    if (typeof data.prob !== "object" || data.prob === null) {
         return false;
     }
-    if (
-        typeof data.horizon !== "number" ||
-        typeof data.lookback !== "number" ||
-        typeof data.targetX !== "number"
-    ) {
+    const meta = data.meta as Record<string, unknown>;
+    if (typeof meta.symbol !== "string") {
         return false;
     }
-    if (data.event !== "end" && data.event !== "touch") {
+    if (typeof meta.timeframe !== "string") {
         return false;
     }
     if (
-        typeof data.p_up_ge_x !== "number" ||
-        typeof data.p_dn_ge_x !== "number" ||
-        typeof data.p_within_pm_x !== "number"
+        typeof meta.horizonBars !== "number" ||
+        typeof meta.requestedLookbackBars !== "number" ||
+        typeof meta.effectiveLookbackBars !== "number" ||
+        typeof meta.targetX !== "number"
     ) {
         return false;
     }
-    if (data.meta !== undefined) {
-        if (typeof data.meta !== "object" || data.meta === null) {
-            return false;
-        }
-        const meta = data.meta as Record<string, unknown>;
-        if (meta.note !== undefined && typeof meta.note !== "string") {
-            return false;
-        }
-        const allowedKeys = new Set(["note"]);
-        for (const key of Object.keys(meta)) {
-            if (!allowedKeys.has(key)) {
-                return false;
-            }
-        }
+    if (meta.event !== "end") {
+        return false;
+    }
+    if (typeof meta.asOf !== "string") {
+        return false;
+    }
+    if (meta.dataSource !== "twelvedata" && meta.dataSource !== "mock") {
+        return false;
+    }
+    const prob = data.prob as Record<string, unknown>;
+    if (
+        typeof prob.up_ge_x !== "number" ||
+        typeof prob.down_ge_x !== "number" ||
+        typeof prob.within_pm_x !== "number"
+    ) {
+        return false;
     }
     return true;
 };
 
 const ProbabilityPage = () => {
-    const [symbol, setSymbol] = useState<(typeof SYMBOLS)[number]>("EURUSD");
-    const [timeframe, setTimeframe] = useState<(typeof TIMEFRAMES)[number]>(
-        "M15"
+    const [marketSymbols, setMarketSymbols] = useState<MarketSymbol[]>(
+        DEFAULT_SYMBOLS
     );
-    const [horizon, setHorizon] = useState(48);
-    const [lookback, setLookback] = useState<number>(500);
+    const [symbol, setSymbol] = useState<string>("EURUSD");
+    const [timeframe, setTimeframe] = useState<string>("M15");
+    const [horizonBars, setHorizonBars] = useState(48);
+    const [lookbackBars, setLookbackBars] = useState<number>(500);
     const [targetX, setTargetX] = useState(15);
     const [event, setEvent] = useState<ProbabilityEvent>("end");
     const [debouncedTargetX, setDebouncedTargetX] = useState(targetX);
@@ -106,6 +133,49 @@ const ProbabilityPage = () => {
         useState<ProbabilityResponse | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [requestError, setRequestError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const fetchSymbols = async () => {
+            try {
+                const response = await fetch("/api/market/symbols");
+                if (!response.ok) {
+                    return;
+                }
+                const data = (await response.json()) as MarketSymbolsResponse;
+                if (Array.isArray(data.symbols) && data.symbols.length > 0) {
+                    setMarketSymbols(data.symbols);
+                }
+            } catch (error) {
+                setMarketSymbols(DEFAULT_SYMBOLS);
+            }
+        };
+
+        fetchSymbols();
+    }, []);
+
+    const availableSymbols = useMemo(
+        () => marketSymbols.map((item) => item.symbol),
+        [marketSymbols]
+    );
+
+    const availableTimeframes = useMemo(() => {
+        const symbolInfo = marketSymbols.find(
+            (item) => item.symbol === symbol
+        );
+        return symbolInfo?.timeframes ?? ["M5", "M15", "M30", "H1"];
+    }, [marketSymbols, symbol]);
+
+    useEffect(() => {
+        if (!availableSymbols.includes(symbol)) {
+            setSymbol(availableSymbols[0] ?? "EURUSD");
+        }
+    }, [availableSymbols, symbol]);
+
+    useEffect(() => {
+        if (!availableTimeframes.includes(timeframe)) {
+            setTimeframe(availableTimeframes[0] ?? "M15");
+        }
+    }, [availableTimeframes, timeframe]);
 
     useEffect(() => {
         const handle = setTimeout(() => {
@@ -120,8 +190,8 @@ const ProbabilityPage = () => {
         const payload = {
             symbol,
             timeframe,
-            horizon,
-            lookback,
+            horizonBars,
+            lookbackBars,
             targetX: debouncedTargetX,
             event,
         };
@@ -166,30 +236,36 @@ const ProbabilityPage = () => {
         fetchProbability();
 
         return () => controller.abort();
-    }, [debouncedTargetX, event, horizon, lookback, symbol, timeframe]);
+    }, [
+        debouncedTargetX,
+        event,
+        horizonBars,
+        lookbackBars,
+        symbol,
+        timeframe,
+    ]);
 
     const statusBadge = useMemo(() => {
-        if (probability?.mode === "service") {
+        if (probability?.meta.dataSource === "twelvedata") {
             return {
-                label: "LIVE",
+                label: "LIVE (TwelveData)",
                 className:
                     "border-emerald-500/40 bg-emerald-500/15 text-emerald-200",
             };
         }
 
-        if (probability?.mode === "mock") {
+        if (probability?.meta.dataSource === "mock") {
             return {
-                label: "Mocked (no live data yet)",
-                className:
-                    "border-gray-700 bg-gray-900/70 text-gray-400",
+                label: "MOCKED",
+                className: "border-gray-700 bg-gray-900/70 text-gray-400",
             };
         }
 
         return null;
-    }, [probability?.mode]);
+    }, [probability?.meta.dataSource]);
 
     const runLabel =
-        probability?.mode === "service" ? "Live run" : "Mocked run";
+        probability?.meta.dataSource === "twelvedata" ? "Live run" : "Mocked run";
 
     return (
         <section className="mx-auto max-w-6xl space-y-8 px-4 py-8">
@@ -204,7 +280,7 @@ const ProbabilityPage = () => {
                         </p>
                     </div>
                     <span className="rounded-full border border-gray-800 bg-gray-900/60 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                        as_of: {probability?.as_of ?? "--"}
+                        as_of: {probability?.meta.asOf ?? "--"}
                     </span>
                 </div>
             </header>
@@ -228,7 +304,7 @@ const ProbabilityPage = () => {
                                     <SelectValue placeholder="Select symbol" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {SYMBOLS.map((item) => (
+                                    {availableSymbols.map((item) => (
                                         <SelectItem key={item} value={item}>
                                             {item}
                                         </SelectItem>
@@ -256,7 +332,7 @@ const ProbabilityPage = () => {
                                     <SelectValue placeholder="Select timeframe" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {TIMEFRAMES.map((item) => (
+                                    {availableTimeframes.map((item) => (
                                         <SelectItem key={item} value={item}>
                                             {item}
                                         </SelectItem>
@@ -277,12 +353,12 @@ const ProbabilityPage = () => {
                                     id="horizon"
                                     type="number"
                                     min={1}
-                                    value={horizon}
+                                    value={horizonBars}
                                     onChange={(event) => {
                                         const value =
                                             event.currentTarget.valueAsNumber;
                                         if (Number.isFinite(value)) {
-                                            setHorizon(Math.max(1, value));
+                                            setHorizonBars(Math.max(1, value));
                                         }
                                     }}
                                     className="border-gray-800 bg-gray-950 text-white"
@@ -296,9 +372,9 @@ const ProbabilityPage = () => {
                                     Lookback preset
                                 </label>
                                 <Select
-                                    value={String(lookback)}
+                                    value={String(lookbackBars)}
                                     onValueChange={(value) =>
-                                        setLookback(Number(value))
+                                        setLookbackBars(Number(value))
                                     }
                                 >
                                     <SelectTrigger
@@ -359,7 +435,9 @@ const ProbabilityPage = () => {
                                             key={value}
                                             type="button"
                                             variant={
-                                                isActive ? "secondary" : "outline"
+                                                isActive
+                                                    ? "secondary"
+                                                    : "outline"
                                             }
                                             size="sm"
                                             className={
@@ -411,9 +489,17 @@ const ProbabilityPage = () => {
                             <span className="text-gray-200">{symbol}</span> ·
                             <span className="text-gray-200"> {timeframe}</span> ·
                             horizon
-                            <span className="text-gray-200"> {horizon}</span> bars ·
-                            lookback
-                            <span className="text-gray-200"> {lookback}</span> bars.
+                            <span className="text-gray-200">
+                                {" "}
+                                {horizonBars}
+                            </span>
+                            {" "}
+                            bars · lookback
+                            <span className="text-gray-200">
+                                {" "}
+                                {lookbackBars}
+                            </span>{" "}
+                            bars.
                         </div>
                     </div>
                 </div>
@@ -425,14 +511,22 @@ const ProbabilityPage = () => {
                         <h2 className="text-xl font-semibold text-white">
                             Results
                         </h2>
-                        {probability?.meta?.note ? (
+                        {probability?.message ? (
                             <p className="text-xs text-amber-200/80">
-                                {probability.meta.note}
+                                {probability.message}
                             </p>
                         ) : null}
                         {requestError ? (
                             <p className="text-xs text-rose-200/80">
                                 {requestError}
+                            </p>
+                        ) : null}
+                        {probability?.meta.wasClamped ? (
+                            <p className="text-xs text-amber-200/80">
+                                Lookback clamped to {" "}
+                                {probability.meta.effectiveLookbackBars} bars
+                                (requested {probability.meta.requestedLookbackBars}
+                                ).
                             </p>
                         ) : null}
                     </div>
@@ -456,17 +550,17 @@ const ProbabilityPage = () => {
                     {[
                         {
                             label: "P(up ≥ X)",
-                            value: probability?.p_up_ge_x,
+                            value: probability?.prob.up_ge_x,
                             tone: "text-emerald-200",
                         },
                         {
                             label: "P(down ≥ X)",
-                            value: probability?.p_dn_ge_x,
+                            value: probability?.prob.down_ge_x,
                             tone: "text-rose-200",
                         },
                         {
                             label: "P(within ±X)",
-                            value: probability?.p_within_pm_x,
+                            value: probability?.prob.within_pm_x,
                             tone: "text-sky-200",
                         },
                     ].map((item) => (
@@ -474,7 +568,9 @@ const ProbabilityPage = () => {
                             key={item.label}
                             className="rounded-2xl border border-gray-800 bg-[#0f1115] p-6 shadow-lg shadow-black/20"
                         >
-                            <p className="text-sm text-gray-400">{item.label}</p>
+                            <p className="text-sm text-gray-400">
+                                {item.label}
+                            </p>
                             <p
                                 className={`mt-4 text-3xl font-semibold ${item.tone}`}
                             >
