@@ -3,6 +3,14 @@ import { z } from "zod";
 import { NextRequest, NextResponse } from "next/server";
 
 import { fetchTimeSeries, Timeframe } from "@/lib/market/twelvedata";
+import {
+    EVENTS,
+    TIMEFRAMES,
+    normalizeSymbol,
+    symbolSchema,
+} from "@/lib/probability/validation";
+import { getPipSize } from "@/lib/probability/scaling";
+import { parseAsOf } from "@/lib/probability/time";
 
 type ProbabilityEvent = "end";
 
@@ -44,19 +52,6 @@ export const revalidate = 0;
 const TWELVEDATA_MAX_POINTS = 5000;
 const OUTPUT_PAD = 5;
 
-const TIMEFRAMES = ["M5", "M15", "M30", "H1"] as const;
-const EVENTS = ["end"] as const;
-
-const normalizeSymbol = (symbol: string) => symbol.replace("/", "").toUpperCase();
-
-const symbolSchema = z
-    .string()
-    .trim()
-    .transform((value) => value.toUpperCase().replace(/[^A-Z]/g, ""))
-    .pipe(z.string().min(3).max(10).regex(/^[A-Z]+$/))
-    .refine((value) => normalizeSymbol(value) === "EURUSD", {
-        message: "Unsupported symbol",
-    });
 
 const requestSchema = z
     .object({
@@ -124,24 +119,6 @@ const ewmaVolatility = (returns: number[], lambda = 0.94) => {
     return Math.sqrt(variance);
 };
 
-const parseAsOf = (datetime: string) => {
-    const trimmed = datetime.trim();
-    if (!trimmed) {
-        return new Date().toISOString();
-    }
-    const withTime = trimmed.includes("T")
-        ? trimmed
-        : trimmed.replace(" ", "T");
-    const hasTimezone =
-        /[zZ]$/.test(withTime) ||
-        /[+-]\d{2}:?\d{2}$/.test(withTime);
-    const normalized = hasTimezone ? withTime : `${withTime}Z`;
-    const parsed = new Date(normalized);
-    if (Number.isNaN(parsed.getTime())) {
-        return new Date().toISOString();
-    }
-    return parsed.toISOString();
-};
 
 const buildMockProbabilities = (request: ProbabilityPayload) => {
     const seed = hashSeed(
@@ -183,13 +160,6 @@ const buildMockProbabilities = (request: ProbabilityPayload) => {
     return { up, down, within };
 };
 
-const getPipSize = (symbol: string) => {
-    const normalized = normalizeSymbol(symbol);
-    if (normalized === "EURUSD") {
-        return 0.0001;
-    }
-    return 0.0001;
-};
 
 export async function GET() {
     return NextResponse.json({

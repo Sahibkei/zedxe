@@ -91,7 +91,7 @@ export const fetchTimeSeries = async ({
     let response: Response;
     try {
         response = await fetch(url.toString(), {
-            next: { revalidate: 60 },
+            next: { revalidate: 15 },
             signal: controller.signal,
         });
     } catch (error) {

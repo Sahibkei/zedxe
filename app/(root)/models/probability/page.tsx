@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import ProbabilityMiniCurve from "@/components/charts/ProbabilityMiniCurve";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -35,6 +36,30 @@ type ProbabilityResponse = {
         down_ge_x: number;
         within_pm_x: number;
     };
+};
+
+type ProbabilitySurfacePayload = {
+    xs: number[];
+    up: number[];
+    down: number[];
+    within: number[];
+};
+
+type ProbabilitySurfaceMeta = {
+    symbol: string;
+    timeframe: string;
+    requestedLookbackBars: number;
+    effectiveLookbackBars: number;
+    requestedHorizonBars: number;
+    effectiveHorizonBars: number;
+    requestedTargetXs: number[];
+    effectiveTargetXs: number[];
+    event: ProbabilityEvent;
+    asOf: string;
+    dataSource: "twelvedata";
+    wasClamped: boolean;
+    wasTargetXsClamped: boolean;
+    sampleCount: number;
 };
 
 type MarketSymbol = {
@@ -118,6 +143,102 @@ const isProbabilityResponse = (value: unknown): value is ProbabilityResponse => 
     return true;
 };
 
+const isFiniteNumber = (value: unknown): value is number =>
+    typeof value === "number" && Number.isFinite(value);
+
+const isProbabilitySurfaceResponse = (
+    value: unknown
+): value is {
+    status: "OK";
+    surface: ProbabilitySurfacePayload;
+    meta: ProbabilitySurfaceMeta;
+} => {
+    if (!value || typeof value !== "object") {
+        return false;
+    }
+    const data = value as Record<string, unknown>;
+    if (data.status !== "OK") {
+        return false;
+    }
+    if (typeof data.meta !== "object" || data.meta === null) {
+        return false;
+    }
+    if (typeof data.surface !== "object" || data.surface === null) {
+        return false;
+    }
+    const meta = data.meta as Record<string, unknown>;
+    if (typeof meta.symbol !== "string") {
+        return false;
+    }
+    if (typeof meta.timeframe !== "string") {
+        return false;
+    }
+    if (
+        typeof meta.requestedHorizonBars !== "number" ||
+        typeof meta.effectiveHorizonBars !== "number"
+    ) {
+        return false;
+    }
+    if (
+        typeof meta.requestedLookbackBars !== "number" ||
+        typeof meta.effectiveLookbackBars !== "number"
+    ) {
+        return false;
+    }
+    if (
+        !Array.isArray(meta.requestedTargetXs) ||
+        !Array.isArray(meta.effectiveTargetXs)
+    ) {
+        return false;
+    }
+    if (meta.event !== "end") {
+        return false;
+    }
+    if (typeof meta.asOf !== "string") {
+        return false;
+    }
+    if (meta.dataSource !== "twelvedata") {
+        return false;
+    }
+    if (typeof meta.sampleCount !== "number") {
+        return false;
+    }
+    const surface = data.surface as Record<string, unknown>;
+    if (
+        !Array.isArray(surface.xs) ||
+        !Array.isArray(surface.up) ||
+        !Array.isArray(surface.down) ||
+        !Array.isArray(surface.within)
+    ) {
+        return false;
+    }
+    if (
+        !surface.xs.every(isFiniteNumber) ||
+        !surface.up.every(isFiniteNumber) ||
+        !surface.down.every(isFiniteNumber) ||
+        !surface.within.every(isFiniteNumber)
+    ) {
+        return false;
+    }
+    const length = surface.xs.length;
+    if (
+        length < 2 ||
+        surface.up.length !== length ||
+        surface.down.length !== length ||
+        surface.within.length !== length
+    ) {
+        return false;
+    }
+    if (
+        !surface.up.every((value) => value >= 0 && value <= 1) ||
+        !surface.down.every((value) => value >= 0 && value <= 1) ||
+        !surface.within.every((value) => value >= 0 && value <= 1)
+    ) {
+        return false;
+    }
+    return true;
+};
+
 const ProbabilityPage = () => {
     const [marketSymbols, setMarketSymbols] = useState<MarketSymbol[]>(
         DEFAULT_SYMBOLS
@@ -133,6 +254,12 @@ const ProbabilityPage = () => {
         useState<ProbabilityResponse | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [requestError, setRequestError] = useState<string | null>(null);
+    const [surface, setSurface] =
+        useState<ProbabilitySurfacePayload | null>(null);
+    const [surfaceMeta, setSurfaceMeta] =
+        useState<ProbabilitySurfaceMeta | null>(null);
+    const [surfaceLoading, setSurfaceLoading] = useState(false);
+    const [surfaceError, setSurfaceError] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchSymbols = async () => {
@@ -244,6 +371,63 @@ const ProbabilityPage = () => {
         symbol,
         timeframe,
     ]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        const payload = {
+            symbol,
+            timeframe,
+            horizonBars,
+            lookbackBars,
+            event,
+            targetXs: [...X_PRESETS],
+        };
+
+        const fetchSurface = async () => {
+            setSurfaceLoading(true);
+            setSurfaceError(null);
+            setSurface(null);
+            setSurfaceMeta(null);
+            try {
+                const response = await fetch("/api/probability/surface", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal,
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Request failed: ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (!controller.signal.aborted) {
+                    if (isProbabilitySurfaceResponse(data)) {
+                        setSurface(data.surface);
+                        setSurfaceMeta(data.meta);
+                    } else {
+                        setSurface(null);
+                        setSurfaceMeta(null);
+                        setSurfaceError("Invalid surface response");
+                    }
+                }
+            } catch (error) {
+                if (!controller.signal.aborted) {
+                    setSurface(null);
+                    setSurfaceMeta(null);
+                    setSurfaceError("Surface unavailable.");
+                }
+            } finally {
+                if (!controller.signal.aborted) {
+                    setSurfaceLoading(false);
+                }
+            }
+        };
+
+        fetchSurface();
+
+        return () => controller.abort();
+    }, [event, horizonBars, lookbackBars, symbol, timeframe]);
 
     const statusBadge = useMemo(() => {
         if (probability?.meta.dataSource === "twelvedata") {
@@ -544,6 +728,46 @@ const ProbabilityPage = () => {
                                 Updating…
                             </span>
                         ) : null}
+                    </div>
+                </div>
+                <div className="rounded-2xl border border-gray-800 bg-[#0f1115] p-6 shadow-lg shadow-black/20">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-white">
+                                Probability curve
+                            </p>
+                            <p className="text-xs text-gray-500">
+                                X sweep for END event.
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-gray-500">
+                            {surfaceLoading ? (
+                                <span>Loading…</span>
+                            ) : null}
+                            {surfaceMeta?.sampleCount ? (
+                                <span>
+                                    {surfaceMeta.sampleCount} samples
+                                </span>
+                            ) : null}
+                        </div>
+                    </div>
+                    <div className="mt-4">
+                        {surfaceError ? (
+                            <p className="text-xs text-rose-200/80">
+                                {surfaceError}
+                            </p>
+                        ) : null}
+                        <ProbabilityMiniCurve
+                            surface={
+                                surface ?? {
+                                    xs: [],
+                                    up: [],
+                                    down: [],
+                                    within: [],
+                                }
+                            }
+                            className="mt-3"
+                        />
                     </div>
                 </div>
                 <div className="grid gap-6 md:grid-cols-3">
