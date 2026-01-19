@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 
 import ProbabilityMiniCurve from "@/components/charts/ProbabilityMiniCurve";
 import { Button } from "@/components/ui/button";
@@ -13,7 +12,10 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { getEntitlements, type Entitlements } from "@/lib/entitlements/rules";
+import {
+    MAX_HORIZON_BARS,
+    MAX_TARGET_X,
+} from "@/lib/probability/validation";
 
 type ProbabilityEvent = "end";
 
@@ -77,10 +79,6 @@ type MarketSymbolsResponse = {
     data_source: "twelvedata" | "mock";
 };
 
-type EntitlementsResponse = Entitlements & {
-    status: "OK";
-};
-
 const DEFAULT_SYMBOLS: MarketSymbol[] = [
     {
         symbol: "EURUSD",
@@ -91,6 +89,7 @@ const DEFAULT_SYMBOLS: MarketSymbol[] = [
 ];
 
 const LOOKBACKS = [250, 500, 1000] as const;
+const X_PRESETS = [5, 10, 15, 20, 25] as const;
 
 const formatProbability = (value?: number) => {
     if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -150,11 +149,6 @@ const isProbabilityResponse = (value: unknown): value is ProbabilityResponse => 
 
 const isFiniteNumber = (value: unknown): value is number =>
     typeof value === "number" && Number.isFinite(value);
-
-const nearestPreset = (value: number, presets: number[]) =>
-    presets.reduce((closest, preset) =>
-        Math.abs(preset - value) < Math.abs(closest - value) ? preset : closest
-    );
 
 const isProbabilitySurfaceResponse = (
     value: unknown
@@ -250,11 +244,6 @@ const isProbabilitySurfaceResponse = (
 };
 
 const ProbabilityPage = () => {
-    const searchParams = useSearchParams();
-    const planQuery = useMemo(() => {
-        const plan = searchParams.get("plan");
-        return plan ? `?plan=${plan}` : "";
-    }, [searchParams]);
     const [marketSymbols, setMarketSymbols] = useState<MarketSymbol[]>(
         DEFAULT_SYMBOLS
     );
@@ -265,9 +254,6 @@ const ProbabilityPage = () => {
     const [targetX, setTargetX] = useState(15);
     const [event, setEvent] = useState<ProbabilityEvent>("end");
     const [debouncedTargetX, setDebouncedTargetX] = useState(targetX);
-    const [entitlements, setEntitlements] = useState<Entitlements>(() =>
-        getEntitlements("free")
-    );
     const [rewardR, setRewardR] = useState(1);
     const [riskR, setRiskR] = useState(1);
     const [probability, setProbability] =
@@ -298,40 +284,9 @@ const ProbabilityPage = () => {
         };
 
         fetchSymbols();
-    }, [planQuery]);
+    }, []);
 
-    useEffect(() => {
-        const controller = new AbortController();
-        const fetchEntitlements = async () => {
-            try {
-                const response = await fetch(`/api/entitlements${planQuery}`, {
-                    signal: controller.signal,
-                });
-                if (!response.ok) {
-                    return;
-                }
-                const data = (await response.json()) as EntitlementsResponse;
-                if (!controller.signal.aborted && data.status === "OK") {
-                    setEntitlements(data);
-                }
-            } catch (error) {
-                // Keep defaults on failure.
-            }
-        };
-
-        fetchEntitlements();
-        return () => controller.abort();
-    }, [planQuery]);
-
-    const limits = entitlements.limits;
-    const allowedTargetXPreset = limits.allowedTargetXPreset;
-    const availableLookbacks = useMemo(() => {
-        const filtered = LOOKBACKS.filter((value) => value <= limits.maxLookbackBars);
-        if (filtered.length) {
-            return filtered;
-        }
-        return [limits.maxLookbackBars];
-    }, [limits.maxLookbackBars]);
+    const availableLookbacks = useMemo(() => LOOKBACKS, []);
 
     const availableSymbols = useMemo(
         () => marketSymbols.map((item) => item.symbol),
@@ -350,23 +305,6 @@ const ProbabilityPage = () => {
             setSymbol(availableSymbols[0] ?? "EURUSD");
         }
     }, [availableSymbols, symbol]);
-
-    useEffect(() => {
-        setHorizonBars((value) => Math.min(value, limits.maxHorizonBars));
-        setLookbackBars((value) => Math.min(value, limits.maxLookbackBars));
-        setTargetX((value) => {
-            if (!limits.allowCustomTargetX) {
-                return nearestPreset(value, allowedTargetXPreset);
-            }
-            return Math.min(value, limits.maxTargetX);
-        });
-    }, [
-        allowedTargetXPreset,
-        limits.allowCustomTargetX,
-        limits.maxHorizonBars,
-        limits.maxLookbackBars,
-        limits.maxTargetX,
-    ]);
 
     useEffect(() => {
         if (!availableTimeframes.includes(timeframe)) {
@@ -398,15 +336,12 @@ const ProbabilityPage = () => {
             setRequestError(null);
             setProbability(null);
             try {
-                const response = await fetch(
-                    `/api/probability/query${planQuery}`,
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(payload),
-                        signal: controller.signal,
-                    }
-                );
+                const response = await fetch("/api/probability/query", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal,
+                });
 
                 if (!response.ok) {
                     throw new Error(`Request failed: ${response.status}`);
@@ -441,27 +376,19 @@ const ProbabilityPage = () => {
         event,
         horizonBars,
         lookbackBars,
-        planQuery,
         symbol,
         timeframe,
     ]);
 
     useEffect(() => {
         const controller = new AbortController();
-        if (!entitlements.features.probabilitySurface) {
-            setSurface(null);
-            setSurfaceMeta(null);
-            setSurfaceError(null);
-            setSurfaceLoading(false);
-            return () => controller.abort();
-        }
         const payload = {
             symbol,
             timeframe,
             horizonBars,
             lookbackBars,
             event,
-            targetXs: [...allowedTargetXPreset],
+            targetXs: [...X_PRESETS],
         };
 
         const fetchSurface = async () => {
@@ -470,15 +397,12 @@ const ProbabilityPage = () => {
             setSurface(null);
             setSurfaceMeta(null);
             try {
-                const response = await fetch(
-                    `/api/probability/surface${planQuery}`,
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(payload),
-                        signal: controller.signal,
-                    }
-                );
+                const response = await fetch("/api/probability/surface", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal,
+                });
 
                 if (!response.ok) {
                     throw new Error(`Request failed: ${response.status}`);
@@ -512,12 +436,9 @@ const ProbabilityPage = () => {
 
         return () => controller.abort();
     }, [
-        allowedTargetXPreset,
-        entitlements.features.probabilitySurface,
         event,
         horizonBars,
         lookbackBars,
-        planQuery,
         symbol,
         timeframe,
     ]);
@@ -659,7 +580,7 @@ const ProbabilityPage = () => {
                                     id="horizon"
                                     type="number"
                                     min={1}
-                                    max={limits.maxHorizonBars}
+                                    max={MAX_HORIZON_BARS}
                                     value={horizonBars}
                                     onChange={(event) => {
                                         const value =
@@ -669,7 +590,7 @@ const ProbabilityPage = () => {
                                                 Math.max(
                                                     1,
                                                     Math.min(
-                                                        limits.maxHorizonBars,
+                                                        MAX_HORIZON_BARS,
                                                         value
                                                     )
                                                 )
@@ -726,9 +647,8 @@ const ProbabilityPage = () => {
                                     id="target-x"
                                     type="number"
                                     min={1}
-                                    max={limits.maxTargetX}
+                                    max={MAX_TARGET_X}
                                     value={targetX}
-                                    disabled={!limits.allowCustomTargetX}
                                     onChange={(event) => {
                                         const value =
                                             event.currentTarget.valueAsNumber;
@@ -737,7 +657,7 @@ const ProbabilityPage = () => {
                                                 Math.max(
                                                     1,
                                                     Math.min(
-                                                        limits.maxTargetX,
+                                                        MAX_TARGET_X,
                                                         value
                                                     )
                                                 )
@@ -746,11 +666,6 @@ const ProbabilityPage = () => {
                                     }}
                                     className="border-gray-800 bg-gray-950 text-white"
                                 />
-                                {!limits.allowCustomTargetX ? (
-                                    <p className="text-xs text-gray-500">
-                                        Custom targets require Pro.
-                                    </p>
-                                ) : null}
                             </div>
 
                         <div className="space-y-3">
@@ -758,7 +673,7 @@ const ProbabilityPage = () => {
                                 X presets
                             </p>
                             <div className="flex flex-wrap gap-2">
-                                {allowedTargetXPreset.map((value) => {
+                                {X_PRESETS.map((value) => {
                                     const isActive = value === targetX;
                                     return (
                                         <Button
@@ -936,52 +851,29 @@ const ProbabilityPage = () => {
                             </p>
                         </div>
                         <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-gray-500">
-                            {entitlements.features.probabilitySurface ? (
-                                <>
-                                    {surfaceLoading ? (
-                                        <span>Loading…</span>
-                                    ) : null}
-                                    {surfaceMeta?.sampleCount ? (
-                                        <span>
-                                            {surfaceMeta.sampleCount} samples
-                                        </span>
-                                    ) : null}
-                                </>
-                            ) : (
-                                <span>Pro required</span>
-                            )}
+                            {surfaceLoading ? <span>Loading…</span> : null}
+                            {surfaceMeta?.sampleCount ? (
+                                <span>{surfaceMeta.sampleCount} samples</span>
+                            ) : null}
                         </div>
                     </div>
                     <div className="mt-4">
-                        {!entitlements.features.probabilitySurface ? (
-                            <div className="rounded-xl border border-gray-800 bg-gray-950/70 p-4 text-xs text-gray-400">
-                                <p className="font-semibold text-gray-200">
-                                    Probability surface is Pro-only.
-                                </p>
-                                <p className="mt-2 text-gray-400">
-                                    Upgrade to Pro to unlock the surface curve.
-                                </p>
-                            </div>
-                        ) : (
-                            <>
-                                {surfaceError ? (
-                                    <p className="text-xs text-rose-200/80">
-                                        {surfaceError}
-                                    </p>
-                                ) : null}
-                                <ProbabilityMiniCurve
-                                    surface={
-                                        surface ?? {
-                                            xs: [],
-                                            up: [],
-                                            down: [],
-                                            within: [],
-                                        }
-                                    }
-                                    className="mt-3"
-                                />
-                            </>
-                        )}
+                        {surfaceError ? (
+                            <p className="text-xs text-rose-200/80">
+                                {surfaceError}
+                            </p>
+                        ) : null}
+                        <ProbabilityMiniCurve
+                            surface={
+                                surface ?? {
+                                    xs: [],
+                                    up: [],
+                                    down: [],
+                                    within: [],
+                                }
+                            }
+                            className="mt-3"
+                        />
                     </div>
                 </div>
                 <div className="grid gap-6 md:grid-cols-3">
@@ -1042,6 +934,12 @@ const ProbabilityPage = () => {
                                 ? `${evMetrics.isPositive ? "Positive" : "Negative"} EV`
                                 : "Awaiting data"}
                         </p>
+                        <p className="mt-2 text-xs text-gray-500">
+                            EV = X × (P(up ≥ X) - P(down ≥ X)).
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                            If probabilities are similar, EV/Edge ≈ 0 (neutral).
+                        </p>
                     </div>
                     <div className="rounded-2xl border border-gray-800 bg-[#0f1115] p-6 shadow-lg shadow-black/20">
                         <p className="text-sm text-gray-400">Edge</p>
@@ -1053,7 +951,10 @@ const ProbabilityPage = () => {
                                 : "--"}
                         </p>
                         <p className="mt-2 text-xs text-gray-500">
-                            Normalized by risk × X.
+                            Edge = P(up ≥ X) - P(down ≥ X).
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                            If probabilities are similar, EV/Edge ≈ 0 (neutral).
                         </p>
                     </div>
                 </div>

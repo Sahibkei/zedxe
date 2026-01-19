@@ -11,8 +11,6 @@ import {
 } from "@/lib/probability/validation";
 import { getPipSize } from "@/lib/probability/scaling";
 import { parseAsOf } from "@/lib/probability/time";
-import { getEntitlements } from "@/lib/entitlements/rules";
-import { getPlanFromRequest } from "@/lib/entitlements/resolvePlan";
 
 type ProbabilityEvent = "end";
 
@@ -205,53 +203,8 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    const plan = getPlanFromRequest(request);
-    const entitlements = getEntitlements(plan);
-    const requestedHorizonBars = parsed.data.horizonBars;
-    const requestedLookbackBars = parsed.data.lookbackBars;
-    const requestedTargetX = parsed.data.targetX;
-
-    let horizonBars = Math.min(
-        requestedHorizonBars,
-        entitlements.limits.maxHorizonBars
-    );
-    let lookbackBars = Math.min(
-        requestedLookbackBars,
-        entitlements.limits.maxLookbackBars
-    );
-    let targetX = requestedTargetX;
-
-    const clampReasons: string[] = [];
-    const nearestPreset = (value: number, presets: number[]) =>
-        presets.reduce((closest, preset) =>
-            Math.abs(preset - value) < Math.abs(closest - value)
-                ? preset
-                : closest
-        );
-
-    if (horizonBars !== requestedHorizonBars) {
-        clampReasons.push("entitlements_horizon");
-    }
-    if (lookbackBars !== requestedLookbackBars) {
-        clampReasons.push("entitlements_lookback");
-    }
-
-    if (!entitlements.limits.allowCustomTargetX) {
-        const allowedPresets = entitlements.limits.allowedTargetXPreset;
-        targetX = nearestPreset(requestedTargetX, allowedPresets);
-        if (targetX !== requestedTargetX) {
-            clampReasons.push("entitlements_target_preset");
-        }
-    } else if (requestedTargetX > entitlements.limits.maxTargetX) {
-        targetX = entitlements.limits.maxTargetX;
-        clampReasons.push("entitlements_target_max");
-    }
-
     const payload: ProbabilityPayload = {
         ...parsed.data,
-        horizonBars,
-        lookbackBars,
-        targetX,
         symbol: normalizeSymbol(parsed.data.symbol),
     };
 
@@ -264,14 +217,12 @@ export async function POST(request: NextRequest) {
                 symbol: payload.symbol,
                 timeframe: payload.timeframe,
                 horizonBars: payload.horizonBars,
-                requestedLookbackBars,
+                requestedLookbackBars: payload.lookbackBars,
                 effectiveLookbackBars: payload.lookbackBars,
                 targetX: payload.targetX,
                 event: payload.event,
                 asOf: new Date().toISOString(),
                 dataSource: "mock",
-                wasClamped: clampReasons.length > 0,
-                clampReason: clampReasons.length ? clampReasons.join(",") : undefined,
             },
             prob: {
                 up_ge_x: mock.up,
@@ -332,13 +283,11 @@ export async function POST(request: NextRequest) {
     );
 
     const wasClamped = effectiveLookbackBars < payload.lookbackBars;
-    if (wasClamped) {
-        clampReasons.push(
-            clampedLookbackBars < payload.lookbackBars
-                ? "outputsize_limit"
-                : "insufficient_candles"
-        );
-    }
+    const clampReason = wasClamped
+        ? clampedLookbackBars < payload.lookbackBars
+            ? "outputsize_limit"
+            : "insufficient_candles"
+        : undefined;
 
     const lookbackStart = entryIndex - effectiveLookbackBars;
     if (lookbackStart < 0) {
@@ -397,14 +346,14 @@ export async function POST(request: NextRequest) {
             symbol: payload.symbol,
             timeframe: payload.timeframe,
             horizonBars: payload.horizonBars,
-            requestedLookbackBars,
+            requestedLookbackBars: payload.lookbackBars,
             effectiveLookbackBars,
             targetX: payload.targetX,
             event: payload.event,
             asOf: parseAsOf(candles[entryIndex].datetime),
             dataSource: "twelvedata",
-            wasClamped: clampReasons.length > 0,
-            clampReason: clampReasons.length ? clampReasons.join(",") : undefined,
+            wasClamped,
+            clampReason,
         },
         prob: {
             up_ge_x: pUp,

@@ -8,6 +8,9 @@ import { parseAsOf } from "@/lib/probability/time";
 import {
     clampNumber,
     EVENTS,
+    MAX_HORIZON_BARS,
+    MAX_LOOKBACK_BARS,
+    MAX_TARGET_X,
     MIN_HORIZON_BARS,
     MIN_LOOKBACK_BARS,
     MIN_TARGET_X,
@@ -15,8 +18,6 @@ import {
     normalizeSymbol,
     symbolSchema,
 } from "@/lib/probability/validation";
-import { getEntitlements } from "@/lib/entitlements/rules";
-import { getPlanFromRequest } from "@/lib/entitlements/resolvePlan";
 
 const TWELVEDATA_MAX_POINTS = 5000;
 const OUTPUT_PAD = 5;
@@ -61,7 +62,7 @@ type SurfaceResponse = {
 
 const errorResponse = (
     status: number,
-    code: "BAD_REQUEST" | "VALIDATION_ERROR" | "SERVER_ERROR" | "FORBIDDEN",
+    code: "BAD_REQUEST" | "VALIDATION_ERROR" | "SERVER_ERROR",
     message: string,
     details?: Record<string, unknown>
 ) =>
@@ -81,20 +82,6 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function POST(request: NextRequest) {
-    const plan = getPlanFromRequest(request);
-    const entitlements = getEntitlements(plan);
-    if (!entitlements.features.probabilitySurface) {
-        return errorResponse(
-            403,
-            "FORBIDDEN",
-            "Probability surface requires Pro.",
-            {
-                feature: "probabilitySurface",
-                plan,
-            }
-        );
-    }
-
     let parsedBody: unknown;
     try {
         parsedBody = await request.json();
@@ -136,18 +123,15 @@ export async function POST(request: NextRequest) {
 
     const requestedHorizonBars = parsed.data.horizonBars;
     const requestedLookbackBars = parsed.data.lookbackBars;
-    const maxHorizonBars = entitlements.limits.maxHorizonBars;
-    const maxLookbackBars = entitlements.limits.maxLookbackBars;
-    const maxTargetX = entitlements.limits.maxTargetX;
     const effectiveHorizonBars = clampNumber(
         requestedHorizonBars,
         MIN_HORIZON_BARS,
-        maxHorizonBars
+        MAX_HORIZON_BARS
     );
     const safeLookbackBars = clampNumber(
         requestedLookbackBars,
         MIN_LOOKBACK_BARS,
-        maxLookbackBars
+        MAX_LOOKBACK_BARS
     );
 
     let wasClamped =
@@ -196,7 +180,7 @@ export async function POST(request: NextRequest) {
 
         requestedTargetXs = [...filteredTargets];
         const clampedTargets = filteredTargets.map((value) => {
-            const clamped = clampNumber(value, MIN_TARGET_X, maxTargetX);
+            const clamped = clampNumber(value, MIN_TARGET_X, MAX_TARGET_X);
             if (clamped !== value) {
                 wasTargetXsClamped = true;
             }
