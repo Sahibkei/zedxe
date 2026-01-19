@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchTimeSeries, Timeframe } from "@/lib/market/twelvedata";
 import { scaleMoveToXUnits } from "@/lib/probability/scaling";
 import { parseAsOf } from "@/lib/probability/time";
+import { computeTouchSurface } from "@/lib/probability/touch";
 import {
     clampNumber,
     EVENTS,
@@ -29,7 +30,7 @@ const requestSchema = z
         timeframe: z.enum(TIMEFRAMES),
         horizonBars: z.number().int(),
         lookbackBars: z.number().int(),
-        event: z.literal("end"),
+        event: z.enum(EVENTS).default("end"),
         targetXs: z.array(z.number().int()).optional(),
     })
     .strict();
@@ -41,7 +42,7 @@ type SurfaceResponse = {
         dataSource: "twelvedata";
         symbol: string;
         timeframe: Timeframe;
-        event: "end";
+        event: "end" | "touch";
         requestedLookbackBars: number;
         effectiveLookbackBars: number;
         requestedHorizonBars: number;
@@ -62,7 +63,12 @@ type SurfaceResponse = {
 
 const errorResponse = (
     status: number,
-    code: "BAD_REQUEST" | "VALIDATION_ERROR" | "SERVER_ERROR",
+    code:
+        | "BAD_REQUEST"
+        | "VALIDATION_ERROR"
+        | "SERVER_ERROR"
+        | "FEATURE_DISABLED"
+        | "INSUFFICIENT_DATA",
     message: string,
     details?: Record<string, unknown>
 ) =>
@@ -100,7 +106,8 @@ export async function POST(request: NextRequest) {
                   lookbackBars:
                       (parsedBody as Record<string, unknown>).lookbackBars ??
                       (parsedBody as Record<string, unknown>).lookback,
-                  event: (parsedBody as Record<string, unknown>).event,
+                  event:
+                      (parsedBody as Record<string, unknown>).event ?? "end",
                   ...((parsedBody as Record<string, unknown>).targetXs !==
                   undefined
                       ? {
@@ -205,6 +212,17 @@ export async function POST(request: NextRequest) {
         symbol: normalizeSymbol(parsed.data.symbol),
     };
 
+    if (
+        payload.event === "touch" &&
+        process.env.NEXT_PUBLIC_FEATURE_PROB_TOUCH !== "1"
+    ) {
+        return errorResponse(
+            400,
+            "FEATURE_DISABLED",
+            "Touch event is not enabled."
+        );
+    }
+
     const requestedOutputsize =
         safeLookbackBars + effectiveHorizonBars + OUTPUT_PAD;
     const outputsize = Math.min(requestedOutputsize, TWELVEDATA_MAX_POINTS);
@@ -268,16 +286,66 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    const closes = candles.map((candle) => candle.close);
     const maxStartIndex = entryIndex - effectiveHorizonBars;
-    if (maxStartIndex < lookbackStart) {
-        return errorResponse(
-            502,
-            "SERVER_ERROR",
-            "Insufficient data to compute horizon window"
-        );
+    if (payload.event === "touch") {
+        if (maxStartIndex < lookbackStart) {
+            return errorResponse(
+                400,
+                "INSUFFICIENT_DATA",
+                "Insufficient data to compute horizon window"
+            );
+        }
+        const touchSurface = computeTouchSurface({
+            candles,
+            lookbackStart,
+            maxStartIndex,
+            horizonBars: effectiveHorizonBars,
+            targetXs: effectiveTargetXs,
+            symbol: payload.symbol,
+        });
+
+        if (!touchSurface.sampleCount) {
+            return errorResponse(
+                502,
+                "SERVER_ERROR",
+                "Insufficient data to compute probabilities"
+            );
+        }
+
+        const response: SurfaceResponse = {
+            status: "OK",
+            meta: {
+                asOf: parseAsOf(candles[entryIndex].datetime),
+                dataSource: "twelvedata",
+                symbol: payload.symbol,
+                timeframe: payload.timeframe,
+                event: payload.event,
+                requestedLookbackBars,
+                effectiveLookbackBars,
+                requestedHorizonBars,
+                effectiveHorizonBars,
+                requestedTargetXs,
+                effectiveTargetXs,
+                wasClamped,
+                wasTargetXsClamped,
+                sampleCount: touchSurface.sampleCount,
+            },
+            surface: {
+                xs: touchSurface.xs,
+                up: touchSurface.up,
+                down: touchSurface.down,
+                within: touchSurface.within,
+            },
+        };
+
+        return NextResponse.json(response, {
+            headers: {
+                "Cache-Control": "s-maxage=15, stale-while-revalidate=60",
+            },
+        });
     }
 
+    const closes = candles.map((candle) => candle.close);
     const moves: number[] = [];
     for (let i = lookbackStart; i <= maxStartIndex; i += 1) {
         const movePrice = closes[i + effectiveHorizonBars] - closes[i];
@@ -319,7 +387,7 @@ export async function POST(request: NextRequest) {
             dataSource: "twelvedata",
             symbol: payload.symbol,
             timeframe: payload.timeframe,
-            event: "end",
+            event: payload.event,
             requestedLookbackBars,
             effectiveLookbackBars,
             requestedHorizonBars,
