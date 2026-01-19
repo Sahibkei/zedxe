@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import ProbabilityMiniCurve from "@/components/charts/ProbabilityMiniCurve";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { getEntitlements, type Entitlements } from "@/lib/entitlements/rules";
 
 type ProbabilityEvent = "end";
 
@@ -75,6 +77,10 @@ type MarketSymbolsResponse = {
     data_source: "twelvedata" | "mock";
 };
 
+type EntitlementsResponse = Entitlements & {
+    status: "OK";
+};
+
 const DEFAULT_SYMBOLS: MarketSymbol[] = [
     {
         symbol: "EURUSD",
@@ -85,7 +91,6 @@ const DEFAULT_SYMBOLS: MarketSymbol[] = [
 ];
 
 const LOOKBACKS = [250, 500, 1000] as const;
-const X_PRESETS = [5, 10, 15, 20, 25] as const;
 
 const formatProbability = (value?: number) => {
     if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -145,6 +150,11 @@ const isProbabilityResponse = (value: unknown): value is ProbabilityResponse => 
 
 const isFiniteNumber = (value: unknown): value is number =>
     typeof value === "number" && Number.isFinite(value);
+
+const nearestPreset = (value: number, presets: number[]) =>
+    presets.reduce((closest, preset) =>
+        Math.abs(preset - value) < Math.abs(closest - value) ? preset : closest
+    );
 
 const isProbabilitySurfaceResponse = (
     value: unknown
@@ -240,6 +250,11 @@ const isProbabilitySurfaceResponse = (
 };
 
 const ProbabilityPage = () => {
+    const searchParams = useSearchParams();
+    const planQuery = useMemo(() => {
+        const plan = searchParams.get("plan");
+        return plan ? `?plan=${plan}` : "";
+    }, [searchParams]);
     const [marketSymbols, setMarketSymbols] = useState<MarketSymbol[]>(
         DEFAULT_SYMBOLS
     );
@@ -250,6 +265,11 @@ const ProbabilityPage = () => {
     const [targetX, setTargetX] = useState(15);
     const [event, setEvent] = useState<ProbabilityEvent>("end");
     const [debouncedTargetX, setDebouncedTargetX] = useState(targetX);
+    const [entitlements, setEntitlements] = useState<Entitlements>(() =>
+        getEntitlements("free")
+    );
+    const [rewardR, setRewardR] = useState(1);
+    const [riskR, setRiskR] = useState(1);
     const [probability, setProbability] =
         useState<ProbabilityResponse | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -278,7 +298,40 @@ const ProbabilityPage = () => {
         };
 
         fetchSymbols();
-    }, []);
+    }, [planQuery]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        const fetchEntitlements = async () => {
+            try {
+                const response = await fetch(`/api/entitlements${planQuery}`, {
+                    signal: controller.signal,
+                });
+                if (!response.ok) {
+                    return;
+                }
+                const data = (await response.json()) as EntitlementsResponse;
+                if (!controller.signal.aborted && data.status === "OK") {
+                    setEntitlements(data);
+                }
+            } catch (error) {
+                // Keep defaults on failure.
+            }
+        };
+
+        fetchEntitlements();
+        return () => controller.abort();
+    }, [planQuery]);
+
+    const limits = entitlements.limits;
+    const allowedTargetXPreset = limits.allowedTargetXPreset;
+    const availableLookbacks = useMemo(() => {
+        const filtered = LOOKBACKS.filter((value) => value <= limits.maxLookbackBars);
+        if (filtered.length) {
+            return filtered;
+        }
+        return [limits.maxLookbackBars];
+    }, [limits.maxLookbackBars]);
 
     const availableSymbols = useMemo(
         () => marketSymbols.map((item) => item.symbol),
@@ -297,6 +350,23 @@ const ProbabilityPage = () => {
             setSymbol(availableSymbols[0] ?? "EURUSD");
         }
     }, [availableSymbols, symbol]);
+
+    useEffect(() => {
+        setHorizonBars((value) => Math.min(value, limits.maxHorizonBars));
+        setLookbackBars((value) => Math.min(value, limits.maxLookbackBars));
+        setTargetX((value) => {
+            if (!limits.allowCustomTargetX) {
+                return nearestPreset(value, allowedTargetXPreset);
+            }
+            return Math.min(value, limits.maxTargetX);
+        });
+    }, [
+        allowedTargetXPreset,
+        limits.allowCustomTargetX,
+        limits.maxHorizonBars,
+        limits.maxLookbackBars,
+        limits.maxTargetX,
+    ]);
 
     useEffect(() => {
         if (!availableTimeframes.includes(timeframe)) {
@@ -328,12 +398,15 @@ const ProbabilityPage = () => {
             setRequestError(null);
             setProbability(null);
             try {
-                const response = await fetch("/api/probability/query", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload),
-                    signal: controller.signal,
-                });
+                const response = await fetch(
+                    `/api/probability/query${planQuery}`,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload),
+                        signal: controller.signal,
+                    }
+                );
 
                 if (!response.ok) {
                     throw new Error(`Request failed: ${response.status}`);
@@ -368,19 +441,27 @@ const ProbabilityPage = () => {
         event,
         horizonBars,
         lookbackBars,
+        planQuery,
         symbol,
         timeframe,
     ]);
 
     useEffect(() => {
         const controller = new AbortController();
+        if (!entitlements.features.probabilitySurface) {
+            setSurface(null);
+            setSurfaceMeta(null);
+            setSurfaceError(null);
+            setSurfaceLoading(false);
+            return () => controller.abort();
+        }
         const payload = {
             symbol,
             timeframe,
             horizonBars,
             lookbackBars,
             event,
-            targetXs: [...X_PRESETS],
+            targetXs: [...allowedTargetXPreset],
         };
 
         const fetchSurface = async () => {
@@ -389,12 +470,15 @@ const ProbabilityPage = () => {
             setSurface(null);
             setSurfaceMeta(null);
             try {
-                const response = await fetch("/api/probability/surface", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload),
-                    signal: controller.signal,
-                });
+                const response = await fetch(
+                    `/api/probability/surface${planQuery}`,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload),
+                        signal: controller.signal,
+                    }
+                );
 
                 if (!response.ok) {
                     throw new Error(`Request failed: ${response.status}`);
@@ -427,7 +511,16 @@ const ProbabilityPage = () => {
         fetchSurface();
 
         return () => controller.abort();
-    }, [event, horizonBars, lookbackBars, symbol, timeframe]);
+    }, [
+        allowedTargetXPreset,
+        entitlements.features.probabilitySurface,
+        event,
+        horizonBars,
+        lookbackBars,
+        planQuery,
+        symbol,
+        timeframe,
+    ]);
 
     const statusBadge = useMemo(() => {
         if (probability?.meta.dataSource === "twelvedata") {
@@ -450,6 +543,35 @@ const ProbabilityPage = () => {
 
     const runLabel =
         probability?.meta.dataSource === "twelvedata" ? "Live run" : "Mocked run";
+
+    const evMetrics = useMemo(() => {
+        if (!probability) {
+            return null;
+        }
+        if (
+            !Number.isFinite(rewardR) ||
+            !Number.isFinite(riskR) ||
+            rewardR <= 0 ||
+            riskR <= 0
+        ) {
+            return null;
+        }
+        const xValue = probability.meta.targetX;
+        const reward = rewardR * xValue;
+        const risk = riskR * xValue;
+        if (risk === 0) {
+            return null;
+        }
+        const ev =
+            probability.prob.up_ge_x * reward -
+            probability.prob.down_ge_x * risk;
+        const edge = ev / risk;
+        return {
+            ev,
+            edge,
+            isPositive: ev >= 0,
+        };
+    }, [probability, rewardR, riskR]);
 
     return (
         <section className="mx-auto max-w-6xl space-y-8 px-4 py-8">
@@ -537,12 +659,21 @@ const ProbabilityPage = () => {
                                     id="horizon"
                                     type="number"
                                     min={1}
+                                    max={limits.maxHorizonBars}
                                     value={horizonBars}
                                     onChange={(event) => {
                                         const value =
                                             event.currentTarget.valueAsNumber;
                                         if (Number.isFinite(value)) {
-                                            setHorizonBars(Math.max(1, value));
+                                            setHorizonBars(
+                                                Math.max(
+                                                    1,
+                                                    Math.min(
+                                                        limits.maxHorizonBars,
+                                                        value
+                                                    )
+                                                )
+                                            );
                                         }
                                     }}
                                     className="border-gray-800 bg-gray-950 text-white"
@@ -569,7 +700,7 @@ const ProbabilityPage = () => {
                                         <SelectValue placeholder="Lookback" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {LOOKBACKS.map((item) => (
+                                        {availableLookbacks.map((item) => (
                                             <SelectItem
                                                 key={item}
                                                 value={String(item)}
@@ -591,28 +722,43 @@ const ProbabilityPage = () => {
                             >
                                 Target X
                             </label>
-                            <Input
-                                id="target-x"
-                                type="number"
-                                min={1}
-                                value={targetX}
-                                onChange={(event) => {
-                                    const value =
-                                        event.currentTarget.valueAsNumber;
-                                    if (Number.isFinite(value)) {
-                                        setTargetX(Math.max(1, value));
-                                    }
-                                }}
-                                className="border-gray-800 bg-gray-950 text-white"
-                            />
-                        </div>
+                                <Input
+                                    id="target-x"
+                                    type="number"
+                                    min={1}
+                                    max={limits.maxTargetX}
+                                    value={targetX}
+                                    disabled={!limits.allowCustomTargetX}
+                                    onChange={(event) => {
+                                        const value =
+                                            event.currentTarget.valueAsNumber;
+                                        if (Number.isFinite(value)) {
+                                            setTargetX(
+                                                Math.max(
+                                                    1,
+                                                    Math.min(
+                                                        limits.maxTargetX,
+                                                        value
+                                                    )
+                                                )
+                                            );
+                                        }
+                                    }}
+                                    className="border-gray-800 bg-gray-950 text-white"
+                                />
+                                {!limits.allowCustomTargetX ? (
+                                    <p className="text-xs text-gray-500">
+                                        Custom targets require Pro.
+                                    </p>
+                                ) : null}
+                            </div>
 
                         <div className="space-y-3">
                             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                                 X presets
                             </p>
                             <div className="flex flex-wrap gap-2">
-                                {X_PRESETS.map((value) => {
+                                {allowedTargetXPreset.map((value) => {
                                     const isActive = value === targetX;
                                     return (
                                         <Button
@@ -635,6 +781,55 @@ const ProbabilityPage = () => {
                                         </Button>
                                     );
                                 })}
+                            </div>
+                        </div>
+
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="space-y-2">
+                                <label
+                                    htmlFor="reward-r"
+                                    className="text-xs font-semibold uppercase tracking-wide text-gray-500"
+                                >
+                                    Reward (R)
+                                </label>
+                                <Input
+                                    id="reward-r"
+                                    type="number"
+                                    min={0.1}
+                                    step={0.1}
+                                    value={rewardR}
+                                    onChange={(event) => {
+                                        const value =
+                                            event.currentTarget.valueAsNumber;
+                                        if (Number.isFinite(value)) {
+                                            setRewardR(Math.max(0.1, value));
+                                        }
+                                    }}
+                                    className="border-gray-800 bg-gray-950 text-white"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label
+                                    htmlFor="risk-r"
+                                    className="text-xs font-semibold uppercase tracking-wide text-gray-500"
+                                >
+                                    Risk (R)
+                                </label>
+                                <Input
+                                    id="risk-r"
+                                    type="number"
+                                    min={0.1}
+                                    step={0.1}
+                                    value={riskR}
+                                    onChange={(event) => {
+                                        const value =
+                                            event.currentTarget.valueAsNumber;
+                                        if (Number.isFinite(value)) {
+                                            setRiskR(Math.max(0.1, value));
+                                        }
+                                    }}
+                                    className="border-gray-800 bg-gray-950 text-white"
+                                />
                             </div>
                         </div>
 
@@ -741,33 +936,52 @@ const ProbabilityPage = () => {
                             </p>
                         </div>
                         <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-gray-500">
-                            {surfaceLoading ? (
-                                <span>Loading…</span>
-                            ) : null}
-                            {surfaceMeta?.sampleCount ? (
-                                <span>
-                                    {surfaceMeta.sampleCount} samples
-                                </span>
-                            ) : null}
+                            {entitlements.features.probabilitySurface ? (
+                                <>
+                                    {surfaceLoading ? (
+                                        <span>Loading…</span>
+                                    ) : null}
+                                    {surfaceMeta?.sampleCount ? (
+                                        <span>
+                                            {surfaceMeta.sampleCount} samples
+                                        </span>
+                                    ) : null}
+                                </>
+                            ) : (
+                                <span>Pro required</span>
+                            )}
                         </div>
                     </div>
                     <div className="mt-4">
-                        {surfaceError ? (
-                            <p className="text-xs text-rose-200/80">
-                                {surfaceError}
-                            </p>
-                        ) : null}
-                        <ProbabilityMiniCurve
-                            surface={
-                                surface ?? {
-                                    xs: [],
-                                    up: [],
-                                    down: [],
-                                    within: [],
-                                }
-                            }
-                            className="mt-3"
-                        />
+                        {!entitlements.features.probabilitySurface ? (
+                            <div className="rounded-xl border border-gray-800 bg-gray-950/70 p-4 text-xs text-gray-400">
+                                <p className="font-semibold text-gray-200">
+                                    Probability surface is Pro-only.
+                                </p>
+                                <p className="mt-2 text-gray-400">
+                                    Upgrade to Pro to unlock the surface curve.
+                                </p>
+                            </div>
+                        ) : (
+                            <>
+                                {surfaceError ? (
+                                    <p className="text-xs text-rose-200/80">
+                                        {surfaceError}
+                                    </p>
+                                ) : null}
+                                <ProbabilityMiniCurve
+                                    surface={
+                                        surface ?? {
+                                            xs: [],
+                                            up: [],
+                                            down: [],
+                                            within: [],
+                                        }
+                                    }
+                                    className="mt-3"
+                                />
+                            </>
+                        )}
                     </div>
                 </div>
                 <div className="grid gap-6 md:grid-cols-3">
@@ -804,6 +1018,44 @@ const ProbabilityPage = () => {
                             </p>
                         </div>
                     ))}
+                </div>
+                <div className="grid gap-6 md:grid-cols-2">
+                    <div className="rounded-2xl border border-gray-800 bg-[#0f1115] p-6 shadow-lg shadow-black/20">
+                        <p className="text-sm text-gray-400">
+                            Expected Value (X-units)
+                        </p>
+                        <p
+                            className={`mt-4 text-3xl font-semibold ${
+                                evMetrics?.isPositive
+                                    ? "text-emerald-200"
+                                    : "text-rose-200"
+                            }`}
+                        >
+                            {evMetrics
+                                ? evMetrics.ev.toFixed(2)
+                                : isLoading && !probability
+                                ? "Updating…"
+                                : "--"}
+                        </p>
+                        <p className="mt-2 text-xs text-gray-500">
+                            {evMetrics
+                                ? `${evMetrics.isPositive ? "Positive" : "Negative"} EV`
+                                : "Awaiting data"}
+                        </p>
+                    </div>
+                    <div className="rounded-2xl border border-gray-800 bg-[#0f1115] p-6 shadow-lg shadow-black/20">
+                        <p className="text-sm text-gray-400">Edge</p>
+                        <p className="mt-4 text-3xl font-semibold text-sky-200">
+                            {evMetrics
+                                ? `${(evMetrics.edge * 100).toFixed(2)}%`
+                                : isLoading && !probability
+                                ? "Updating…"
+                                : "--"}
+                        </p>
+                        <p className="mt-2 text-xs text-gray-500">
+                            Normalized by risk × X.
+                        </p>
+                    </div>
                 </div>
             </div>
         </section>
