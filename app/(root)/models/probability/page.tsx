@@ -935,7 +935,7 @@ const ProbabilityPage = () => {
                                 : "Awaiting data"}
                         </p>
                         <p className="mt-2 text-xs text-gray-500">
-                            EV = X × (P(up ≥ X) - P(down ≥ X)).
+                            EV = X × (RewardR × P(up ≥ X) - RiskR × P(down ≥ X)).
                         </p>
                         <p className="mt-1 text-xs text-gray-500">
                             If probabilities are similar, EV/Edge ≈ 0 (neutral).
@@ -951,7 +951,8 @@ const ProbabilityPage = () => {
                                 : "--"}
                         </p>
                         <p className="mt-2 text-xs text-gray-500">
-                            Edge = P(up ≥ X) - P(down ≥ X).
+                            Edge = (RewardR × P(up ≥ X) - RiskR × P(down ≥ X)) /
+                            RiskR.
                         </p>
                         <p className="mt-1 text-xs text-gray-500">
                             If probabilities are similar, EV/Edge ≈ 0 (neutral).
