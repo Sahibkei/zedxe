@@ -17,7 +17,7 @@ import {
     MAX_TARGET_X,
 } from "@/lib/probability/validation";
 
-type ProbabilityEvent = "end";
+type ProbabilityEvent = "end" | "touch";
 
 type ProbabilityResponse = {
     status: "OK" | "MOCKED";
@@ -39,6 +39,7 @@ type ProbabilityResponse = {
         up_ge_x: number;
         down_ge_x: number;
         within_pm_x: number;
+        both_touch?: number;
     };
 };
 
@@ -127,7 +128,7 @@ const isProbabilityResponse = (value: unknown): value is ProbabilityResponse => 
     ) {
         return false;
     }
-    if (meta.event !== "end") {
+    if (meta.event !== "end" && meta.event !== "touch") {
         return false;
     }
     if (typeof meta.asOf !== "string") {
@@ -195,7 +196,7 @@ const isProbabilitySurfaceResponse = (
     ) {
         return false;
     }
-    if (meta.event !== "end") {
+    if (meta.event !== "end" && meta.event !== "touch") {
         return false;
     }
     if (typeof meta.asOf !== "string") {
@@ -244,6 +245,8 @@ const isProbabilitySurfaceResponse = (
 };
 
 const ProbabilityPage = () => {
+    const isTouchEnabled =
+        process.env.NEXT_PUBLIC_FEATURE_PROB_TOUCH === "1";
     const [marketSymbols, setMarketSymbols] = useState<MarketSymbol[]>(
         DEFAULT_SYMBOLS
     );
@@ -463,7 +466,11 @@ const ProbabilityPage = () => {
     }, [probability?.meta.dataSource]);
 
     const runLabel =
-        probability?.meta.dataSource === "twelvedata" ? "Live run" : "Mocked run";
+        probability?.meta.dataSource === "twelvedata"
+            ? "Live run"
+            : "Mocked run";
+
+    const eventLabel = event === "touch" ? "Touch" : "End";
 
     const evMetrics = useMemo(() => {
         if (!probability) {
@@ -503,7 +510,9 @@ const ProbabilityPage = () => {
                             Probability (Now)
                         </h1>
                         <p className="text-gray-400">
-                            By horizon close (END event).
+                            {event === "touch"
+                                ? "Touch event (high/low extremes)."
+                                : "By horizon close (END event)."}
                         </p>
                     </div>
                     <span className="rounded-full border border-gray-800 bg-gray-900/60 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
@@ -756,26 +765,50 @@ const ProbabilityPage = () => {
                                 <Button
                                     type="button"
                                     size="sm"
-                                    className="border border-emerald-500/40 bg-emerald-500/15 text-emerald-100"
+                                    className={
+                                        event === "end"
+                                            ? "border border-emerald-500/40 bg-emerald-500/15 text-emerald-100"
+                                            : "border-gray-800 bg-gray-950 text-gray-300"
+                                    }
                                     onClick={() => setEvent("end")}
                                 >
                                     End
                                 </Button>
-                                <div className="flex items-center gap-2">
+                                {isTouchEnabled ? (
                                     <Button
                                         type="button"
                                         size="sm"
-                                        variant="outline"
-                                        disabled
-                                        className="border-gray-800 bg-gray-950 text-gray-400"
+                                        className={
+                                            event === "touch"
+                                                ? "border border-emerald-500/40 bg-emerald-500/15 text-emerald-100"
+                                                : "border-gray-800 bg-gray-950 text-gray-300"
+                                        }
+                                        onClick={() => setEvent("touch")}
                                     >
                                         Touch
                                     </Button>
-                                    <span className="rounded-full border border-gray-700 bg-gray-900/70 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                                        Coming soon
-                                    </span>
-                                </div>
+                                ) : (
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            disabled
+                                            className="border-gray-800 bg-gray-950 text-gray-400"
+                                        >
+                                            Touch
+                                        </Button>
+                                        <span className="rounded-full border border-gray-700 bg-gray-900/70 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                                            Coming soon
+                                        </span>
+                                    </div>
+                                )}
                             </div>
+                            {event === "touch" ? (
+                                <p className="text-xs text-gray-500">
+                                    Up/Down can both occur in Touch mode.
+                                </p>
+                            ) : null}
                         </div>
 
                         <div className="rounded-xl border border-gray-800 bg-gray-950/60 p-4 text-xs text-gray-400">
@@ -847,7 +880,7 @@ const ProbabilityPage = () => {
                                 Probability curve
                             </p>
                             <p className="text-xs text-gray-500">
-                                X sweep for END event.
+                                X sweep for {eventLabel.toUpperCase()} event.
                             </p>
                         </div>
                         <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-gray-500">
@@ -879,17 +912,26 @@ const ProbabilityPage = () => {
                 <div className="grid gap-6 md:grid-cols-3">
                     {[
                         {
-                            label: "P(up ≥ X)",
+                            label:
+                                event === "touch"
+                                    ? "P(touch up ≥ X)"
+                                    : "P(up ≥ X)",
                             value: probability?.prob.up_ge_x,
                             tone: "text-emerald-200",
                         },
                         {
-                            label: "P(down ≥ X)",
+                            label:
+                                event === "touch"
+                                    ? "P(touch down ≥ X)"
+                                    : "P(down ≥ X)",
                             value: probability?.prob.down_ge_x,
                             tone: "text-rose-200",
                         },
                         {
-                            label: "P(within ±X)",
+                            label:
+                                event === "touch"
+                                    ? "P(no touch within ±X)"
+                                    : "P(within ±X)",
                             value: probability?.prob.within_pm_x,
                             tone: "text-sky-200",
                         },

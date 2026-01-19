@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const TIMEFRAMES = ["M5", "M15", "M30", "H1"] as const;
-export const EVENTS = ["end"] as const;
+export const EVENTS = ["end", "touch"] as const;
 
 export const MIN_HORIZON_BARS = 1;
 export const MAX_HORIZON_BARS = 500;

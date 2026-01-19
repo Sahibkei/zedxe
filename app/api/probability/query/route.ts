@@ -11,8 +11,9 @@ import {
 } from "@/lib/probability/validation";
 import { getPipSize } from "@/lib/probability/scaling";
 import { parseAsOf } from "@/lib/probability/time";
+import { computeTouchNow } from "@/lib/probability/touch";
 
-type ProbabilityEvent = "end";
+type ProbabilityEvent = "end" | "touch";
 
 type ProbabilityPayload = {
     symbol: string;
@@ -43,6 +44,7 @@ type ProbabilityResponse = {
         up_ge_x: number;
         down_ge_x: number;
         within_pm_x: number;
+        both_touch?: number;
     };
 };
 
@@ -60,7 +62,7 @@ const requestSchema = z
         horizonBars: z.number().int().min(1).max(500),
         lookbackBars: z.number().int().min(50).max(5000),
         targetX: z.number().int().min(1).max(500),
-        event: z.enum(EVENTS),
+        event: z.enum(EVENTS).default("end"),
     })
     .strict();
 
@@ -191,7 +193,8 @@ export async function POST(request: NextRequest) {
                       (parsedBody as Record<string, unknown>).lookbackBars ??
                       (parsedBody as Record<string, unknown>).lookback,
                   targetX: (parsedBody as Record<string, unknown>).targetX,
-                  event: (parsedBody as Record<string, unknown>).event,
+                  event:
+                      (parsedBody as Record<string, unknown>).event ?? "end",
               }
             : parsedBody;
 
@@ -207,6 +210,22 @@ export async function POST(request: NextRequest) {
         ...parsed.data,
         symbol: normalizeSymbol(parsed.data.symbol),
     };
+
+    if (
+        payload.event === "touch" &&
+        process.env.NEXT_PUBLIC_FEATURE_PROB_TOUCH !== "1"
+    ) {
+        return NextResponse.json(
+            {
+                status: "ERROR",
+                error: {
+                    code: "FEATURE_DISABLED",
+                    message: "Touch event is not enabled.",
+                },
+            },
+            { status: 400 }
+        );
+    }
 
     if (!process.env.TWELVEDATA_API_KEY) {
         const mock = buildMockProbabilities(payload);
@@ -228,6 +247,9 @@ export async function POST(request: NextRequest) {
                 up_ge_x: mock.up,
                 down_ge_x: mock.down,
                 within_pm_x: mock.within,
+                ...(payload.event === "touch"
+                    ? { both_touch: Math.min(mock.up, mock.down) * 0.5 }
+                    : {}),
             },
         };
         return NextResponse.json(response);
@@ -298,6 +320,63 @@ export async function POST(request: NextRequest) {
             },
             { status: 502 }
         );
+    }
+
+    const maxStartIndex = entryIndex - payload.horizonBars;
+    if (maxStartIndex < lookbackStart) {
+        return NextResponse.json(
+            {
+                error: "Insufficient data to compute horizon window",
+                where: "twelvedata",
+            },
+            { status: 502 }
+        );
+    }
+
+    if (payload.event === "touch") {
+        const touchResult = computeTouchNow({
+            candles,
+            lookbackStart,
+            maxStartIndex,
+            horizonBars: payload.horizonBars,
+            targetX: payload.targetX,
+            symbol: payload.symbol,
+        });
+
+        if (!touchResult.sampleCount) {
+            return NextResponse.json(
+                {
+                    error: "Insufficient data to compute probabilities",
+                    where: "twelvedata",
+                },
+                { status: 502 }
+            );
+        }
+
+        const response: ProbabilityResponse = {
+            status: "OK",
+            meta: {
+                symbol: payload.symbol,
+                timeframe: payload.timeframe,
+                horizonBars: payload.horizonBars,
+                requestedLookbackBars: payload.lookbackBars,
+                effectiveLookbackBars,
+                targetX: payload.targetX,
+                event: payload.event,
+                asOf: parseAsOf(candles[entryIndex].datetime),
+                dataSource: "twelvedata",
+                wasClamped,
+                clampReason,
+            },
+            prob: {
+                up_ge_x: touchResult.up_ge_x,
+                down_ge_x: touchResult.down_ge_x,
+                within_pm_x: touchResult.within_pm_x,
+                both_touch: touchResult.both_touch,
+            },
+        };
+
+        return NextResponse.json(response);
     }
 
     const closes = candles.map((candle) => candle.close);
