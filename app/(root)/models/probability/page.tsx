@@ -12,6 +12,10 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import {
+    MAX_HORIZON_BARS,
+    MAX_TARGET_X,
+} from "@/lib/probability/validation";
 
 type ProbabilityEvent = "end";
 
@@ -250,6 +254,8 @@ const ProbabilityPage = () => {
     const [targetX, setTargetX] = useState(15);
     const [event, setEvent] = useState<ProbabilityEvent>("end");
     const [debouncedTargetX, setDebouncedTargetX] = useState(targetX);
+    const [rewardR, setRewardR] = useState(1);
+    const [riskR, setRiskR] = useState(1);
     const [probability, setProbability] =
         useState<ProbabilityResponse | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -279,6 +285,8 @@ const ProbabilityPage = () => {
 
         fetchSymbols();
     }, []);
+
+    const availableLookbacks = useMemo(() => LOOKBACKS, []);
 
     const availableSymbols = useMemo(
         () => marketSymbols.map((item) => item.symbol),
@@ -427,7 +435,13 @@ const ProbabilityPage = () => {
         fetchSurface();
 
         return () => controller.abort();
-    }, [event, horizonBars, lookbackBars, symbol, timeframe]);
+    }, [
+        event,
+        horizonBars,
+        lookbackBars,
+        symbol,
+        timeframe,
+    ]);
 
     const statusBadge = useMemo(() => {
         if (probability?.meta.dataSource === "twelvedata") {
@@ -450,6 +464,35 @@ const ProbabilityPage = () => {
 
     const runLabel =
         probability?.meta.dataSource === "twelvedata" ? "Live run" : "Mocked run";
+
+    const evMetrics = useMemo(() => {
+        if (!probability) {
+            return null;
+        }
+        if (
+            !Number.isFinite(rewardR) ||
+            !Number.isFinite(riskR) ||
+            rewardR <= 0 ||
+            riskR <= 0
+        ) {
+            return null;
+        }
+        const xValue = probability.meta.targetX;
+        const reward = rewardR * xValue;
+        const risk = riskR * xValue;
+        if (risk === 0) {
+            return null;
+        }
+        const ev =
+            probability.prob.up_ge_x * reward -
+            probability.prob.down_ge_x * risk;
+        const edge = ev / risk;
+        return {
+            ev,
+            edge,
+            isPositive: ev >= 0,
+        };
+    }, [probability, rewardR, riskR]);
 
     return (
         <section className="mx-auto max-w-6xl space-y-8 px-4 py-8">
@@ -537,12 +580,21 @@ const ProbabilityPage = () => {
                                     id="horizon"
                                     type="number"
                                     min={1}
+                                    max={MAX_HORIZON_BARS}
                                     value={horizonBars}
                                     onChange={(event) => {
                                         const value =
                                             event.currentTarget.valueAsNumber;
                                         if (Number.isFinite(value)) {
-                                            setHorizonBars(Math.max(1, value));
+                                            setHorizonBars(
+                                                Math.max(
+                                                    1,
+                                                    Math.min(
+                                                        MAX_HORIZON_BARS,
+                                                        value
+                                                    )
+                                                )
+                                            );
                                         }
                                     }}
                                     className="border-gray-800 bg-gray-950 text-white"
@@ -569,7 +621,7 @@ const ProbabilityPage = () => {
                                         <SelectValue placeholder="Lookback" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {LOOKBACKS.map((item) => (
+                                        {availableLookbacks.map((item) => (
                                             <SelectItem
                                                 key={item}
                                                 value={String(item)}
@@ -591,21 +643,30 @@ const ProbabilityPage = () => {
                             >
                                 Target X
                             </label>
-                            <Input
-                                id="target-x"
-                                type="number"
-                                min={1}
-                                value={targetX}
-                                onChange={(event) => {
-                                    const value =
-                                        event.currentTarget.valueAsNumber;
-                                    if (Number.isFinite(value)) {
-                                        setTargetX(Math.max(1, value));
-                                    }
-                                }}
-                                className="border-gray-800 bg-gray-950 text-white"
-                            />
-                        </div>
+                                <Input
+                                    id="target-x"
+                                    type="number"
+                                    min={1}
+                                    max={MAX_TARGET_X}
+                                    value={targetX}
+                                    onChange={(event) => {
+                                        const value =
+                                            event.currentTarget.valueAsNumber;
+                                        if (Number.isFinite(value)) {
+                                            setTargetX(
+                                                Math.max(
+                                                    1,
+                                                    Math.min(
+                                                        MAX_TARGET_X,
+                                                        value
+                                                    )
+                                                )
+                                            );
+                                        }
+                                    }}
+                                    className="border-gray-800 bg-gray-950 text-white"
+                                />
+                            </div>
 
                         <div className="space-y-3">
                             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -635,6 +696,55 @@ const ProbabilityPage = () => {
                                         </Button>
                                     );
                                 })}
+                            </div>
+                        </div>
+
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="space-y-2">
+                                <label
+                                    htmlFor="reward-r"
+                                    className="text-xs font-semibold uppercase tracking-wide text-gray-500"
+                                >
+                                    Reward (R)
+                                </label>
+                                <Input
+                                    id="reward-r"
+                                    type="number"
+                                    min={0.1}
+                                    step={0.1}
+                                    value={rewardR}
+                                    onChange={(event) => {
+                                        const value =
+                                            event.currentTarget.valueAsNumber;
+                                        if (Number.isFinite(value)) {
+                                            setRewardR(Math.max(0.1, value));
+                                        }
+                                    }}
+                                    className="border-gray-800 bg-gray-950 text-white"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label
+                                    htmlFor="risk-r"
+                                    className="text-xs font-semibold uppercase tracking-wide text-gray-500"
+                                >
+                                    Risk (R)
+                                </label>
+                                <Input
+                                    id="risk-r"
+                                    type="number"
+                                    min={0.1}
+                                    step={0.1}
+                                    value={riskR}
+                                    onChange={(event) => {
+                                        const value =
+                                            event.currentTarget.valueAsNumber;
+                                        if (Number.isFinite(value)) {
+                                            setRiskR(Math.max(0.1, value));
+                                        }
+                                    }}
+                                    className="border-gray-800 bg-gray-950 text-white"
+                                />
                             </div>
                         </div>
 
@@ -741,13 +851,9 @@ const ProbabilityPage = () => {
                             </p>
                         </div>
                         <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-gray-500">
-                            {surfaceLoading ? (
-                                <span>Loading…</span>
-                            ) : null}
+                            {surfaceLoading ? <span>Loading…</span> : null}
                             {surfaceMeta?.sampleCount ? (
-                                <span>
-                                    {surfaceMeta.sampleCount} samples
-                                </span>
+                                <span>{surfaceMeta.sampleCount} samples</span>
                             ) : null}
                         </div>
                     </div>
@@ -804,6 +910,54 @@ const ProbabilityPage = () => {
                             </p>
                         </div>
                     ))}
+                </div>
+                <div className="grid gap-6 md:grid-cols-2">
+                    <div className="rounded-2xl border border-gray-800 bg-[#0f1115] p-6 shadow-lg shadow-black/20">
+                        <p className="text-sm text-gray-400">
+                            Expected Value (X-units)
+                        </p>
+                        <p
+                            className={`mt-4 text-3xl font-semibold ${
+                                evMetrics?.isPositive
+                                    ? "text-emerald-200"
+                                    : "text-rose-200"
+                            }`}
+                        >
+                            {evMetrics
+                                ? evMetrics.ev.toFixed(2)
+                                : isLoading && !probability
+                                ? "Updating…"
+                                : "--"}
+                        </p>
+                        <p className="mt-2 text-xs text-gray-500">
+                            {evMetrics
+                                ? `${evMetrics.isPositive ? "Positive" : "Negative"} EV`
+                                : "Awaiting data"}
+                        </p>
+                        <p className="mt-2 text-xs text-gray-500">
+                            EV = X × (RewardR × P(up ≥ X) - RiskR × P(down ≥ X)).
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                            If probabilities are similar, EV/Edge ≈ 0 (neutral).
+                        </p>
+                    </div>
+                    <div className="rounded-2xl border border-gray-800 bg-[#0f1115] p-6 shadow-lg shadow-black/20">
+                        <p className="text-sm text-gray-400">Edge</p>
+                        <p className="mt-4 text-3xl font-semibold text-sky-200">
+                            {evMetrics
+                                ? `${(evMetrics.edge * 100).toFixed(2)}%`
+                                : isLoading && !probability
+                                ? "Updating…"
+                                : "--"}
+                        </p>
+                        <p className="mt-2 text-xs text-gray-500">
+                            Edge = (RewardR × P(up ≥ X) - RiskR × P(down ≥ X)) /
+                            RiskR.
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                            If probabilities are similar, EV/Edge ≈ 0 (neutral).
+                        </p>
+                    </div>
                 </div>
             </div>
         </section>
