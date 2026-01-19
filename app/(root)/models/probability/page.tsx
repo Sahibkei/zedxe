@@ -45,6 +45,23 @@ type ProbabilitySurfacePayload = {
     within: number[];
 };
 
+type ProbabilitySurfaceMeta = {
+    symbol: string;
+    timeframe: string;
+    requestedLookbackBars: number;
+    effectiveLookbackBars: number;
+    requestedHorizonBars: number;
+    effectiveHorizonBars: number;
+    requestedTargetXs: number[];
+    effectiveTargetXs: number[];
+    event: ProbabilityEvent;
+    asOf: string;
+    dataSource: "twelvedata";
+    wasClamped: boolean;
+    wasTargetXsClamped: boolean;
+    sampleCount: number;
+};
+
 type MarketSymbol = {
     symbol: string;
     timeframes: string[];
@@ -131,7 +148,11 @@ const isFiniteNumber = (value: unknown): value is number =>
 
 const isProbabilitySurfaceResponse = (
     value: unknown
-): value is { status: "OK"; surface: ProbabilitySurfacePayload } => {
+): value is {
+    status: "OK";
+    surface: ProbabilitySurfacePayload;
+    meta: ProbabilitySurfaceMeta;
+} => {
     if (!value || typeof value !== "object") {
         return false;
     }
@@ -153,15 +174,14 @@ const isProbabilitySurfaceResponse = (
         return false;
     }
     if (
-        typeof meta.horizonBars !== "number" ||
-        typeof meta.requestedLookbackBars !== "number" ||
-        typeof meta.effectiveLookbackBars !== "number"
+        typeof meta.requestedHorizonBars !== "number" ||
+        typeof meta.effectiveHorizonBars !== "number"
     ) {
         return false;
     }
     if (
-        typeof meta.requestedHorizonBars !== "number" ||
-        typeof meta.effectiveHorizonBars !== "number"
+        typeof meta.requestedLookbackBars !== "number" ||
+        typeof meta.effectiveLookbackBars !== "number"
     ) {
         return false;
     }
@@ -202,10 +222,17 @@ const isProbabilitySurfaceResponse = (
     }
     const length = surface.xs.length;
     if (
-        length === 0 ||
+        length < 2 ||
         surface.up.length !== length ||
         surface.down.length !== length ||
         surface.within.length !== length
+    ) {
+        return false;
+    }
+    if (
+        !surface.up.every((value) => value >= 0 && value <= 1) ||
+        !surface.down.every((value) => value >= 0 && value <= 1) ||
+        !surface.within.every((value) => value >= 0 && value <= 1)
     ) {
         return false;
     }
@@ -229,6 +256,8 @@ const ProbabilityPage = () => {
     const [requestError, setRequestError] = useState<string | null>(null);
     const [surface, setSurface] =
         useState<ProbabilitySurfacePayload | null>(null);
+    const [surfaceMeta, setSurfaceMeta] =
+        useState<ProbabilitySurfaceMeta | null>(null);
     const [surfaceLoading, setSurfaceLoading] = useState(false);
     const [surfaceError, setSurfaceError] = useState<string | null>(null);
 
@@ -358,6 +387,7 @@ const ProbabilityPage = () => {
             setSurfaceLoading(true);
             setSurfaceError(null);
             setSurface(null);
+            setSurfaceMeta(null);
             try {
                 const response = await fetch("/api/probability/surface", {
                     method: "POST",
@@ -374,14 +404,17 @@ const ProbabilityPage = () => {
                 if (!controller.signal.aborted) {
                     if (isProbabilitySurfaceResponse(data)) {
                         setSurface(data.surface);
+                        setSurfaceMeta(data.meta);
                     } else {
                         setSurface(null);
+                        setSurfaceMeta(null);
                         setSurfaceError("Invalid surface response");
                     }
                 }
             } catch (error) {
                 if (!controller.signal.aborted) {
                     setSurface(null);
+                    setSurfaceMeta(null);
                     setSurfaceError("Surface unavailable.");
                 }
             } finally {
@@ -711,10 +744,9 @@ const ProbabilityPage = () => {
                             {surfaceLoading ? (
                                 <span>Loading…</span>
                             ) : null}
-                            {probability?.meta.effectiveLookbackBars ? (
+                            {surfaceMeta?.sampleCount ? (
                                 <span>
-                                    {probability.meta.effectiveLookbackBars}{" "}
-                                    bars
+                                    {surfaceMeta.sampleCount} samples
                                 </span>
                             ) : null}
                         </div>
