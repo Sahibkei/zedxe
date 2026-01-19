@@ -67,7 +67,8 @@ const errorResponse = (
         | "BAD_REQUEST"
         | "VALIDATION_ERROR"
         | "SERVER_ERROR"
-        | "FEATURE_DISABLED",
+        | "FEATURE_DISABLED"
+        | "INSUFFICIENT_DATA",
     message: string,
     details?: Record<string, unknown>
 ) =>
@@ -285,17 +286,15 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    const closes = candles.map((candle) => candle.close);
     const maxStartIndex = entryIndex - effectiveHorizonBars;
-    if (maxStartIndex < lookbackStart) {
-        return errorResponse(
-            502,
-            "SERVER_ERROR",
-            "Insufficient data to compute horizon window"
-        );
-    }
-
     if (payload.event === "touch") {
+        if (maxStartIndex < lookbackStart) {
+            return errorResponse(
+                400,
+                "INSUFFICIENT_DATA",
+                "Insufficient data to compute horizon window"
+            );
+        }
         const touchSurface = computeTouchSurface({
             candles,
             lookbackStart,
@@ -346,6 +345,7 @@ export async function POST(request: NextRequest) {
         });
     }
 
+    const closes = candles.map((candle) => candle.close);
     const moves: number[] = [];
     for (let i = lookbackStart; i <= maxStartIndex; i += 1) {
         const movePrice = closes[i + effectiveHorizonBars] - closes[i];

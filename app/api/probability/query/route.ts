@@ -322,18 +322,22 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    const maxStartIndex = entryIndex - payload.horizonBars;
-    if (maxStartIndex < lookbackStart) {
-        return NextResponse.json(
-            {
-                error: "Insufficient data to compute horizon window",
-                where: "twelvedata",
-            },
-            { status: 502 }
-        );
-    }
-
     if (payload.event === "touch") {
+        const maxStartIndex = entryIndex - payload.horizonBars;
+        if (maxStartIndex < lookbackStart) {
+            return NextResponse.json(
+                {
+                    status: "ERROR",
+                    error: {
+                        code: "INSUFFICIENT_DATA",
+                        message:
+                            "Insufficient data to compute horizon window.",
+                    },
+                },
+                { status: 400 }
+            );
+        }
+
         const touchResult = computeTouchNow({
             candles,
             lookbackStart,
