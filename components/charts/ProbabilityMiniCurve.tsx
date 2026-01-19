@@ -4,10 +4,12 @@ const DEFAULT_HEIGHT = 140;
 const DEFAULT_WIDTH = 320;
 
 type ProbabilityMiniCurveProps = {
-    xs: number[];
-    up: number[];
-    down: number[];
-    within: number[];
+    surface: {
+        xs: number[];
+        up: number[];
+        down: number[];
+        within: number[];
+    };
     className?: string;
 };
 
@@ -36,12 +38,10 @@ const buildPath = (
 };
 
 const ProbabilityMiniCurve = ({
-    xs,
-    up,
-    down,
-    within,
+    surface,
     className,
 }: ProbabilityMiniCurveProps) => {
+    const { xs, up, down, within } = surface;
     const width = DEFAULT_WIDTH;
     const height = DEFAULT_HEIGHT;
     const upPath = buildPath(xs, up, width, height);

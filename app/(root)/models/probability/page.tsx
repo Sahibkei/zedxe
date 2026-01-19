@@ -38,31 +38,11 @@ type ProbabilityResponse = {
     };
 };
 
-type ProbabilitySurfaceResponse = {
-    status: "OK";
-    meta: {
-        symbol: string;
-        timeframe: string;
-        horizonBars: number;
-        requestedLookbackBars: number;
-        effectiveLookbackBars: number;
-        requestedHorizonBars: number;
-        effectiveHorizonBars: number;
-        requestedTargetXs: number[];
-        effectiveTargetXs: number[];
-        event: ProbabilityEvent;
-        asOf: string;
-        dataSource: "twelvedata";
-        wasClamped: boolean;
-        wasTargetXsClamped: boolean;
-        sampleCount: number;
-    };
-    surface: {
-        xs: number[];
-        up: number[];
-        down: number[];
-        within: number[];
-    };
+type ProbabilitySurfacePayload = {
+    xs: number[];
+    up: number[];
+    down: number[];
+    within: number[];
 };
 
 type MarketSymbol = {
@@ -146,9 +126,12 @@ const isProbabilityResponse = (value: unknown): value is ProbabilityResponse => 
     return true;
 };
 
+const isFiniteNumber = (value: unknown): value is number =>
+    typeof value === "number" && Number.isFinite(value);
+
 const isProbabilitySurfaceResponse = (
     value: unknown
-): value is ProbabilitySurfaceResponse => {
+): value is { status: "OK"; surface: ProbabilitySurfacePayload } => {
     if (!value || typeof value !== "object") {
         return false;
     }
@@ -201,16 +184,29 @@ const isProbabilitySurfaceResponse = (
         return false;
     }
     const surface = data.surface as Record<string, unknown>;
-    if (!Array.isArray(surface.xs)) {
+    if (
+        !Array.isArray(surface.xs) ||
+        !Array.isArray(surface.up) ||
+        !Array.isArray(surface.down) ||
+        !Array.isArray(surface.within)
+    ) {
         return false;
     }
-    if (!Array.isArray(surface.up)) {
+    if (
+        !surface.xs.every(isFiniteNumber) ||
+        !surface.up.every(isFiniteNumber) ||
+        !surface.down.every(isFiniteNumber) ||
+        !surface.within.every(isFiniteNumber)
+    ) {
         return false;
     }
-    if (!Array.isArray(surface.down)) {
-        return false;
-    }
-    if (!Array.isArray(surface.within)) {
+    const length = surface.xs.length;
+    if (
+        length === 0 ||
+        surface.up.length !== length ||
+        surface.down.length !== length ||
+        surface.within.length !== length
+    ) {
         return false;
     }
     return true;
@@ -232,7 +228,7 @@ const ProbabilityPage = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [requestError, setRequestError] = useState<string | null>(null);
     const [surface, setSurface] =
-        useState<ProbabilitySurfaceResponse | null>(null);
+        useState<ProbabilitySurfacePayload | null>(null);
     const [surfaceLoading, setSurfaceLoading] = useState(false);
     const [surfaceError, setSurfaceError] = useState<string | null>(null);
 
@@ -377,7 +373,7 @@ const ProbabilityPage = () => {
                 const data = await response.json();
                 if (!controller.signal.aborted) {
                     if (isProbabilitySurfaceResponse(data)) {
-                        setSurface(data);
+                        setSurface(data.surface);
                     } else {
                         setSurface(null);
                         setSurfaceError("Invalid surface response");
@@ -715,9 +711,10 @@ const ProbabilityPage = () => {
                             {surfaceLoading ? (
                                 <span>Loading…</span>
                             ) : null}
-                            {surface?.meta.sampleCount ? (
+                            {probability?.meta.effectiveLookbackBars ? (
                                 <span>
-                                    {surface.meta.sampleCount} samples
+                                    {probability.meta.effectiveLookbackBars}{" "}
+                                    bars
                                 </span>
                             ) : null}
                         </div>
@@ -729,10 +726,14 @@ const ProbabilityPage = () => {
                             </p>
                         ) : null}
                         <ProbabilityMiniCurve
-                            xs={surface?.surface.xs ?? []}
-                            up={surface?.surface.up ?? []}
-                            down={surface?.surface.down ?? []}
-                            within={surface?.surface.within ?? []}
+                            surface={
+                                surface ?? {
+                                    xs: [],
+                                    up: [],
+                                    down: [],
+                                    within: [],
+                                }
+                            }
                             className="mt-3"
                         />
                     </div>
