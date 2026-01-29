@@ -163,7 +163,7 @@ const SignIn = () => {
                     {isSubmitting ? 'Signing In' : 'Sign In'}
                 </Button>
 
-                <FooterLink text="Don't have an account?" linkText="Create an account" href="/sign-up" />
+                <FooterLink text="Need full access?" linkText="Join waitlist" href="/waitlist" />
             </form>
         </>
     );

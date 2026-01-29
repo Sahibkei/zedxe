@@ -1,48 +1,124 @@
 import { NextResponse } from "next/server";
-import { getMongoClient } from "@/lib/mongodb";
+import { z } from "zod";
+import { enforceRateLimit, getClientIp } from "@/lib/security/rateLimit";
+import { getTurnstileIp, verifyTurnstileToken } from "@/lib/security/turnstile";
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+export const runtime = "nodejs";
+
+const waitlistSchema = z.object({
+    fullName: z.string().min(1, "Full name is required").max(200),
+    email: z.string().email("Valid email is required").max(320),
+    company: z.string().max(200).optional().nullable(),
+    country: z.string().min(1, "Country is required").max(100),
+    website: z.string().max(200).optional().nullable(),
+    turnstileToken: z.string().optional().nullable(),
+});
+
+const escapeHtml = (value: string) =>
+    value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 
 export async function POST(request: Request) {
-    let body: { email?: string } = {};
+    const rateLimited = await enforceRateLimit(request, "waitlist");
+    if (rateLimited) return rateLimited;
 
+    let body: unknown;
     try {
         body = await request.json();
     } catch (error) {
         console.error("Waitlist payload error", error);
-        return NextResponse.json({ error: "Invalid request payload." }, { status: 400 });
+        return NextResponse.json({ ok: false, error: "Invalid request payload." }, { status: 400 });
     }
 
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-
-    if (!email || !EMAIL_REGEX.test(email)) {
-        return NextResponse.json({ error: "Please provide a valid email." }, { status: 400 });
+    const parsed = waitlistSchema.safeParse(body);
+    if (!parsed.success) {
+        return NextResponse.json({ ok: false, error: "Please provide valid details." }, { status: 400 });
     }
 
-    const client = await getMongoClient();
-
-    if (!client) {
-        console.log(`Waitlist signup (stub): ${email}`);
-        return NextResponse.json({ message: "Thanks! You're on the waitlist." }, { status: 200 });
+    const { fullName, email, company, country, website, turnstileToken } = parsed.data;
+    if (website && website.trim().length > 0) {
+        return NextResponse.json({ ok: true });
     }
 
-    const collection = client.db().collection("waitlist");
-
-    try {
-        await collection.createIndex({ email: 1 }, { unique: true });
-    } catch (error) {
-        console.warn("Waitlist index creation failed", error);
+    const hasTurnstileSecret = Boolean(process.env.TURNSTILE_SECRET_KEY);
+    if (hasTurnstileSecret && !turnstileToken) {
+        return NextResponse.json({ ok: false, error: "Turnstile token is required." }, { status: 400 });
     }
-
-    try {
-        await collection.insertOne({ email, createdAt: new Date() });
-        return NextResponse.json({ message: "Thanks! You're on the waitlist." }, { status: 200 });
-    } catch (error) {
-        const code = (error as { code?: number }).code;
-        if (code === 11000) {
-            return NextResponse.json({ message: "You're already on the waitlist." }, { status: 200 });
+    if (hasTurnstileSecret) {
+        const verification = await verifyTurnstileToken(turnstileToken ?? null, getTurnstileIp(request));
+        if (!verification.ok) {
+            return NextResponse.json(
+                { ok: false, error: verification.error ?? "Turnstile verification failed." },
+                { status: 403 },
+            );
         }
-        console.error("Waitlist insert failed", error);
-        return NextResponse.json({ error: "Unable to join waitlist." }, { status: 500 });
+    }
+
+    const resendApiKey = process.env.RESEND_API_KEY;
+    const notifyTo = process.env.WAITLIST_NOTIFY_TO;
+    const from = process.env.WAITLIST_FROM;
+
+    if (!resendApiKey || !notifyTo || !from) {
+        console.error("Waitlist email env vars missing.");
+        return NextResponse.json({ ok: false, error: "Email service is not configured." }, { status: 500 });
+    }
+
+    const timestamp = new Date().toISOString();
+    const ip = getClientIp(request);
+    const userAgent = request.headers.get("user-agent") ?? "unknown";
+    const safeCompany = company?.trim() ? company.trim() : "—";
+
+    const subject = `New ZedXe Waitlist Request — ${fullName} (${country})`;
+    const html = `
+        <h2>New waitlist request</h2>
+        <ul>
+            <li><strong>Full Name:</strong> ${escapeHtml(fullName)}</li>
+            <li><strong>Email:</strong> ${escapeHtml(email)}</li>
+            <li><strong>Company:</strong> ${escapeHtml(safeCompany)}</li>
+            <li><strong>Country:</strong> ${escapeHtml(country)}</li>
+            <li><strong>Timestamp:</strong> ${escapeHtml(timestamp)}</li>
+            <li><strong>IP:</strong> ${escapeHtml(ip)}</li>
+            <li><strong>User-Agent:</strong> ${escapeHtml(userAgent)}</li>
+        </ul>
+    `;
+    const text = [
+        "New waitlist request",
+        `Full Name: ${fullName}`,
+        `Email: ${email}`,
+        `Company: ${safeCompany}`,
+        `Country: ${country}`,
+        `Timestamp: ${timestamp}`,
+        `IP: ${ip}`,
+        `User-Agent: ${userAgent}`,
+    ].join("\n");
+
+    try {
+        const response = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${resendApiKey}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                from,
+                to: notifyTo,
+                subject,
+                html,
+                text,
+            }),
+        });
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error("Waitlist email failed", response.status, errorBody);
+            return NextResponse.json({ ok: false, error: "Unable to submit waitlist request." }, { status: 500 });
+        }
+        return NextResponse.json({ ok: true });
+    } catch (error) {
+        console.error("Waitlist email failed", error);
+        return NextResponse.json({ ok: false, error: "Unable to submit waitlist request." }, { status: 500 });
     }
 }

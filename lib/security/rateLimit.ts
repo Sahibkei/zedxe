@@ -3,7 +3,7 @@ import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
 
-type RateLimitAction = "signup" | "forgot" | "resend" | "signin" | "reset" | "profile_update";
+type RateLimitAction = "signup" | "forgot" | "resend" | "signin" | "reset" | "profile_update" | "waitlist";
 type RateLimiters = Record<RateLimitAction, Ratelimit>;
 
 let cachedRedis: Redis | null | undefined;
@@ -73,6 +73,11 @@ const getRateLimiter = (action: RateLimitAction) => {
                 redis,
                 limiter: Ratelimit.fixedWindow(20, "1 h"),
                 prefix: "rate-limit:profile_update",
+            }),
+            waitlist: new Ratelimit({
+                redis,
+                limiter: Ratelimit.fixedWindow(5, "10 m"),
+                prefix: "rate-limit:waitlist",
             }),
         };
     }

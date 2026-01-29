@@ -5,7 +5,11 @@ export async function middleware(request: NextRequest) {
     const sessionCookie = getSessionCookie(request);
     const { pathname } = request.nextUrl;
 
-    const publicRoutes = ["/", "/sign-in", "/sign-up"];
+    if (pathname.startsWith("/sign-up")) {
+        return NextResponse.redirect(new URL("/waitlist?from=signup", request.url));
+    }
+
+    const publicRoutes = ["/", "/sign-in", "/waitlist"];
     const isPublicRoute =
         pathname === "/" ||
         publicRoutes.some((route) => route !== "/" && (pathname === route || pathname.startsWith(`${route}/`)));

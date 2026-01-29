@@ -20,7 +20,7 @@ const Hero = () => {
                     </p>
                     <div className="flex flex-wrap items-center gap-4">
                         <Link
-                            href="#waitlist"
+                            href="/waitlist"
                             className="btn-glow inline-flex items-center gap-2 rounded-full bg-teal-400 px-6 py-3 text-sm font-semibold text-gray-900"
                         >
                             Join the waitlist

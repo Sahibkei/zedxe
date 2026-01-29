@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
-const SignUpPage = () => {
+const SignUpCatchAllPage = () => {
     redirect("/waitlist?from=signup");
 };
 
-export default SignUpPage;
+export default SignUpCatchAllPage;

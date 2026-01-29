@@ -1,4 +1,5 @@
-import WaitlistForm from "@/app/(marketing)/components/WaitlistForm";
+import Link from "next/link";
+import { ArrowUpRight } from "lucide-react";
 
 const WaitlistCTA = () => {
     return (
@@ -15,7 +16,16 @@ const WaitlistCTA = () => {
                         </p>
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-                        <WaitlistForm />
+                        <p className="text-sm text-gray-300">
+                            We’re onboarding early users manually. Join the waitlist and we’ll reach out.
+                        </p>
+                        <Link
+                            href="/waitlist"
+                            className="btn-glow mt-6 inline-flex items-center gap-2 rounded-full bg-teal-400 px-6 py-3 text-sm font-semibold text-gray-900"
+                        >
+                            Join waitlist
+                            <ArrowUpRight className="h-4 w-4" />
+                        </Link>
                         <p className="mt-4 text-xs text-gray-400">
                             By joining, you agree to receive product emails. We never share your data.
                         </p>

@@ -84,7 +84,7 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                                     Login
                                 </Link>
                                 <Link
-                                    href="#waitlist"
+                                    href="/waitlist"
                                     className="btn-glow inline-flex items-center gap-2 rounded-full bg-teal-400 px-4 py-2 text-sm font-semibold text-gray-900"
                                 >
                                     Join Waitlist
@@ -138,7 +138,7 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                                     >
                                         Login
                                     </Link>
-                                    <Link href="#waitlist" onClick={() => setIsOpen(false)} className="transition hover:text-white">
+                                    <Link href="/waitlist" onClick={() => setIsOpen(false)} className="transition hover:text-white">
                                         Join Waitlist
                                     </Link>
                                 </>
