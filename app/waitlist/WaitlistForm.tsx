@@ -15,6 +15,7 @@ type WaitlistFormData = {
     website?: string;
 };
 
+/** Waitlist form for collecting manual onboarding requests. */
 const WaitlistForm = () => {
     const {
         register,
@@ -128,7 +129,7 @@ const WaitlistForm = () => {
                 error={errors.email}
                 validation={{
                     required: "Email is required",
-                    pattern: /^\w+@\w+\.\w+$/,
+                    pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
                 }}
                 disabled={status === "success"}
             />

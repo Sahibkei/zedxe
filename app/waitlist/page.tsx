@@ -2,6 +2,7 @@ import Navbar from "@/app/(marketing)/components/Navbar";
 import Footer from "@/app/(marketing)/components/Footer";
 import WaitlistForm from "@/app/waitlist/WaitlistForm";
 
+/** Public waitlist landing page. */
 const WaitlistPage = () => {
     return (
         <main className="relative overflow-hidden bg-gray-900 text-white">

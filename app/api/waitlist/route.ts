@@ -22,6 +22,7 @@ const escapeHtml = (value: string) =>
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
 
+/** Handle waitlist submissions and notify the ZedXe team. */
 export async function POST(request: Request) {
     const rateLimited = await enforceRateLimit(request, "waitlist");
     if (rateLimited) return rateLimited;
@@ -96,6 +97,9 @@ export async function POST(request: Request) {
         `User-Agent: ${userAgent}`,
     ].join("\n");
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
     try {
         const response = await fetch("https://api.resend.com/emails", {
             method: "POST",
@@ -110,6 +114,7 @@ export async function POST(request: Request) {
                 html,
                 text,
             }),
+            signal: controller.signal,
         });
         if (!response.ok) {
             const errorBody = await response.text();
@@ -118,7 +123,13 @@ export async function POST(request: Request) {
         }
         return NextResponse.json({ ok: true });
     } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+            console.error("Waitlist email request timed out.");
+            return NextResponse.json({ ok: false, error: "Email service timed out." }, { status: 504 });
+        }
         console.error("Waitlist email failed", error);
         return NextResponse.json({ ok: false, error: "Unable to submit waitlist request." }, { status: 500 });
+    } finally {
+        clearTimeout(timeout);
     }
 }
