@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
-type TradingViewWidgetProps = {
+export type TradingViewWidgetProps = {
     symbol: string;
     interval?: string;
+    className?: string;
 };
 
-type TradingViewConfig = {
+type WidgetConfig = {
     autosize: boolean;
     symbol: string;
     interval: string;
@@ -15,91 +16,95 @@ type TradingViewConfig = {
     theme: "dark" | "light";
     style: string;
     locale: string;
+    hide_top_toolbar: boolean;
+    hide_legend: boolean;
     allow_symbol_change: boolean;
-    hide_top_toolbar?: boolean;
-    hide_legend?: boolean;
-    container_id: string;
-    backgroundColor?: string;
+    save_image: boolean;
+    details: boolean;
+    calendar: boolean;
+    support_host: string;
 };
 
-declare global {
-    interface Window {
-        TradingView?: {
-            widget: (config: TradingViewConfig) => void;
-        };
-    }
-}
-
-const loadTradingViewScript = (() => {
-    let promise: Promise<void> | null = null;
-    return () => {
-        if (promise) return promise;
-        promise = new Promise((resolve, reject) => {
-            if (typeof window === "undefined") {
-                resolve();
-                return;
-            }
-            const existing = document.getElementById("tradingview-widget-script");
-            if (existing) {
-                resolve();
-                return;
-            }
-            const script = document.createElement("script");
-            script.id = "tradingview-widget-script";
-            script.src = "https://s3.tradingview.com/tv.js";
-            script.async = true;
-            script.onload = () => resolve();
-            script.onerror = () => reject(new Error("Failed to load TradingView"));
-            document.head.appendChild(script);
-        });
-        return promise;
-    };
-})();
-
-export default function TradingViewWidget({ symbol, interval = "D" }: TradingViewWidgetProps) {
-    const reactId = useId();
-    const containerId = useMemo(() => `tradingview-${reactId.replace(/:/g, "")}`, [reactId]);
+export default function TradingViewWidget({
+    symbol,
+    interval = "60",
+    className,
+}: TradingViewWidgetProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const initializedRef = useRef(false);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        if (initializedRef.current) {
+            return;
+        }
+        initializedRef.current = true;
+        setError(null);
+        container.innerHTML = "";
+
+        const script = document.createElement("script");
+        script.src =
+            "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+        script.async = true;
+        script.type = "text/javascript";
+
+        const config: WidgetConfig = {
+            autosize: true,
+            symbol,
+            interval,
+            timezone: "Etc/UTC",
+            theme: "dark",
+            style: "1",
+            locale: "en",
+            hide_top_toolbar: true,
+            hide_legend: false,
+            allow_symbol_change: false,
+            save_image: false,
+            details: false,
+            calendar: false,
+            support_host: "https://www.tradingview.com",
+        };
+
+        script.innerHTML = JSON.stringify(config);
+        container.appendChild(script);
+
+        let timeoutId: number | undefined;
         let cancelled = false;
-        loadTradingViewScript()
-            .then(() => {
-                if (cancelled) return;
-                if (!containerRef.current) return;
-                containerRef.current.innerHTML = "";
-                if (!window.TradingView?.widget) return;
-                window.TradingView.widget({
-                    autosize: true,
-                    symbol,
-                    interval,
-                    timezone: "Etc/UTC",
-                    theme: "dark",
-                    style: "1",
-                    locale: "en",
-                    allow_symbol_change: false,
-                    hide_top_toolbar: true,
-                    hide_legend: true,
-                    backgroundColor: "#0b0f14",
-                    container_id: containerId,
-                });
-            })
-            .catch(() => {
-                if (containerRef.current) {
-                    containerRef.current.innerHTML = "Unable to load chart.";
-                }
-            });
+
+        const checkForIframe = () => {
+            if (cancelled) return;
+            const iframe = container.querySelector("iframe");
+            if (iframe) return;
+            setError("Unable to load chart.");
+        };
+
+        timeoutId = window.setTimeout(checkForIframe, 8000);
+
         return () => {
             cancelled = true;
-            if (containerRef.current) {
-                containerRef.current.innerHTML = "";
+            if (timeoutId) {
+                window.clearTimeout(timeoutId);
             }
+            container.innerHTML = "";
+            initializedRef.current = false;
         };
-    }, [containerId, interval, symbol]);
+    }, [interval, symbol]);
 
     return (
-        <div className="h-[420px] w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0b0f14]">
-            <div id={containerId} ref={containerRef} className="h-full w-full" />
+        <div className={className ?? "h-[520px] w-full"}>
+            <div
+                ref={containerRef}
+                className="relative h-full w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0b0f14]"
+            >
+                {error ? (
+                    <div className="flex h-full w-full items-center justify-center text-sm text-slate-300">
+                        {error}
+                    </div>
+                ) : null}
+            </div>
         </div>
     );
 }

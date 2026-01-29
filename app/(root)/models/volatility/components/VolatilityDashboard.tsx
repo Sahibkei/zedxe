@@ -280,8 +280,14 @@ export default function VolatilityDashboard() {
             {activeTab === "term" ? <IVTermStructure grid={grid} loading={loading} /> : null}
             {activeTab === "charts" ? (
                 <div className="grid gap-4 lg:grid-cols-2">
-                    <TradingViewWidget symbol="COINBASE:BTCUSD" />
-                    <TradingViewWidget symbol="COINBASE:ETHUSD" />
+                    <TradingViewWidget
+                        symbol="COINBASE:BTCUSD"
+                        className="h-[520px] w-full"
+                    />
+                    <TradingViewWidget
+                        symbol="COINBASE:ETHUSD"
+                        className="h-[520px] w-full"
+                    />
                 </div>
             ) : null}
 
