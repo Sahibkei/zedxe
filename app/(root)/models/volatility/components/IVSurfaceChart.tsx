@@ -28,7 +28,18 @@ type IVSurfaceChartProps = {
 };
 
 const tooltipTemplate =
-    "DTE: %{y:.0f}d<br>ln(K/S): %{x:.2f}<br>IV: %{z:.2%}<extra></extra>";
+    "DTE: %{y:.0f}d<br>ln(K/S): %{x:.2f}<br>IV: %{z:.1f}%<extra></extra>";
+
+const percentile = (values: number[], p: number) => {
+    if (!values.length) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const index = (sorted.length - 1) * p;
+    const lower = Math.floor(index);
+    const upper = Math.ceil(index);
+    if (lower === upper) return sorted[lower];
+    const weight = index - lower;
+    return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+};
 
 export default function IVSurfaceChart({
     grid,
@@ -51,8 +62,16 @@ export default function IVSurfaceChart({
         );
     }
 
-    const zMin = gridStats?.zP5 ?? null;
-    const zMax = gridStats?.zP95 ?? null;
+    const zPct = grid.z.map((row) => row.map((value) => value * 100));
+    const flattenedPct = zPct.flat();
+    const zMin =
+        gridStats?.zP5 !== undefined && gridStats?.zP5 !== null
+            ? gridStats.zP5 * 100
+            : percentile(flattenedPct, 0.05);
+    const zMax =
+        gridStats?.zP95 !== undefined && gridStats?.zP95 !== null
+            ? gridStats.zP95 * 100
+            : percentile(flattenedPct, 0.95);
     const scatterTrace =
         showPoints && debugSamples?.length
             ? [
@@ -61,14 +80,14 @@ export default function IVSurfaceChart({
                       mode: "markers",
                       x: debugSamples.map((point) => point.x),
                       y: debugSamples.map((point) => point.dteDays),
-                      z: debugSamples.map((point) => point.markIvPct / 100),
+                      z: debugSamples.map((point) => point.markIvPct),
                       marker: {
                           size: 3,
                           color: "#f8fafc",
                           opacity: 0.8,
                       },
-                      hovertemplate:
-                          "DTE: %{y:.0f}d<br>ln(K/S): %{x:.2f}<br>IV: %{z:.2%}<extra></extra>",
+                        hovertemplate:
+                            "DTE: %{y:.0f}d<br>ln(K/S): %{x:.2f}<br>IV: %{z:.1f}%<extra></extra>",
                   },
               ]
             : [];
@@ -81,19 +100,19 @@ export default function IVSurfaceChart({
                         type: "surface",
                         x: grid.x,
                         y: grid.y,
-                        z: grid.z,
-                        surfacecolor: grid.z,
-                        colorscale: "Turbo",
+                        z: zPct,
+                        surfacecolor: zPct,
+                        colorscale: "Viridis",
                         cmin: zMin ?? undefined,
                         cmax: zMax ?? undefined,
                         hovertemplate: tooltipTemplate,
                         showscale: true,
                         colorbar: {
                             title: "Implied Vol",
-                            tickformat: ".0%",
+                            ticksuffix: "%",
                             tickcolor: "#cbd5f5",
                             titlefont: { color: "#cbd5f5", size: 12 },
-                            outlinecolor: "rgba(255,255,255,0.1)",
+                            outlinewidth: 0,
                         },
                         opacity: 0.95,
                         lighting: {
@@ -134,7 +153,7 @@ export default function IVSurfaceChart({
                             gridcolor: "rgba(255,255,255,0.08)",
                             zerolinecolor: "rgba(255,255,255,0.12)",
                             color: "#cbd5f5",
-                            tickformat: ".0%",
+                            ticksuffix: "%",
                         },
                         camera: {
                             eye: { x: 1.2, y: 1.2, z: 0.9 },
