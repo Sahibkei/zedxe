@@ -29,6 +29,7 @@ const formatUpdatedLabel = (value?: string) => {
 };
 
 type VolatilityHeaderMetricsProps = {
+    symbol: string;
     spot: number | null;
     rv: number | null;
     skew: number | null;
@@ -37,6 +38,7 @@ type VolatilityHeaderMetricsProps = {
 };
 
 export default function VolatilityHeaderMetrics({
+    symbol,
     spot,
     rv,
     skew,
@@ -45,7 +47,7 @@ export default function VolatilityHeaderMetrics({
 }: VolatilityHeaderMetricsProps) {
     const metrics = [
         {
-            label: "Spot",
+            label: `Spot (${symbol})`,
             value: formatNumber(spot, {
                 maximumFractionDigits: 2,
             }),

@@ -261,31 +261,31 @@ const fetchJson = async <T>(
     }
 };
 
-const getSpot = async () => {
+const getSpot = async (indexName: string) => {
     const data = await fetchJson<DeribitIndexPriceResponse>(
-        "https://www.deribit.com/api/v2/public/get_index_price?index_name=btc_usd"
+        `https://www.deribit.com/api/v2/public/get_index_price?index_name=${indexName}`
     );
     const spot = data.result?.index_price;
     return Number.isFinite(spot ?? NaN) ? (spot as number) : null;
 };
 
-const getInstruments = async () => {
+const getInstruments = async (symbol: string) => {
     const data = await fetchJson<DeribitInstrumentsResponse>(
-        "https://www.deribit.com/api/v2/public/get_instruments?currency=BTC&kind=option&expired=false"
+        `https://www.deribit.com/api/v2/public/get_instruments?currency=${symbol}&kind=option&expired=false`
     );
     return data.result ?? [];
 };
 
-const getBookSummaries = async () => {
+const getBookSummaries = async (symbol: string) => {
     const data = await fetchJson<DeribitBookSummaryResponse>(
-        "https://www.deribit.com/api/v2/public/get_book_summary_by_currency?currency=BTC&kind=option"
+        `https://www.deribit.com/api/v2/public/get_book_summary_by_currency?currency=${symbol}&kind=option`
     );
     return data.result ?? [];
 };
 
-const getHistoricalVolatility = async () => {
+const getHistoricalVolatility = async (symbol: string) => {
     const data = await fetchJson<DeribitHistoricalVolatilityResponse>(
-        "https://www.deribit.com/api/v2/public/get_historical_volatility?currency=BTC",
+        `https://www.deribit.com/api/v2/public/get_historical_volatility?currency=${symbol}`,
         { timeoutMs: 12000, revalidate: 300 }
     );
     return data.result ?? [];
@@ -296,12 +296,14 @@ export async function GET(request: NextRequest) {
     const symbol = (searchParams.get("symbol") ?? "BTC").toUpperCase();
     const debug = searchParams.get("debug") === "1";
 
-    if (symbol !== "BTC") {
+    if (symbol !== "BTC" && symbol !== "ETH") {
         return NextResponse.json(
-            { error: "Only BTC is supported at this time." },
+            { error: "Unsupported symbol. Use BTC or ETH." },
             { status: 400 }
         );
     }
+
+    const indexName = symbol === "BTC" ? "btc_usd" : "eth_usd";
 
     const maxDays = clampNumber(
         parseNumber(searchParams.get("maxDays"), 180),
@@ -343,10 +345,10 @@ export async function GET(request: NextRequest) {
     let historicalVol: DeribitHistoricalVolatilityEntry[] = [];
     try {
         [spot, instruments, summaries, historicalVol] = await Promise.all([
-            getSpot(),
-            getInstruments(),
-            getBookSummaries(),
-            getHistoricalVolatility(),
+            getSpot(indexName),
+            getInstruments(symbol),
+            getBookSummaries(symbol),
+            getHistoricalVolatility(symbol),
         ]);
     } catch (error) {
         const detail =

@@ -6,6 +6,10 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 import IVSurfaceChart from "./IVSurfaceChart";
+import IVHeatmap from "./IVHeatmap";
+import IVSmileChart from "./IVSmileChart";
+import IVTermStructure from "./IVTermStructure";
+import TradingViewWidget from "./TradingViewWidget";
 import VolatilityControls from "./VolatilityControls";
 import VolatilityHeaderMetrics from "./VolatilityHeaderMetrics";
 
@@ -51,6 +55,7 @@ const DEFAULTS = {
 };
 
 const buildQuery = (params: {
+    symbol: string;
     maxDays: number;
     expiries: number;
     xMin: number;
@@ -58,7 +63,7 @@ const buildQuery = (params: {
     debug: boolean;
 }) => {
     const searchParams = new URLSearchParams({
-        symbol: "BTC",
+        symbol: params.symbol,
         maxDays: params.maxDays.toString(),
         expiries: params.expiries.toString(),
         xMin: params.xMin.toString(),
@@ -86,10 +91,12 @@ const isSurfaceResponse = (value: unknown): value is SurfaceResponse => {
 
 export default function VolatilityDashboard() {
     const [params, setParams] = useState(DEFAULTS);
+    const [symbol, setSymbol] = useState<"BTC" | "ETH">("BTC");
     const [data, setData] = useState<SurfaceResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [showPoints, setShowPoints] = useState(false);
+    const [activeTab, setActiveTab] = useState("surface");
     const abortRef = useRef<AbortController | null>(null);
     const searchParams = useSearchParams();
     const debug = searchParams.get("debug") === "1";
@@ -107,6 +114,7 @@ export default function VolatilityDashboard() {
                     expiries: params.expiries,
                     xMin: params.xMin,
                     xMax: params.xMax,
+                    symbol,
                     debug,
                 }),
                 { signal: controller.signal }
@@ -129,7 +137,7 @@ export default function VolatilityDashboard() {
                 setLoading(false);
             }
         }
-    }, [debug, params.expiries, params.maxDays, params.xMax, params.xMin]);
+    }, [debug, params.expiries, params.maxDays, params.xMax, params.xMin, symbol]);
 
     useEffect(() => {
         fetchSurface();
@@ -169,7 +177,7 @@ export default function VolatilityDashboard() {
                         Volatility Surface
                     </p>
                     <h1 className="text-3xl font-semibold text-white">
-                        BTC Implied Volatility 3D Surface
+                        {symbol} Implied Volatility Analytics
                     </h1>
                     <p className="max-w-2xl text-sm text-slate-400">
                         Live Deribit implied volatility grid with fast-refresh controls and surface smoothing.
@@ -189,7 +197,7 @@ export default function VolatilityDashboard() {
                 </div>
             </div>
 
-            <VolatilityHeaderMetrics {...stats} />
+            <VolatilityHeaderMetrics symbol={symbol} {...stats} />
 
             <VolatilityControls
                 maxDays={params.maxDays}
@@ -202,19 +210,80 @@ export default function VolatilityDashboard() {
                 onRefresh={fetchSurface}
             />
 
+            <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#0b0f14] p-4 text-sm text-slate-200 shadow-xl shadow-black/30">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                        <span className="text-xs uppercase tracking-wide text-emerald-200/70">
+                            Symbol
+                        </span>
+                        <div className="flex rounded-full border border-emerald-500/30 bg-emerald-500/10 p-1">
+                            {(["BTC", "ETH"] as const).map((option) => (
+                                <button
+                                    key={option}
+                                    type="button"
+                                    onClick={() => setSymbol(option)}
+                                    className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide transition ${
+                                        symbol === option
+                                            ? "bg-emerald-500/40 text-white"
+                                            : "text-emerald-200/70 hover:text-emerald-100"
+                                    }`}
+                                >
+                                    {option}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {[
+                            { id: "surface", label: "Surface" },
+                            { id: "heatmap", label: "Heatmap" },
+                            { id: "smile", label: "Smile" },
+                            { id: "term", label: "Term" },
+                            { id: "charts", label: "Charts" },
+                        ].map((tab) => (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`rounded-full border px-4 py-1 text-xs font-semibold uppercase tracking-wide transition ${
+                                    activeTab === tab.id
+                                        ? "border-emerald-400/60 bg-emerald-500/20 text-emerald-100"
+                                        : "border-white/10 text-slate-300 hover:border-emerald-400/40"
+                                }`}
+                            >
+                                {tab.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
             {error ? (
                 <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
                     {error}
                 </div>
             ) : null}
 
-            <IVSurfaceChart
-                grid={grid}
-                gridStats={gridStats}
-                debugSamples={debugSamples}
-                showPoints={showPoints}
-                loading={loading}
-            />
+            {activeTab === "surface" ? (
+                <IVSurfaceChart
+                    grid={grid}
+                    gridStats={gridStats}
+                    debugSamples={debugSamples}
+                    showPoints={showPoints}
+                    loading={loading}
+                />
+            ) : null}
+            {activeTab === "heatmap" ? (
+                <IVHeatmap grid={grid} gridStats={gridStats} loading={loading} />
+            ) : null}
+            {activeTab === "smile" ? <IVSmileChart grid={grid} loading={loading} /> : null}
+            {activeTab === "term" ? <IVTermStructure grid={grid} loading={loading} /> : null}
+            {activeTab === "charts" ? (
+                <div className="grid gap-4 lg:grid-cols-2">
+                    <TradingViewWidget symbol="COINBASE:BTCUSD" />
+                    <TradingViewWidget symbol="COINBASE:ETHUSD" />
+                </div>
+            ) : null}
 
             {debug ? (
                 <details className="rounded-2xl border border-white/10 bg-[#0b0f14] p-5 text-sm text-slate-200">
