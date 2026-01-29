@@ -14,13 +14,29 @@ type IVSurfaceChartProps = {
         y: number[];
         z: number[][];
     } | null;
+    gridStats?: {
+        zP5: number | null;
+        zP95: number | null;
+    };
+    debugSamples?: Array<{
+        x: number;
+        dteDays: number;
+        markIvPct: number;
+    }>;
+    showPoints?: boolean;
     loading: boolean;
 };
 
 const tooltipTemplate =
     "DTE: %{y:.0f}d<br>ln(K/S): %{x:.2f}<br>IV: %{z:.2%}<extra></extra>";
 
-export default function IVSurfaceChart({ grid, loading }: IVSurfaceChartProps) {
+export default function IVSurfaceChart({
+    grid,
+    gridStats,
+    debugSamples,
+    showPoints,
+    loading,
+}: IVSurfaceChartProps) {
     if (loading) {
         return (
             <div className="h-[520px] w-full animate-pulse rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 via-white/[0.02] to-transparent" />
@@ -35,6 +51,28 @@ export default function IVSurfaceChart({ grid, loading }: IVSurfaceChartProps) {
         );
     }
 
+    const zMin = gridStats?.zP5 ?? null;
+    const zMax = gridStats?.zP95 ?? null;
+    const scatterTrace =
+        showPoints && debugSamples?.length
+            ? [
+                  {
+                      type: "scatter3d" as const,
+                      mode: "markers",
+                      x: debugSamples.map((point) => point.x),
+                      y: debugSamples.map((point) => point.dteDays),
+                      z: debugSamples.map((point) => point.markIvPct / 100),
+                      marker: {
+                          size: 3,
+                          color: "#f8fafc",
+                          opacity: 0.8,
+                      },
+                      hovertemplate:
+                          "DTE: %{y:.0f}d<br>ln(K/S): %{x:.2f}<br>IV: %{z:.2%}<extra></extra>",
+                  },
+              ]
+            : [];
+
     return (
         <div className="h-[520px] w-full rounded-2xl border border-white/10 bg-[#0b0f14] p-3 shadow-2xl shadow-black/40">
             <Plot
@@ -44,21 +82,33 @@ export default function IVSurfaceChart({ grid, loading }: IVSurfaceChartProps) {
                         x: grid.x,
                         y: grid.y,
                         z: grid.z,
-                        colorscale: [
-                            [0, "#0b1b2c"],
-                            [0.3, "#1b3b5a"],
-                            [0.6, "#2f6b7c"],
-                            [1, "#5fd3a6"],
-                        ],
+                        surfacecolor: grid.z,
+                        colorscale: "Turbo",
+                        cmin: zMin ?? undefined,
+                        cmax: zMax ?? undefined,
                         hovertemplate: tooltipTemplate,
-                        showscale: false,
+                        showscale: true,
+                        colorbar: {
+                            title: "Implied Vol",
+                            tickformat: ".0%",
+                            tickcolor: "#cbd5f5",
+                            titlefont: { color: "#cbd5f5", size: 12 },
+                            outlinecolor: "rgba(255,255,255,0.1)",
+                        },
                         opacity: 0.95,
+                        lighting: {
+                            ambient: 0.4,
+                            diffuse: 0.6,
+                            specular: 0.4,
+                            roughness: 0.6,
+                        },
                         contours: {
                             x: { show: false },
                             y: { show: false },
                             z: { show: false },
                         },
                     },
+                    ...scatterTrace,
                 ]}
                 layout={{
                     autosize: true,

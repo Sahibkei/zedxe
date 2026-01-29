@@ -41,10 +41,26 @@ type IVPoint = {
     expiry: number;
 };
 
+type RawIVPoint = {
+    instrument_name: string;
+    strike: number;
+    expiry: number;
+    dteDays: number;
+    x: number;
+    markIvPct: number;
+};
+
 type SurfaceGrid = {
     x: number[];
     y: number[];
     z: number[][];
+};
+
+type GridStats = {
+    zMin: number | null;
+    zMax: number | null;
+    zP5: number | null;
+    zP95: number | null;
 };
 
 type SurfaceResponse = {
@@ -56,6 +72,8 @@ type SurfaceResponse = {
     kurt: number | null;
     grid: SurfaceGrid;
     points_count: number;
+    debug_samples?: RawIVPoint[];
+    grid_stats?: GridStats;
     source: "deribit";
 };
 
@@ -63,6 +81,17 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const clampNumber = (value: number, min: number, max: number) =>
     Math.min(Math.max(value, min), max);
+
+const percentile = (values: number[], p: number) => {
+    if (!values.length) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const index = (sorted.length - 1) * p;
+    const lower = Math.floor(index);
+    const upper = Math.ceil(index);
+    if (lower === upper) return sorted[lower];
+    const weight = index - lower;
+    return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+};
 
 const median = (values: number[]) => {
     if (!values.length) return null;
@@ -176,46 +205,96 @@ const parseNumber = (value: string | null, fallback: number) => {
     return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+type FetchError = {
+    message: string;
+    status: number;
+    detail?: string;
+};
+
+const fetchJson = async <T>(
+    url: string,
+    options?: { timeoutMs?: number; revalidate?: number }
+): Promise<T> => {
+    const timeoutMs = options?.timeoutMs ?? 8000;
+    const revalidate = options?.revalidate ?? 30;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, {
+            signal: controller.signal,
+            next: { revalidate },
+        });
+        if (!response.ok) {
+            const detail = await response.text().catch(() => "");
+            throw {
+                message: "Upstream response not OK",
+                status: 502,
+                detail,
+            } satisfies FetchError;
+        }
+        try {
+            return (await response.json()) as T;
+        } catch (error) {
+            throw {
+                message: "Failed to parse JSON",
+                status: 502,
+                detail: error instanceof Error ? error.message : "Unknown parse error",
+            } satisfies FetchError;
+        }
+    } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+            throw {
+                message: "Upstream request timed out",
+                status: 503,
+            } satisfies FetchError;
+        }
+        if (typeof error === "object" && error !== null && "status" in error) {
+            throw error as FetchError;
+        }
+        throw {
+            message: "Upstream request failed",
+            status: 502,
+            detail: error instanceof Error ? error.message : "Unknown error",
+        } satisfies FetchError;
+    } finally {
+        clearTimeout(timeout);
+    }
+};
+
 const getSpot = async () => {
-    const response = await fetch(
-        "https://www.deribit.com/api/v2/public/get_index_price?index_name=btc_usd",
-        { next: { revalidate: 30 } }
+    const data = await fetchJson<DeribitIndexPriceResponse>(
+        "https://www.deribit.com/api/v2/public/get_index_price?index_name=btc_usd"
     );
-    const data = (await response.json()) as DeribitIndexPriceResponse;
     const spot = data.result?.index_price;
     return Number.isFinite(spot ?? NaN) ? (spot as number) : null;
 };
 
 const getInstruments = async () => {
-    const response = await fetch(
-        "https://www.deribit.com/api/v2/public/get_instruments?currency=BTC&kind=option&expired=false",
-        { next: { revalidate: 30 } }
+    const data = await fetchJson<DeribitInstrumentsResponse>(
+        "https://www.deribit.com/api/v2/public/get_instruments?currency=BTC&kind=option&expired=false"
     );
-    const data = (await response.json()) as DeribitInstrumentsResponse;
     return data.result ?? [];
 };
 
 const getBookSummaries = async () => {
-    const response = await fetch(
-        "https://www.deribit.com/api/v2/public/get_book_summary_by_currency?currency=BTC&kind=option",
-        { next: { revalidate: 30 } }
+    const data = await fetchJson<DeribitBookSummaryResponse>(
+        "https://www.deribit.com/api/v2/public/get_book_summary_by_currency?currency=BTC&kind=option"
     );
-    const data = (await response.json()) as DeribitBookSummaryResponse;
     return data.result ?? [];
 };
 
 const getHistoricalVolatility = async () => {
-    const response = await fetch(
+    const data = await fetchJson<DeribitHistoricalVolatilityResponse>(
         "https://www.deribit.com/api/v2/public/get_historical_volatility?currency=BTC",
-        { next: { revalidate: 300 } }
+        { timeoutMs: 12000, revalidate: 300 }
     );
-    const data = (await response.json()) as DeribitHistoricalVolatilityResponse;
     return data.result ?? [];
 };
 
 export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const symbol = (searchParams.get("symbol") ?? "BTC").toUpperCase();
+    const debug = searchParams.get("debug") === "1";
 
     if (symbol !== "BTC") {
         return NextResponse.json(
@@ -258,12 +337,34 @@ export async function GET(request: NextRequest) {
     }
 
     const snapshot = new Date();
-    const [spot, instruments, summaries, historicalVol] = await Promise.all([
-        getSpot(),
-        getInstruments(),
-        getBookSummaries(),
-        getHistoricalVolatility(),
-    ]);
+    let spot: number | null = null;
+    let instruments: DeribitInstrument[] = [];
+    let summaries: DeribitBookSummary[] = [];
+    let historicalVol: DeribitHistoricalVolatilityEntry[] = [];
+    try {
+        [spot, instruments, summaries, historicalVol] = await Promise.all([
+            getSpot(),
+            getInstruments(),
+            getBookSummaries(),
+            getHistoricalVolatility(),
+        ]);
+    } catch (error) {
+        const detail =
+            typeof error === "object" && error !== null && "detail" in error
+                ? (error as FetchError).detail
+                : undefined;
+        const status =
+            typeof error === "object" && error !== null && "status" in error
+                ? (error as FetchError).status
+                : 502;
+        return NextResponse.json(
+            {
+                error: "Upstream data unavailable",
+                detail,
+            },
+            { status: status >= 500 ? status : 502 }
+        );
+    }
 
     const summaryMap = new Map(
         summaries.map((summary) => [summary.instrument_name, summary])
@@ -273,11 +374,13 @@ export async function GET(request: NextRequest) {
     const maxExpiryTs = now + maxDays * MS_PER_DAY;
 
     const points: IVPoint[] = [];
+    const rawPoints: RawIVPoint[] = [];
 
     for (const instrument of instruments) {
         const summary = summaryMap.get(instrument.instrument_name);
         const markIv = summary?.mark_iv;
         if (!Number.isFinite(markIv ?? NaN)) continue;
+        if ((markIv as number) <= 0) continue;
         if (!Number.isFinite(spot ?? NaN)) continue;
         if (!Number.isFinite(instrument.strike ?? NaN)) continue;
         if (instrument.strike <= 0) continue;
@@ -288,7 +391,19 @@ export async function GET(request: NextRequest) {
             (instrument.expiration_timestamp - now) / MS_PER_DAY;
         const x = Math.log(instrument.strike / (spot as number));
         const y = Number(dteDays.toFixed(2));
-        const z = (markIv as number) / 100;
+        const markIvPct = markIv as number;
+        const z = markIvPct / 100;
+
+        rawPoints.push({
+            instrument_name: instrument.instrument_name,
+            strike: instrument.strike,
+            expiry: instrument.expiration_timestamp,
+            dteDays: y,
+            x,
+            markIvPct,
+        });
+
+        if (x < xMin || x > xMax) continue;
 
         points.push({
             x,
@@ -317,14 +432,21 @@ export async function GET(request: NextRequest) {
             () => []
         );
         const expiryPoints = points.filter((point) => point.expiry === expiry);
+        const expiryValues = expiryPoints.map((point) =>
+            clampNumber(point.z, 0.05, 2.5)
+        );
+        const zP5 = percentile(expiryValues, 0.05);
+        const zP95 = percentile(expiryValues, 0.95);
         for (const point of expiryPoints) {
+            const zBase = clampNumber(point.z, 0.05, 2.5);
+            const zValue =
+                zP5 !== null && zP95 !== null
+                    ? clampNumber(zBase, zP5, zP95)
+                    : zBase;
             const rawIndex = (point.x - xMin) / step;
-            const bucketIndex = clampNumber(
-                Math.round(rawIndex),
-                0,
-                xGrid.length - 1
-            );
-            rowBuckets[bucketIndex].push(point.z);
+            const bucketIndex = Math.round(rawIndex);
+            if (bucketIndex < 0 || bucketIndex >= xGrid.length) continue;
+            rowBuckets[bucketIndex].push(zValue);
         }
         const row = rowBuckets.map((bucket) => median(bucket));
         const filled = nearestNeighborFill(row);
@@ -359,6 +481,26 @@ export async function GET(request: NextRequest) {
         }
     }
 
+    const flattenedZ = zGrid.flat();
+    const gridStats: GridStats = {
+        zMin: flattenedZ.length ? Math.min(...flattenedZ) : null,
+        zMax: flattenedZ.length ? Math.max(...flattenedZ) : null,
+        zP5: flattenedZ.length ? percentile(flattenedZ, 0.05) : null,
+        zP95: flattenedZ.length ? percentile(flattenedZ, 0.95) : null,
+    };
+
+    let debugSamples: RawIVPoint[] | undefined;
+    if (debug) {
+        const sortedByAbsX = [...rawPoints].sort(
+            (a, b) => Math.abs(a.x) - Math.abs(b.x)
+        );
+        const atm = sortedByAbsX.slice(0, 12);
+        const wings = [...rawPoints]
+            .sort((a, b) => Math.abs(b.x) - Math.abs(a.x))
+            .slice(0, 13);
+        debugSamples = [...atm, ...wings].slice(0, 25);
+    }
+
     const response: SurfaceResponse = {
         symbol,
         snapshot_ts: snapshot.toISOString(),
@@ -372,6 +514,7 @@ export async function GET(request: NextRequest) {
             z: zGrid,
         },
         points_count: points.length,
+        ...(debug ? { debug_samples: debugSamples, grid_stats: gridStats } : {}),
         source: "deribit",
     };
 

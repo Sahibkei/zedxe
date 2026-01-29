@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 
@@ -23,6 +24,20 @@ type SurfaceResponse = {
     kurt: number | null;
     grid: SurfaceGrid;
     points_count: number;
+    debug_samples?: Array<{
+        instrument_name: string;
+        strike: number;
+        expiry: number;
+        dteDays: number;
+        x: number;
+        markIvPct: number;
+    }>;
+    grid_stats?: {
+        zMin: number | null;
+        zMax: number | null;
+        zP5: number | null;
+        zP95: number | null;
+    };
     source: "deribit";
 };
 
@@ -40,6 +55,7 @@ const buildQuery = (params: {
     expiries: number;
     xMin: number;
     xMax: number;
+    debug: boolean;
 }) => {
     const searchParams = new URLSearchParams({
         symbol: "BTC",
@@ -48,6 +64,9 @@ const buildQuery = (params: {
         xMin: params.xMin.toString(),
         xMax: params.xMax.toString(),
     });
+    if (params.debug) {
+        searchParams.set("debug", "1");
+    }
     return `/api/models/volatility/iv-surface?${searchParams.toString()}`;
 };
 
@@ -70,9 +89,15 @@ export default function VolatilityDashboard() {
     const [data, setData] = useState<SurfaceResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const mountedRef = useRef(true);
+    const [showPoints, setShowPoints] = useState(false);
+    const abortRef = useRef<AbortController | null>(null);
+    const searchParams = useSearchParams();
+    const debug = searchParams.get("debug") === "1";
 
     const fetchSurface = useCallback(async () => {
+        abortRef.current?.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
         setLoading(true);
         setError(null);
         try {
@@ -82,7 +107,9 @@ export default function VolatilityDashboard() {
                     expiries: params.expiries,
                     xMin: params.xMin,
                     xMax: params.xMax,
-                })
+                    debug,
+                }),
+                { signal: controller.signal }
             );
             if (!response.ok) {
                 throw new Error(`API error: ${response.status}`);
@@ -91,25 +118,23 @@ export default function VolatilityDashboard() {
             if (!isSurfaceResponse(payload)) {
                 throw new Error("Unexpected response shape.");
             }
-            if (mountedRef.current) {
-                setData(payload);
-            }
+            setData(payload);
         } catch (err) {
-            if (mountedRef.current) {
-                setError(err instanceof Error ? err.message : "Unknown error");
+            if (err instanceof DOMException && err.name === "AbortError") {
+                return;
             }
+            setError(err instanceof Error ? err.message : "Unknown error");
         } finally {
-            if (mountedRef.current) {
+            if (!controller.signal.aborted) {
                 setLoading(false);
             }
         }
-    }, [params.expiries, params.maxDays, params.xMax, params.xMin]);
+    }, [debug, params.expiries, params.maxDays, params.xMax, params.xMin]);
 
     useEffect(() => {
-        mountedRef.current = true;
         fetchSurface();
         return () => {
-            mountedRef.current = false;
+            abortRef.current?.abort();
         };
     }, [fetchSurface]);
 
@@ -122,6 +147,8 @@ export default function VolatilityDashboard() {
     }, [fetchSurface, params.autoRefresh, params.refreshSeconds]);
 
     const grid = data?.grid ?? null;
+    const gridStats = data?.grid_stats;
+    const debugSamples = data?.debug_samples;
 
     const stats = useMemo(
         () => ({
@@ -181,7 +208,63 @@ export default function VolatilityDashboard() {
                 </div>
             ) : null}
 
-            <IVSurfaceChart grid={grid} loading={loading} />
+            <IVSurfaceChart
+                grid={grid}
+                gridStats={gridStats}
+                debugSamples={debugSamples}
+                showPoints={showPoints}
+                loading={loading}
+            />
+
+            {debug ? (
+                <details className="rounded-2xl border border-white/10 bg-[#0b0f14] p-5 text-sm text-slate-200">
+                    <summary className="cursor-pointer text-sm font-semibold text-emerald-200">
+                        Data verification
+                    </summary>
+                    <div className="mt-4 space-y-4">
+                        <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
+                            <p>Snapshot: {data?.snapshot_ts ?? "--"}</p>
+                            <p>Spot: {data?.spot ?? "--"}</p>
+                        </div>
+                        <label className="flex items-center gap-2 text-xs text-slate-300">
+                            <input
+                                type="checkbox"
+                                checked={showPoints}
+                                onChange={(event) => setShowPoints(event.target.checked)}
+                                className="h-4 w-4 accent-emerald-400"
+                            />
+                            Show sample points on surface
+                        </label>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full text-left text-xs text-slate-300">
+                                <thead className="text-[11px] uppercase text-emerald-200/70">
+                                    <tr>
+                                        <th className="py-2 pr-3">Instrument</th>
+                                        <th className="py-2 pr-3">Strike</th>
+                                        <th className="py-2 pr-3">DTE</th>
+                                        <th className="py-2 pr-3">ln(K/S)</th>
+                                        <th className="py-2 pr-3">Mark IV</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(debugSamples ?? []).map((sample) => (
+                                        <tr
+                                            key={`${sample.instrument_name}-${sample.strike}`}
+                                            className="border-t border-white/5"
+                                        >
+                                            <td className="py-2 pr-3">{sample.instrument_name}</td>
+                                            <td className="py-2 pr-3">{sample.strike}</td>
+                                            <td className="py-2 pr-3">{sample.dteDays.toFixed(1)}</td>
+                                            <td className="py-2 pr-3">{sample.x.toFixed(3)}</td>
+                                            <td className="py-2 pr-3">{sample.markIvPct.toFixed(2)}%</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </details>
+            ) : null}
 
             <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
                 <p>
