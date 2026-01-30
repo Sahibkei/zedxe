@@ -388,9 +388,13 @@ export default function VolatilityDashboard() {
             ) : null}
 
             <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
-                <p>
-                    Source: {data?.source ?? "deribit"} · Points: {data?.points_count ?? "--"}
-                </p>
+                {activeTab === "vol-momo" ? (
+                    <p>OHLC source: Binance</p>
+                ) : (
+                    <p>
+                        Source: {data?.source ?? "deribit"} · Points: {data?.points_count ?? "--"}
+                    </p>
+                )}
                 <p>Data refreshes every {params.refreshSeconds}s when auto-refresh is enabled.</p>
             </div>
         </div>

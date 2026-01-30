@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { VolMomoResponse } from "@/lib/models/vol-momo";
 
-import mockData from "./mock_vol_momo.json";
-import VolMomoDistribution from "./VolMomoDistribution";
-import VolMomoHeatmap, { type HeatmapGrid } from "./VolMomoHeatmap";
-import VolMomoScatter from "./VolMomoScatter";
+import VolMomoDistributionECharts from "./VolMomoDistributionECharts";
+import VolMomoHeatmap from "./VolMomoHeatmap";
+import VolMomoScatterECharts from "./VolMomoScatterECharts";
 
 const VolMomoSurface3D = dynamic(() => import("./VolMomoSurface3D"), {
     ssr: false,
@@ -32,8 +32,7 @@ type ControlsState = {
 };
 
 type DistributionEntry = {
-    x: number[];
-    y: number[];
+    histogram: { binEdges: number[]; counts: number[] };
     stats?: {
         count: number;
         winRate: number;
@@ -41,99 +40,264 @@ type DistributionEntry = {
     };
 };
 
-type VolMomoMock = {
-    controls: ControlsState;
-    heatmaps: {
-        winProbability: HeatmapGrid;
-        meanForwardReturn: HeatmapGrid;
-    };
-    distribution: {
-        default: DistributionEntry;
-        byCell: Record<string, DistributionEntry>;
-    };
-    scatter: {
-        x: number[];
-        y: number[];
-        labels?: string[];
-    };
-    surface3d: {
-        x: number[];
-        y: number[];
-        z: number[][];
-    };
+type SelectedCell = {
+    i: number;
+    j: number;
 };
 
-type SelectedCell = {
-    xIndex: number;
-    yIndex: number;
-    xValue: number;
-    yValue: number;
+type CellDistributionResponse = {
+    meta: {
+        i: number;
+        j: number;
+        count: number;
+        mean: number | null;
+        median: number | null;
+        p05: number | null;
+        p95: number | null;
+        pWin: number | null;
+    };
+    histogram: {
+        edges: number[];
+        counts: number[];
+    };
 };
 
 const controlOptions = {
-    symbol: ["BTC", "ETH", "SOL"],
-    interval: ["15m", "1h", "4h", "1d"],
-    lookback: ["90d", "180d", "365d"],
-    forwardHorizon: ["3d", "5d", "10d"],
+    symbol: ["BTC", "ETH"],
+    interval: ["5m", "15m", "1h", "4h", "1d"],
+    lookback: ["30d", "90d", "180d", "365d"],
+    forwardHorizon: ["1d", "3d", "5d", "10d"],
+};
+
+const buildCenters = (edges: number[]) =>
+    edges.slice(0, -1).map((edge, index) => (edge + edges[index + 1]) / 2);
+
+const formatRangeLabel = (edges: number[], index: number) => {
+    const start = edges[index];
+    const end = edges[index + 1];
+    if (start === undefined || end === undefined) return "";
+    return `${start.toFixed(2)}..${end.toFixed(2)}`;
+};
+
+const formatTimestamp = (value: number) => {
+    if (!value) return "--";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "--";
+    return date.toISOString().replace("T", " ").slice(0, 19);
+};
+
+const buildQueryParams = (controls: ControlsState) => {
+    const lookbackDays = Number(controls.lookback.replace("d", ""));
+    const params = new URLSearchParams({
+        symbol: controls.symbol,
+        interval: controls.interval,
+        lookbackDays: Number.isFinite(lookbackDays) ? lookbackDays.toString() : "180",
+        k: controls.k.toString(),
+        bins: controls.bins.toString(),
+        minSamples: controls.minSamples.toString(),
+        mode: controls.mode,
+        horizon: controls.forwardHorizon,
+    });
+    return params.toString();
 };
 
 /**
- * Convert a decimal value to percentage units.
- * @param value - Decimal value.
- * @returns Percentage value.
- */
-const toPercent = (value: number) => value * 100;
-
-/**
- * Render the Volatility × Momentum dashboard with mock-driven visuals.
+ * Render the Volatility × Momentum dashboard powered by live analytics.
  * @returns Volatility × Momentum dashboard layout.
  */
 export default function VolMomoDashboard() {
-    const [data, setData] = useState<VolMomoMock | null>(null);
+    const [data, setData] = useState<VolMomoResponse | null>(null);
     const [loading, setLoading] = useState(true);
-    const [controls, setControls] = useState<ControlsState>(() => mockData.controls);
+    const [updating, setUpdating] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [controls, setControls] = useState<ControlsState>(() => ({
+        symbol: "BTC",
+        interval: "1h",
+        lookback: "180d",
+        forwardHorizon: "5d",
+        k: 20,
+        bins: 6,
+        minSamples: 25,
+        mode: "quantile",
+    }));
     const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
+    const [distributionData, setDistributionData] = useState<DistributionEntry | null>(null);
+    const [distributionLoading, setDistributionLoading] = useState(false);
     const [showSurface, setShowSurface] = useState(false);
+    const abortRef = useRef<AbortController | null>(null);
+    const cellAbortRef = useRef<AbortController | null>(null);
+    const debounceRef = useRef<number | null>(null);
+    const lastQueryRef = useRef<string | null>(null);
+
+    const queryParams = useMemo(() => buildQueryParams(controls), [controls]);
 
     useEffect(() => {
-        const timeout = window.setTimeout(() => {
-            setData(mockData as VolMomoMock);
-            setLoading(false);
-        }, 200);
-        return () => window.clearTimeout(timeout);
-    }, []);
+        if (queryParams === lastQueryRef.current) return;
+        lastQueryRef.current = queryParams;
+        if (debounceRef.current) {
+            window.clearTimeout(debounceRef.current);
+        }
+        setError(null);
+        setUpdating(true);
+        if (!data) {
+            setLoading(true);
+        }
+        debounceRef.current = window.setTimeout(() => {
+            abortRef.current?.abort();
+            const controller = new AbortController();
+            abortRef.current = controller;
+            fetch(`/api/models/vol-momo?${queryParams}`, { signal: controller.signal })
+                .then(async (response) => {
+                    if (!response.ok) {
+                        throw new Error(`API error: ${response.status}`);
+                    }
+                    const payload = (await response.json()) as VolMomoResponse;
+                    setData(payload);
+                })
+                .catch((err) => {
+                    if (err instanceof DOMException && err.name === "AbortError") {
+                        return;
+                    }
+                    setError(err instanceof Error ? err.message : "Failed to load data");
+                })
+                .finally(() => {
+                    if (!controller.signal.aborted) {
+                        setLoading(false);
+                        setUpdating(false);
+                    }
+                });
+        }, 400);
 
-    const distributionData = useMemo(() => {
+        return () => {
+            if (debounceRef.current) {
+                window.clearTimeout(debounceRef.current);
+            }
+            abortRef.current?.abort();
+        };
+    }, [data, queryParams]);
+
+    useEffect(() => {
+        if (!data) return;
+        setSelectedCell({ i: data.current.i, j: data.current.j });
+    }, [data]);
+
+    useEffect(() => {
+        if (!data || !selectedCell) return;
+        cellAbortRef.current?.abort();
+        const controller = new AbortController();
+        cellAbortRef.current = controller;
+        setDistributionLoading(true);
+        fetch(`/api/models/vol-momo/cell?${queryParams}&i=${selectedCell.i}&j=${selectedCell.j}`,
+            { signal: controller.signal }
+        )
+            .then(async (response) => {
+                if (!response.ok) {
+                    throw new Error(`Cell API error: ${response.status}`);
+                }
+                const payload = (await response.json()) as CellDistributionResponse;
+                const stats = payload.meta.mean === null || payload.meta.pWin === null
+                    ? undefined
+                    : {
+                          count: payload.meta.count,
+                          winRate: payload.meta.pWin,
+                          mean: payload.meta.mean,
+                      };
+                setDistributionData({
+                    histogram: {
+                        binEdges: payload.histogram.edges,
+                        counts: payload.histogram.counts,
+                    },
+                    stats,
+                });
+            })
+            .catch((err) => {
+                if (err instanceof DOMException && err.name === "AbortError") {
+                    return;
+                }
+                setDistributionData(null);
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) {
+                    setDistributionLoading(false);
+                }
+            });
+        return () => {
+            controller.abort();
+        };
+    }, [data, queryParams, selectedCell]);
+
+    const xCenters = useMemo(() => (data ? buildCenters(data.axes.xEdges) : []), [data]);
+    const yCenters = useMemo(() => (data ? buildCenters(data.axes.yEdges) : []), [data]);
+
+    const surfaceData = useMemo(() => {
         if (!data) return null;
-        if (!selectedCell) return data.distribution.default;
-        const key = `${selectedCell.xIndex}-${selectedCell.yIndex}`;
-        return data.distribution.byCell[key] ?? data.distribution.default;
-    }, [data, selectedCell]);
+        return {
+            x: xCenters,
+            y: yCenters,
+            z: data.grids.pWin.map((row) => row.map((value) => value ?? NaN)),
+        };
+    }, [data, xCenters, yCenters]);
+
+    const scatterPoints = useMemo(() => {
+        if (!data) return [];
+        const fwd = data.grids.meanFwd[data.current.j]?.[data.current.i] ?? 0;
+        return [{ x: data.current.zm, y: data.current.zv, fwd }];
+    }, [data]);
+
+    const distributionIsLoading = distributionLoading && !distributionData;
 
     const selectedLabel = useMemo(() => {
-        if (!selectedCell) return null;
-        return `Selected bin: z-momo ${selectedCell.xValue.toFixed(1)}, z-vol ${selectedCell.yValue.toFixed(1)}`;
-    }, [selectedCell]);
-
-    const handleCellClick = (xValue: number, yValue: number) => {
-        if (!data) return;
-        const xIndex = data.heatmaps.winProbability.x.findIndex((value) => value === xValue);
-        const yIndex = data.heatmaps.winProbability.y.findIndex((value) => value === yValue);
-        if (xIndex < 0 || yIndex < 0) return;
-        setSelectedCell({ xIndex, yIndex, xValue, yValue });
-    };
+        if (!data || !selectedCell) return null;
+        const xLabel = formatRangeLabel(data.axes.xEdges, selectedCell.i);
+        const yLabel = formatRangeLabel(data.axes.yEdges, selectedCell.j);
+        return `Selected bin: momo ${xLabel}, vol ${yLabel}`;
+    }, [data, selectedCell]);
 
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-2">
-                <p className="text-xs uppercase tracking-[0.3em] text-emerald-300/70">
-                    Volatility × Momentum
-                </p>
-                <h2 className="text-2xl font-semibold text-white">Momentum-conditioned volatility regime map</h2>
+                <div className="flex items-center justify-between gap-4">
+                    <div>
+                        <p className="text-xs uppercase tracking-[0.3em] text-emerald-300/70">
+                            Volatility × Momentum
+                        </p>
+                        <h2 className="text-2xl font-semibold text-white">
+                            Momentum-conditioned volatility regime map
+                        </h2>
+                    </div>
+                    <div className="text-xs text-slate-400">
+                        {updating ? "Updating…" : data ? "Live" : ""}
+                    </div>
+                </div>
                 <p className="max-w-3xl text-sm text-slate-400">
                     Explore win rates and forward returns by volatility and momentum bins. Click any
                     cell to update the distribution preview.
                 </p>
+                {error ? <p className="text-xs text-rose-300">{error}</p> : null}
+                {data ? (
+                    <div className="flex flex-wrap gap-3 text-[11px] text-slate-400">
+                        <span className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1">
+                            Bars: {data.meta.nCandles} · Samples: {data.meta.nSamples}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1">
+                            hBars: {data.meta.hBars} · k: {data.meta.k}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1">
+                            Start: {formatTimestamp(data.meta.startTs)} · End:{" "}
+                            {formatTimestamp(data.meta.endTs)}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1">
+                            First close: {data.meta.firstClose.toFixed(2)} · Last close:{" "}
+                            {data.meta.lastClose.toFixed(2)}
+                        </span>
+                        {data.meta.requestsMade ? (
+                            <span className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1">
+                                Requests: {data.meta.requestsMade} · Cache:{" "}
+                                {data.meta.cacheHit ? "Hit" : "Miss"}
+                            </span>
+                        ) : null}
+                    </div>
+                ) : null}
             </div>
 
             <div className="sticky top-4 z-20 rounded-2xl border border-white/10 bg-[#0b0f14]/90 p-4 shadow-xl shadow-black/40 backdrop-blur">
@@ -199,7 +363,10 @@ export default function VolMomoDashboard() {
                         <select
                             value={controls.forwardHorizon}
                             onChange={(event) =>
-                                setControls((prev) => ({ ...prev, forwardHorizon: event.target.value }))
+                                setControls((prev) => ({
+                                    ...prev,
+                                    forwardHorizon: event.target.value,
+                                }))
                             }
                             className="w-full rounded-md border border-white/10 bg-[#0f141b] px-3 py-2 text-sm text-white"
                         >
@@ -216,7 +383,10 @@ export default function VolMomoDashboard() {
                             type="number"
                             value={controls.k}
                             onChange={(event) =>
-                                setControls((prev) => ({ ...prev, k: Number(event.target.value) || 0 }))
+                                setControls((prev) => ({
+                                    ...prev,
+                                    k: Number(event.target.value) || 0,
+                                }))
                             }
                             className="border-white/10 bg-[#0f141b] text-white"
                         />
@@ -281,34 +451,46 @@ export default function VolMomoDashboard() {
                 <VolMomoHeatmap
                     title="Win Probability"
                     subtitle="Hit rate"
-                    grid={data?.heatmaps.winProbability ?? null}
+                    xEdges={data?.axes.xEdges ?? []}
+                    yEdges={data?.axes.yEdges ?? []}
+                    gridValues={data?.grids.pWin ?? []}
+                    countGrid={data?.grids.count}
                     loading={loading}
-                    colorScale="YlGnBu"
-                    valueSuffix="%"
-                    valueFormatter={toPercent}
-                    onCellClick={handleCellClick}
+                    kind="win"
+                    onCellClick={(i, j) => setSelectedCell({ i, j })}
+                    selectedCell={selectedCell}
                 />
                 <VolMomoHeatmap
                     title="Mean Forward Return"
                     subtitle="Average P&L"
-                    grid={data?.heatmaps.meanForwardReturn ?? null}
+                    xEdges={data?.axes.xEdges ?? []}
+                    yEdges={data?.axes.yEdges ?? []}
+                    gridValues={data?.grids.meanFwd ?? []}
+                    countGrid={data?.grids.count}
                     loading={loading}
-                    colorScale="RdBu"
-                    valueSuffix="%"
-                    valueFormatter={toPercent}
-                    onCellClick={handleCellClick}
+                    kind="mean"
+                    onCellClick={(i, j) => setSelectedCell({ i, j })}
+                    selectedCell={selectedCell}
                 />
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-                <VolMomoDistribution
-                    title="Forward return distribution"
-                    subtitle="Conditional density"
-                    data={distributionData}
-                    loading={loading}
-                    selectedLabel={selectedLabel}
-                />
-                <VolMomoScatter data={data?.scatter ?? null} loading={loading} />
+                {distributionIsLoading ? (
+                    <div className="h-[380px] w-full animate-pulse rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 via-white/[0.02] to-transparent" />
+                ) : (
+                    <VolMomoDistributionECharts
+                        histogram={distributionData?.histogram ?? null}
+                        mean={distributionData?.stats?.mean}
+                        winRate={distributionData?.stats?.winRate}
+                        samples={distributionData?.stats?.count}
+                        selectedLabel={selectedLabel}
+                    />
+                )}
+                {loading ? (
+                    <div className="h-[380px] w-full animate-pulse rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 via-white/[0.02] to-transparent" />
+                ) : (
+                    <VolMomoScatterECharts points={scatterPoints} mode="sigma" rings={[1, 2, 3]} />
+                )}
             </div>
 
             <details
@@ -321,7 +503,7 @@ export default function VolMomoDashboard() {
                     Explore in 3D
                 </summary>
                 <div className="mt-4">
-                    {showSurface ? <VolMomoSurface3D data={data?.surface3d ?? null} /> : null}
+                    {showSurface ? <VolMomoSurface3D data={surfaceData} /> : null}
                 </div>
             </details>
         </div>
