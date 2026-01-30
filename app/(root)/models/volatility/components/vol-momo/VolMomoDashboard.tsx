@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import type { VolMomoResponse } from "@/lib/models/vol-momo";
 
 import VolMomoDistributionECharts from "./VolMomoDistributionECharts";
-import VolMomoHeatmapECharts from "./VolMomoHeatmapECharts";
+import VolMomoHeatmap from "./VolMomoHeatmap";
 import VolMomoScatterECharts from "./VolMomoScatterECharts";
 
 const VolMomoSurface3D = dynamic(() => import("./VolMomoSurface3D"), {
@@ -448,38 +448,30 @@ export default function VolMomoDashboard() {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-                {loading || !data ? (
-                    <div className="h-[420px] w-full animate-pulse rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 via-white/[0.02] to-transparent" />
-                ) : (
-                    <VolMomoHeatmapECharts
-                        title="Win Probability"
-                        subtitle="Hit rate"
-                        xLabels={data.axes.xTickLabels}
-                        yLabels={data.axes.yTickLabels}
-                        gridValues={data.grids.pWin}
-                        countGrid={data.grids.count}
-                        valueFormat="percent"
-                        onCellClick={(i, j) => setSelectedCell({ i, j })}
-                        selectedCell={selectedCell}
-                        palette="win"
-                    />
-                )}
-                {loading || !data ? (
-                    <div className="h-[420px] w-full animate-pulse rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 via-white/[0.02] to-transparent" />
-                ) : (
-                    <VolMomoHeatmapECharts
-                        title="Mean Forward Return"
-                        subtitle="Average P&L"
-                        xLabels={data.axes.xTickLabels}
-                        yLabels={data.axes.yTickLabels}
-                        gridValues={data.grids.meanFwd}
-                        countGrid={data.grids.count}
-                        valueFormat="percent"
-                        onCellClick={(i, j) => setSelectedCell({ i, j })}
-                        selectedCell={selectedCell}
-                        palette="mean"
-                    />
-                )}
+                <VolMomoHeatmap
+                    title="Win Probability"
+                    subtitle="Hit rate"
+                    xEdges={data?.axes.xEdges ?? []}
+                    yEdges={data?.axes.yEdges ?? []}
+                    gridValues={data?.grids.pWin ?? []}
+                    countGrid={data?.grids.count}
+                    loading={loading}
+                    kind="win"
+                    onCellClick={(i, j) => setSelectedCell({ i, j })}
+                    selectedCell={selectedCell}
+                />
+                <VolMomoHeatmap
+                    title="Mean Forward Return"
+                    subtitle="Average P&L"
+                    xEdges={data?.axes.xEdges ?? []}
+                    yEdges={data?.axes.yEdges ?? []}
+                    gridValues={data?.grids.meanFwd ?? []}
+                    countGrid={data?.grids.count}
+                    loading={loading}
+                    kind="mean"
+                    onCellClick={(i, j) => setSelectedCell({ i, j })}
+                    selectedCell={selectedCell}
+                />
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
