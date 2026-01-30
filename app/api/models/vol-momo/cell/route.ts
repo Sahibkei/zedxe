@@ -116,6 +116,8 @@ export async function GET(request: NextRequest) {
         hBars: parsed.data.hBars,
         interval,
     });
+    const lookbackBars = Math.round(lookbackDays * barsPerDay(interval));
+    const requiredCandles = lookbackBars + k + hBars + 2;
 
     const i = parsed.data.i;
     const j = parsed.data.j;
@@ -145,6 +147,7 @@ export async function GET(request: NextRequest) {
             interval,
             startTime,
             endTime,
+            requiredCandles,
         });
 
         if (!candleResult.ok) {

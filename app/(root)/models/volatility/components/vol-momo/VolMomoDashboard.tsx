@@ -87,6 +87,13 @@ const formatRangeLabel = (edges: number[], index: number) => {
     return `${start.toFixed(2)}..${end.toFixed(2)}`;
 };
 
+const formatTimestamp = (value: number) => {
+    if (!value) return "--";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "--";
+    return date.toISOString().replace("T", " ").slice(0, 19);
+};
+
 const buildQueryParams = (controls: ControlsState) => {
     const lookbackDays = Number(controls.lookback.replace("d", ""));
     const params = new URLSearchParams({
@@ -305,6 +312,24 @@ export default function VolMomoDashboard() {
                     cell to update the distribution preview.
                 </p>
                 {error ? <p className="text-xs text-rose-300">{error}</p> : null}
+                {data ? (
+                    <div className="flex flex-wrap gap-3 text-[11px] text-slate-400">
+                        <span className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1">
+                            Bars: {data.meta.nCandles} · Samples: {data.meta.nSamples}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1">
+                            hBars: {data.meta.hBars} · k: {data.meta.k}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1">
+                            Start: {formatTimestamp(data.meta.startTs)} · End:{" "}
+                            {formatTimestamp(data.meta.endTs)}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1">
+                            First close: {data.meta.firstClose.toFixed(2)} · Last close:{" "}
+                            {data.meta.lastClose.toFixed(2)}
+                        </span>
+                    </div>
+                ) : null}
             </div>
 
             <div className="sticky top-4 z-20 rounded-2xl border border-white/10 bg-[#0b0f14]/90 p-4 shadow-xl shadow-black/40 backdrop-blur">

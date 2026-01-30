@@ -112,6 +112,8 @@ export async function GET(request: NextRequest) {
         hBars: parsed.data.hBars,
         interval,
     });
+    const lookbackBars = Math.round(lookbackDays * barsPerDay(interval));
+    const requiredCandles = lookbackBars + k + hBars + 2;
 
     const cacheKey = buildVolMomoCacheKey([
         symbol,
@@ -137,6 +139,7 @@ export async function GET(request: NextRequest) {
         interval,
         startTime,
         endTime,
+        requiredCandles,
     });
 
     if (!candleResult.ok) {

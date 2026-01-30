@@ -11,6 +11,12 @@ export type VolMomoMeta = {
     mode: VolMomoMode;
     hBars: number;
     source: string;
+    nCandles: number;
+    startTs: number;
+    endTs: number;
+    nSamples: number;
+    firstClose: number;
+    lastClose: number;
 };
 
 export type VolMomoAxes = {
@@ -168,6 +174,7 @@ export const fetchBinanceCandles = async (params: {
     interval: VolMomoInterval;
     startTime: number;
     endTime: number;
+    requiredCandles: number;
 }): Promise<{ ok: true; candles: Candle[] } | { ok: false; error: string }> => {
     const allCandles: Candle[] = [];
     let cursor = params.startTime;
@@ -175,6 +182,9 @@ export const fetchBinanceCandles = async (params: {
     const maxLoops = 200;
 
     for (let loop = 0; loop < maxLoops && cursor < params.endTime; loop += 1) {
+        if (allCandles.length >= params.requiredCandles) {
+            break;
+        }
         const requestParams = new URLSearchParams({
             symbol: params.symbol,
             interval: params.interval,
@@ -252,7 +262,12 @@ export const fetchBinanceCandles = async (params: {
         return { ok: false, error: "No candles returned from Binance." };
     }
 
-    return { ok: true, candles: filtered };
+    const deduped = filtered.filter((candle, index, arr) => {
+        const prev = arr[index - 1];
+        return !prev || prev.openTime !== candle.openTime;
+    });
+
+    return { ok: true, candles: deduped };
 };
 
 /**
@@ -369,6 +384,15 @@ export const computeVolMomoAnalysis = (params: {
         }
     }
 
+    const nSamples = samples.length;
+    const totalCounts = counts.reduce(
+        (sum, row) => sum + row.reduce((rowSum, value) => rowSum + value, 0),
+        0
+    );
+    if (totalCounts !== nSamples) {
+        console.warn("VolMomo sample mismatch", { totalCounts, nSamples });
+    }
+
     const lastIndex = closes.length - 1;
     const currentMomo = closes[lastIndex] / closes[lastIndex - k] - 1;
     const currentReturns = ret1.slice(lastIndex - k, lastIndex);
@@ -391,6 +415,12 @@ export const computeVolMomoAnalysis = (params: {
             mode,
             hBars,
             source,
+            nCandles: slicedCandles.length,
+            startTs: slicedCandles[0]?.openTime ?? 0,
+            endTs: slicedCandles[slicedCandles.length - 1]?.closeTime ?? 0,
+            nSamples,
+            firstClose: slicedCandles[0]?.close ?? 0,
+            lastClose: slicedCandles[slicedCandles.length - 1]?.close ?? 0,
         },
         axes: {
             xLabel: "momentum",
