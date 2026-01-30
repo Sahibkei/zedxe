@@ -21,6 +21,11 @@ type VolMomoScatterProps = {
 
 const sigmaRings = [1, 2, 3];
 
+/**
+ * Render the sigma-space scatter plot with 1σ/2σ/3σ rings.
+ * @param props - Scatter series and loading state.
+ * @returns Scatter chart card element.
+ */
 export default function VolMomoScatter({ data, loading }: VolMomoScatterProps) {
     if (loading) {
         return (

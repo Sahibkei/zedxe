@@ -25,6 +25,11 @@ type VolMomoHeatmapProps = {
     onCellClick?: (x: number, y: number) => void;
 };
 
+/**
+ * Render a volatility/momentum heatmap card powered by Plotly.
+ * @param props - Heatmap configuration and interaction handlers.
+ * @returns Heatmap card element.
+ */
 export default function VolMomoHeatmap({
     title,
     subtitle,

@@ -55,6 +55,11 @@ const DEFAULTS = {
     autoRefresh: true,
 };
 
+/**
+ * Build the volatility surface API query string from control params.
+ * @param params - Surface query parameters.
+ * @returns Query string for the surface endpoint.
+ */
 const buildQuery = (params: {
     symbol: string;
     maxDays: number;
@@ -76,6 +81,11 @@ const buildQuery = (params: {
     return `/api/models/volatility/iv-surface?${searchParams.toString()}`;
 };
 
+/**
+ * Type guard to confirm a response matches the expected surface payload.
+ * @param value - Response candidate.
+ * @returns True when the payload conforms to the surface response shape.
+ */
 const isSurfaceResponse = (value: unknown): value is SurfaceResponse => {
     if (!value || typeof value !== "object") return false;
     const data = value as Record<string, unknown>;
@@ -90,6 +100,10 @@ const isSurfaceResponse = (value: unknown): value is SurfaceResponse => {
     return true;
 };
 
+/**
+ * Renders the main volatility analytics dashboard with tabbed views.
+ * @returns Volatility dashboard layout.
+ */
 export default function VolatilityDashboard() {
     const [params, setParams] = useState(DEFAULTS);
     const [symbol, setSymbol] = useState<"BTC" | "ETH">("BTC");

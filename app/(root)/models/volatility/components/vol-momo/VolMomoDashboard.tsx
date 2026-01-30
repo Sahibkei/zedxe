@@ -77,8 +77,17 @@ const controlOptions = {
     forwardHorizon: ["3d", "5d", "10d"],
 };
 
+/**
+ * Convert a decimal value to percentage units.
+ * @param value - Decimal value.
+ * @returns Percentage value.
+ */
 const toPercent = (value: number) => value * 100;
 
+/**
+ * Render the Volatility × Momentum dashboard with mock-driven visuals.
+ * @returns Volatility × Momentum dashboard layout.
+ */
 export default function VolMomoDashboard() {
     const [data, setData] = useState<VolMomoMock | null>(null);
     const [loading, setLoading] = useState(true);

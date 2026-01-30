@@ -18,6 +18,11 @@ type VolMomoSurface3DProps = {
     data: SurfaceData | null;
 };
 
+/**
+ * Render a lazy-loaded 3D surface for the volatility/momentum grid.
+ * @param props - 3D surface data.
+ * @returns Surface card element.
+ */
 export default function VolMomoSurface3D({ data }: VolMomoSurface3DProps) {
     if (!data) {
         return (

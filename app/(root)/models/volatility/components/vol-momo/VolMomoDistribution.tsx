@@ -26,6 +26,11 @@ type VolMomoDistributionProps = {
     selectedLabel: string | null;
 };
 
+/**
+ * Render a conditional forward return distribution panel.
+ * @param props - Distribution chart data and selection metadata.
+ * @returns Distribution panel element.
+ */
 export default function VolMomoDistribution({
     title,
     subtitle,
