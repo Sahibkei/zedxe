@@ -7,9 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { VolMomoResponse } from "@/lib/models/vol-momo";
 
-import VolMomoDistribution from "./VolMomoDistribution";
-import VolMomoHeatmap, { type HeatmapGrid } from "./VolMomoHeatmap";
-import VolMomoScatter from "./VolMomoScatter";
+import VolMomoDistributionECharts from "./VolMomoDistributionECharts";
+import VolMomoHeatmapECharts from "./VolMomoHeatmapECharts";
+import VolMomoScatterECharts from "./VolMomoScatterECharts";
 
 const VolMomoSurface3D = dynamic(() => import("./VolMomoSurface3D"), {
     ssr: false,
@@ -32,8 +32,7 @@ type ControlsState = {
 };
 
 type DistributionEntry = {
-    x: number[];
-    y: number[];
+    histogram: { binEdges: number[]; counts: number[] };
     stats?: {
         count: number;
         winRate: number;
@@ -70,41 +69,8 @@ const controlOptions = {
     forwardHorizon: ["1d", "3d", "5d", "10d"],
 };
 
-/**
- * Convert a decimal value to percentage units.
- * @param value - Decimal value.
- * @returns Percentage value.
- */
-const toPercent = (value: number) => value * 100;
-
 const buildCenters = (edges: number[]) =>
     edges.slice(0, -1).map((edge, index) => (edge + edges[index + 1]) / 2);
-
-const getMinSpacing = (values: number[]) => {
-    if (values.length < 2) return 0;
-    let minSpacing = Number.POSITIVE_INFINITY;
-    for (let i = 1; i < values.length; i += 1) {
-        const spacing = Math.abs(values[i] - values[i - 1]);
-        if (spacing < minSpacing) minSpacing = spacing;
-    }
-    return Number.isFinite(minSpacing) ? minSpacing : 0;
-};
-
-const findNearestIndex = (values: number[], target: number) => {
-    if (!values.length) return -1;
-    let bestIndex = 0;
-    let bestDiff = Math.abs(values[0] - target);
-    for (let i = 1; i < values.length; i += 1) {
-        const diff = Math.abs(values[i] - target);
-        if (diff < bestDiff) {
-            bestDiff = diff;
-            bestIndex = i;
-        }
-    }
-    const minSpacing = getMinSpacing(values);
-    const tolerance = minSpacing ? minSpacing / 2 + 1e-6 : 1e-6;
-    return bestDiff <= tolerance ? bestIndex : -1;
-};
 
 const formatRangeLabel = (edges: number[], index: number) => {
     const start = edges[index];
@@ -229,7 +195,6 @@ export default function VolMomoDashboard() {
                     throw new Error(`Cell API error: ${response.status}`);
                 }
                 const payload = (await response.json()) as CellDistributionResponse;
-                const centers = buildCenters(payload.histogram.edges);
                 const stats = payload.meta.mean === null || payload.meta.pWin === null
                     ? undefined
                     : {
@@ -238,8 +203,10 @@ export default function VolMomoDashboard() {
                           mean: payload.meta.mean,
                       };
                 setDistributionData({
-                    x: centers,
-                    y: payload.histogram.counts,
+                    histogram: {
+                        binEdges: payload.histogram.edges,
+                        counts: payload.histogram.counts,
+                    },
                     stats,
                 });
             })
@@ -262,24 +229,6 @@ export default function VolMomoDashboard() {
     const xCenters = useMemo(() => (data ? buildCenters(data.axes.xEdges) : []), [data]);
     const yCenters = useMemo(() => (data ? buildCenters(data.axes.yEdges) : []), [data]);
 
-    const winGrid = useMemo<HeatmapGrid | null>(() => {
-        if (!data) return null;
-        return {
-            x: xCenters,
-            y: yCenters,
-            z: data.grids.pWin,
-        };
-    }, [data, xCenters, yCenters]);
-
-    const meanGrid = useMemo<HeatmapGrid | null>(() => {
-        if (!data) return null;
-        return {
-            x: xCenters,
-            y: yCenters,
-            z: data.grids.meanFwd,
-        };
-    }, [data, xCenters, yCenters]);
-
     const surfaceData = useMemo(() => {
         if (!data) return null;
         return {
@@ -289,18 +238,13 @@ export default function VolMomoDashboard() {
         };
     }, [data, xCenters, yCenters]);
 
-    const scatterData = useMemo(() => {
-        if (!data) return null;
-        return {
-            x: [data.current.zm],
-            y: [data.current.zv],
-            labels: [
-                `${data.meta.symbol} ${data.meta.interval} ${data.meta.lookbackDays}d`,
-            ],
-        };
+    const scatterPoints = useMemo(() => {
+        if (!data) return [];
+        const fwd = data.grids.meanFwd[data.current.j]?.[data.current.i] ?? 0;
+        return [{ x: data.current.zm, y: data.current.zv, fwd }];
     }, [data]);
 
-    const distributionIsLoading = !distributionData && (loading || distributionLoading);
+    const distributionIsLoading = distributionLoading && !distributionData;
 
     const selectedLabel = useMemo(() => {
         if (!data || !selectedCell) return null;
@@ -308,14 +252,6 @@ export default function VolMomoDashboard() {
         const yLabel = formatRangeLabel(data.axes.yEdges, selectedCell.j);
         return `Selected bin: momo ${xLabel}, vol ${yLabel}`;
     }, [data, selectedCell]);
-
-    const handleCellClick = (xValue: number, yValue: number) => {
-        if (!data) return;
-        const xIndex = findNearestIndex(xCenters, xValue);
-        const yIndex = findNearestIndex(yCenters, yValue);
-        if (xIndex < 0 || yIndex < 0) return;
-        setSelectedCell({ i: xIndex, j: yIndex });
-    };
 
     return (
         <div className="space-y-6">
@@ -512,41 +448,57 @@ export default function VolMomoDashboard() {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-                <VolMomoHeatmap
-                    title="Win Probability"
-                    subtitle="Hit rate"
-                    grid={winGrid}
-                    loading={loading}
-                    colorScale="YlGnBu"
-                    valueSuffix="%"
-                    valueFormatter={toPercent}
-                    onCellClick={handleCellClick}
-                    xLabel={data?.axes.xLabel}
-                    yLabel={data?.axes.yLabel}
-                />
-                <VolMomoHeatmap
-                    title="Mean Forward Return"
-                    subtitle="Average P&L"
-                    grid={meanGrid}
-                    loading={loading}
-                    colorScale="RdBu"
-                    valueSuffix="%"
-                    valueFormatter={toPercent}
-                    onCellClick={handleCellClick}
-                    xLabel={data?.axes.xLabel}
-                    yLabel={data?.axes.yLabel}
-                />
+                {loading || !data ? (
+                    <div className="h-[420px] w-full animate-pulse rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 via-white/[0.02] to-transparent" />
+                ) : (
+                    <VolMomoHeatmapECharts
+                        title="Win Probability"
+                        subtitle="Hit rate"
+                        xLabels={data.axes.xTickLabels}
+                        yLabels={data.axes.yTickLabels}
+                        gridValues={data.grids.pWin}
+                        countGrid={data.grids.count}
+                        valueFormat="percent"
+                        onCellClick={(i, j) => setSelectedCell({ i, j })}
+                        selectedCell={selectedCell}
+                        palette="win"
+                    />
+                )}
+                {loading || !data ? (
+                    <div className="h-[420px] w-full animate-pulse rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 via-white/[0.02] to-transparent" />
+                ) : (
+                    <VolMomoHeatmapECharts
+                        title="Mean Forward Return"
+                        subtitle="Average P&L"
+                        xLabels={data.axes.xTickLabels}
+                        yLabels={data.axes.yTickLabels}
+                        gridValues={data.grids.meanFwd}
+                        countGrid={data.grids.count}
+                        valueFormat="percent"
+                        onCellClick={(i, j) => setSelectedCell({ i, j })}
+                        selectedCell={selectedCell}
+                        palette="mean"
+                    />
+                )}
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-                <VolMomoDistribution
-                    title="Forward return distribution"
-                    subtitle="Conditional density"
-                    data={distributionData}
-                    loading={distributionIsLoading}
-                    selectedLabel={selectedLabel}
-                />
-                <VolMomoScatter data={scatterData} loading={loading} />
+                {distributionIsLoading ? (
+                    <div className="h-[380px] w-full animate-pulse rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 via-white/[0.02] to-transparent" />
+                ) : (
+                    <VolMomoDistributionECharts
+                        histogram={distributionData?.histogram ?? null}
+                        mean={distributionData?.stats?.mean}
+                        winRate={distributionData?.stats?.winRate}
+                        samples={distributionData?.stats?.count}
+                        selectedLabel={selectedLabel}
+                    />
+                )}
+                {loading ? (
+                    <div className="h-[380px] w-full animate-pulse rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 via-white/[0.02] to-transparent" />
+                ) : (
+                    <VolMomoScatterECharts points={scatterPoints} mode="sigma" rings={[1, 2, 3]} />
+                )}
             </div>
 
             <details
