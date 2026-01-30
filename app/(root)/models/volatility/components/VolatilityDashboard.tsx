@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 
@@ -12,6 +12,7 @@ import IVTermStructure from "./IVTermStructure";
 import TradingViewWidget from "./TradingViewWidget";
 import VolatilityControls from "./VolatilityControls";
 import VolatilityHeaderMetrics from "./VolatilityHeaderMetrics";
+import VolMomoDashboard from "./vol-momo/VolMomoDashboard";
 
 type SurfaceGrid = {
     x: number[];
@@ -54,6 +55,11 @@ const DEFAULTS = {
     autoRefresh: true,
 };
 
+/**
+ * Build the volatility surface API query string from control params.
+ * @param params - Surface query parameters.
+ * @returns Query string for the surface endpoint.
+ */
 const buildQuery = (params: {
     symbol: string;
     maxDays: number;
@@ -75,6 +81,11 @@ const buildQuery = (params: {
     return `/api/models/volatility/iv-surface?${searchParams.toString()}`;
 };
 
+/**
+ * Type guard to confirm a response matches the expected surface payload.
+ * @param value - Response candidate.
+ * @returns True when the payload conforms to the surface response shape.
+ */
 const isSurfaceResponse = (value: unknown): value is SurfaceResponse => {
     if (!value || typeof value !== "object") return false;
     const data = value as Record<string, unknown>;
@@ -89,6 +100,10 @@ const isSurfaceResponse = (value: unknown): value is SurfaceResponse => {
     return true;
 };
 
+/**
+ * Renders the main volatility analytics dashboard with tabbed views.
+ * @returns Volatility dashboard layout.
+ */
 export default function VolatilityDashboard() {
     const [params, setParams] = useState(DEFAULTS);
     const [symbol, setSymbol] = useState<"BTC" | "ETH">("BTC");
@@ -99,7 +114,43 @@ export default function VolatilityDashboard() {
     const [activeTab, setActiveTab] = useState("surface");
     const abortRef = useRef<AbortController | null>(null);
     const searchParams = useSearchParams();
+    const router = useRouter();
+    const pathname = usePathname();
     const debug = searchParams.get("debug") === "1";
+    const tabs = useMemo(
+        () => [
+            { id: "surface", label: "Surface" },
+            { id: "heatmap", label: "Heatmap" },
+            { id: "smile", label: "Smile" },
+            { id: "term", label: "Term" },
+            { id: "charts", label: "Charts" },
+            { id: "vol-momo", label: "Volatility × Momentum" },
+        ],
+        []
+    );
+
+    const tabIds = useMemo(() => new Set(tabs.map((tab) => tab.id)), [tabs]);
+
+    useEffect(() => {
+        const tabParam = searchParams.get("tab");
+        if (tabParam && tabIds.has(tabParam) && tabParam !== activeTab) {
+            setActiveTab(tabParam);
+        } else if (!tabParam && activeTab !== "surface") {
+            setActiveTab("surface");
+        }
+    }, [activeTab, searchParams, tabIds]);
+
+    const handleTabChange = (nextTab: string) => {
+        setActiveTab(nextTab);
+        const params = new URLSearchParams(searchParams.toString());
+        if (nextTab === "surface") {
+            params.delete("tab");
+        } else {
+            params.set("tab", nextTab);
+        }
+        const query = params.toString();
+        router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false });
+    };
 
     const fetchSurface = useCallback(async () => {
         abortRef.current?.abort();
@@ -234,17 +285,11 @@ export default function VolatilityDashboard() {
                         </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                        {[
-                            { id: "surface", label: "Surface" },
-                            { id: "heatmap", label: "Heatmap" },
-                            { id: "smile", label: "Smile" },
-                            { id: "term", label: "Term" },
-                            { id: "charts", label: "Charts" },
-                        ].map((tab) => (
+                        {tabs.map((tab) => (
                             <button
                                 key={tab.id}
                                 type="button"
-                                onClick={() => setActiveTab(tab.id)}
+                                onClick={() => handleTabChange(tab.id)}
                                 className={`rounded-full border px-4 py-1 text-xs font-semibold uppercase tracking-wide transition ${
                                     activeTab === tab.id
                                         ? "border-emerald-400/60 bg-emerald-500/20 text-emerald-100"
@@ -290,6 +335,7 @@ export default function VolatilityDashboard() {
                     />
                 </div>
             ) : null}
+            {activeTab === "vol-momo" ? <VolMomoDashboard /> : null}
 
             {debug ? (
                 <details className="rounded-2xl border border-white/10 bg-[#0b0f14] p-5 text-sm text-slate-200">
