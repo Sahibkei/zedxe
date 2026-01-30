@@ -80,6 +80,32 @@ const toPercent = (value: number) => value * 100;
 const buildCenters = (edges: number[]) =>
     edges.slice(0, -1).map((edge, index) => (edge + edges[index + 1]) / 2);
 
+const getMinSpacing = (values: number[]) => {
+    if (values.length < 2) return 0;
+    let minSpacing = Number.POSITIVE_INFINITY;
+    for (let i = 1; i < values.length; i += 1) {
+        const spacing = Math.abs(values[i] - values[i - 1]);
+        if (spacing < minSpacing) minSpacing = spacing;
+    }
+    return Number.isFinite(minSpacing) ? minSpacing : 0;
+};
+
+const findNearestIndex = (values: number[], target: number) => {
+    if (!values.length) return -1;
+    let bestIndex = 0;
+    let bestDiff = Math.abs(values[0] - target);
+    for (let i = 1; i < values.length; i += 1) {
+        const diff = Math.abs(values[i] - target);
+        if (diff < bestDiff) {
+            bestDiff = diff;
+            bestIndex = i;
+        }
+    }
+    const minSpacing = getMinSpacing(values);
+    const tolerance = minSpacing ? minSpacing / 2 + 1e-6 : 1e-6;
+    return bestDiff <= tolerance ? bestIndex : -1;
+};
+
 const formatRangeLabel = (edges: number[], index: number) => {
     const start = edges[index];
     const end = edges[index + 1];
@@ -285,8 +311,8 @@ export default function VolMomoDashboard() {
 
     const handleCellClick = (xValue: number, yValue: number) => {
         if (!data) return;
-        const xIndex = xCenters.findIndex((value) => value === xValue);
-        const yIndex = yCenters.findIndex((value) => value === yValue);
+        const xIndex = findNearestIndex(xCenters, xValue);
+        const yIndex = findNearestIndex(yCenters, yValue);
         if (xIndex < 0 || yIndex < 0) return;
         setSelectedCell({ i: xIndex, j: yIndex });
     };
@@ -328,6 +354,12 @@ export default function VolMomoDashboard() {
                             First close: {data.meta.firstClose.toFixed(2)} · Last close:{" "}
                             {data.meta.lastClose.toFixed(2)}
                         </span>
+                        {data.meta.requestsMade ? (
+                            <span className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1">
+                                Requests: {data.meta.requestsMade} · Cache:{" "}
+                                {data.meta.cacheHit ? "Hit" : "Miss"}
+                            </span>
+                        ) : null}
                     </div>
                 ) : null}
             </div>

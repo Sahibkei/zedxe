@@ -1,3 +1,5 @@
+import { delay, fetchJsonWithTimeout } from "@/lib/http/fetchWithTimeout";
+
 export type VolMomoInterval = "5m" | "15m" | "1h" | "4h" | "1d";
 export type VolMomoMode = "quantile" | "sigma";
 
@@ -17,6 +19,11 @@ export type VolMomoMeta = {
     nSamples: number;
     firstClose: number;
     lastClose: number;
+    cacheHit?: boolean;
+    candlesFetched?: number;
+    requestsMade?: number;
+    fetchStartTime?: number;
+    fetchEndTime?: number;
 };
 
 export type VolMomoAxes = {
@@ -78,6 +85,13 @@ export type Candle = {
     openTime: number;
     closeTime: number;
     close: number;
+};
+
+type CandleFetchMeta = {
+    candlesFetched: number;
+    requestsMade: number;
+    startTime: number;
+    endTime: number;
 };
 
 const BINANCE_ENDPOINTS = [
@@ -175,11 +189,15 @@ export const fetchBinanceCandles = async (params: {
     startTime: number;
     endTime: number;
     requiredCandles: number;
-}): Promise<{ ok: true; candles: Candle[] } | { ok: false; error: string }> => {
+}): Promise<
+    | { ok: true; candles: Candle[]; meta: CandleFetchMeta }
+    | { ok: false; error: string; status?: number; meta: CandleFetchMeta }
+> => {
     const allCandles: Candle[] = [];
     let cursor = params.startTime;
     const intervalMs = INTERVAL_MS[params.interval];
-    const maxLoops = 200;
+    const maxLoops = Math.min(200, Math.ceil(params.requiredCandles / 1000) + 3);
+    let requestsMade = 0;
 
     for (let loop = 0; loop < maxLoops && cursor < params.endTime; loop += 1) {
         if (allCandles.length >= params.requiredCandles) {
@@ -194,29 +212,38 @@ export const fetchBinanceCandles = async (params: {
         });
 
         let responsePayload: unknown = null;
-        let lastError: unknown = null;
+        let lastError: string | null = null;
+        let lastStatus: number | undefined;
 
         for (const endpoint of BINANCE_ENDPOINTS) {
-            try {
-                const response = await fetch(`${endpoint}?${requestParams.toString()}`, {
-                    cache: "no-store",
-                });
-                if (!response.ok) {
-                    lastError = new Error(`Binance HTTP ${response.status}`);
-                    continue;
-                }
-                responsePayload = await response.json();
-                lastError = null;
-                break;
-            } catch (error) {
-                lastError = error;
+            const result = await fetchJsonWithTimeout<unknown[]>(
+                `${endpoint}?${requestParams.toString()}`,
+                { cache: "no-store" },
+                { timeoutMs: 8000, retries: 3, backoffBaseMs: 300 }
+            );
+            requestsMade += 1;
+            if (!result.ok) {
+                lastError = result.error;
+                lastStatus = result.status;
+                continue;
             }
+            responsePayload = result.data;
+            lastError = null;
+            lastStatus = undefined;
+            break;
         }
 
         if (!Array.isArray(responsePayload)) {
             return {
                 ok: false,
                 error: `Failed to load klines: ${String(lastError ?? "invalid response")}`,
+                status: lastStatus,
+                meta: {
+                    candlesFetched: allCandles.length,
+                    requestsMade,
+                    startTime: params.startTime,
+                    endTime: params.endTime,
+                },
             };
         }
 
@@ -253,13 +280,23 @@ export const fetchBinanceCandles = async (params: {
         if (nextCursor <= cursor) break;
         cursor = nextCursor;
         if (parsed.length < 1000) break;
+        await delay(100);
     }
 
     const now = Date.now();
     const filtered = allCandles.filter((candle) => candle.closeTime <= now);
 
     if (!filtered.length) {
-        return { ok: false, error: "No candles returned from Binance." };
+        return {
+            ok: false,
+            error: "No candles returned from Binance.",
+            meta: {
+                candlesFetched: 0,
+                requestsMade,
+                startTime: params.startTime,
+                endTime: params.endTime,
+            },
+        };
     }
 
     const deduped = filtered.filter((candle, index, arr) => {
@@ -267,7 +304,16 @@ export const fetchBinanceCandles = async (params: {
         return !prev || prev.openTime !== candle.openTime;
     });
 
-    return { ok: true, candles: deduped };
+    return {
+        ok: true,
+        candles: deduped,
+        meta: {
+            candlesFetched: deduped.length,
+            requestsMade,
+            startTime: params.startTime,
+            endTime: params.endTime,
+        },
+    };
 };
 
 /**

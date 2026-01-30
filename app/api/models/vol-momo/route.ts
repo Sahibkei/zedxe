@@ -127,7 +127,13 @@ export async function GET(request: NextRequest) {
     ]);
     const cached = getCachedVolMomoAnalysis(cacheKey);
     if (cached) {
-        return NextResponse.json(cached.response);
+        return NextResponse.json({
+            ...cached.response,
+            meta: {
+                ...cached.response.meta,
+                cacheHit: true,
+            },
+        });
     }
 
     const endTime = Date.now();
@@ -143,8 +149,11 @@ export async function GET(request: NextRequest) {
     });
 
     if (!candleResult.ok) {
-        return errorResponse(502, "SERVER_ERROR", "Failed to fetch candles", {
+        const status =
+            candleResult.status === 429 || candleResult.status === 503 ? 503 : 502;
+        return errorResponse(status, "SERVER_ERROR", "Failed to fetch candles", {
             details: candleResult.error,
+            meta: candleResult.meta,
         });
     }
 
@@ -164,6 +173,15 @@ export async function GET(request: NextRequest) {
     if (!analysisResult.ok) {
         return errorResponse(400, "INSUFFICIENT_DATA", analysisResult.error);
     }
+
+    analysisResult.analysis.response.meta = {
+        ...analysisResult.analysis.response.meta,
+        cacheHit: false,
+        candlesFetched: candleResult.meta.candlesFetched,
+        requestsMade: candleResult.meta.requestsMade,
+        fetchStartTime: candleResult.meta.startTime,
+        fetchEndTime: candleResult.meta.endTime,
+    };
 
     setCachedVolMomoAnalysis(cacheKey, analysisResult.analysis);
 

@@ -151,8 +151,11 @@ export async function GET(request: NextRequest) {
         });
 
         if (!candleResult.ok) {
-            return errorResponse(502, "SERVER_ERROR", "Failed to fetch candles", {
+            const status =
+                candleResult.status === 429 || candleResult.status === 503 ? 503 : 502;
+            return errorResponse(status, "SERVER_ERROR", "Failed to fetch candles", {
                 details: candleResult.error,
+                meta: candleResult.meta,
             });
         }
 
