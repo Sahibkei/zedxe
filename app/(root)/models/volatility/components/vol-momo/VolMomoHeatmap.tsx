@@ -11,7 +11,7 @@ const Plot = dynamic(() => import("react-plotly.js"), {
 export type HeatmapGrid = {
     x: number[];
     y: number[];
-    z: number[][];
+    z: Array<Array<number | null>>;
 };
 
 type VolMomoHeatmapProps = {
@@ -23,6 +23,8 @@ type VolMomoHeatmapProps = {
     valueSuffix: string;
     valueFormatter: (value: number) => number;
     onCellClick?: (x: number, y: number) => void;
+    xLabel?: string;
+    yLabel?: string;
 };
 
 /**
@@ -39,6 +41,8 @@ export default function VolMomoHeatmap({
     valueSuffix,
     valueFormatter,
     onCellClick,
+    xLabel,
+    yLabel,
 }: VolMomoHeatmapProps) {
     if (loading) {
         return (
@@ -54,7 +58,14 @@ export default function VolMomoHeatmap({
         );
     }
 
-    const formattedZ = grid.z.map((row) => row.map((value) => valueFormatter(value)));
+    const formattedZ = grid.z.map((row) =>
+        row.map((value) => (value === null ? null : valueFormatter(value)))
+    );
+
+    const xTitle = xLabel ?? "z-momentum";
+    const yTitle = yLabel ?? "z-volatility";
+    const xHover = xLabel ?? "z-momo";
+    const yHover = yLabel ?? "z-vol";
 
     return (
         <div className="flex h-full flex-col gap-4 rounded-2xl border border-white/10 bg-[#0b0f14] p-4 shadow-2xl shadow-black/40">
@@ -73,7 +84,7 @@ export default function VolMomoHeatmap({
                             y: grid.y,
                             z: formattedZ,
                             colorscale: colorScale,
-                            hovertemplate: `z-vol: %{y:.1f}<br>z-momo: %{x:.1f}<br>${title}: %{z:.2f}${valueSuffix}<extra></extra>`,
+                            hovertemplate: `${yHover}: %{y:.2f}<br>${xHover}: %{x:.2f}<br>${title}: %{z:.2f}${valueSuffix}<extra></extra>`,
                             colorbar: {
                                 ticksuffix: valueSuffix,
                                 tickcolor: "#cbd5f5",
@@ -88,13 +99,13 @@ export default function VolMomoHeatmap({
                         paper_bgcolor: "rgba(0,0,0,0)",
                         plot_bgcolor: "rgba(0,0,0,0)",
                         xaxis: {
-                            title: "z-momentum",
+                            title: xTitle,
                             gridcolor: "rgba(255,255,255,0.08)",
                             zerolinecolor: "rgba(255,255,255,0.12)",
                             color: "#cbd5f5",
                         },
                         yaxis: {
-                            title: "z-volatility",
+                            title: yTitle,
                             gridcolor: "rgba(255,255,255,0.08)",
                             zerolinecolor: "rgba(255,255,255,0.12)",
                             color: "#cbd5f5",
