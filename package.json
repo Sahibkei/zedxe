@@ -45,7 +45,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "zod": "^4.1.12",
-    "@supabase/supabase-js": "^2.45.4"
+    "@supabase/supabase-js": "^2.93.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
