@@ -2,6 +2,9 @@ import "server-only";
 
 import { z } from "zod";
 
+const emptyToUndefined = (value: unknown) =>
+  typeof value === "string" && value.trim() === "" ? undefined : value;
+
 /**
  * Raw environment values used for server-side validation.
  */
@@ -9,9 +12,11 @@ const rawEnv = {
   SUPABASE_URL: process.env.SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
-  ORDERFLOW_RETENTION_HOURS: process.env.ORDERFLOW_RETENTION_HOURS,
-  MODEL_CACHE_RETENTION_HOURS: process.env.MODEL_CACHE_RETENTION_HOURS,
-  RETENTION_BATCH_SIZE: process.env.RETENTION_BATCH_SIZE,
+  ORDERFLOW_RETENTION_HOURS: emptyToUndefined(process.env.ORDERFLOW_RETENTION_HOURS),
+  MODEL_CACHE_RETENTION_HOURS: emptyToUndefined(
+    process.env.MODEL_CACHE_RETENTION_HOURS,
+  ),
+  RETENTION_BATCH_SIZE: emptyToUndefined(process.env.RETENTION_BATCH_SIZE),
   UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
   UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
   NODE_ENV: process.env.NODE_ENV,
@@ -38,16 +43,16 @@ const serverSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   ORDERFLOW_RETENTION_HOURS: z.preprocess(
-    (value) => value ?? "24",
-    z.coerce.number().int().positive(),
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(24),
   ),
   MODEL_CACHE_RETENTION_HOURS: z.preprocess(
-    (value) => value ?? "168",
-    z.coerce.number().int().positive(),
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(168),
   ),
   RETENTION_BATCH_SIZE: z.preprocess(
-    (value) => value ?? "50000",
-    z.coerce.number().int().positive(),
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(50000),
   ),
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),

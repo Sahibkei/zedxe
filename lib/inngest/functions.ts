@@ -9,7 +9,7 @@ import { getActiveAlerts, getAlertsByUser, markAlertTriggered, updateAlertLastPr
 import { connectToDatabase } from '@/database/mongoose';
 import { Portfolio } from '@/database/models/portfolio.model';
 import { getPortfolioPerformanceSeries, getPortfolioSummary } from '@/lib/portfolio/portfolio-service';
-import { runRetention } from "@/src/lib/retention/runRetention";
+import { runRetention } from "@/lib/retention/runRetention";
 
 export const sendSignUpEmail = inngest.createFunction(
     { id: 'sign-up-email' },
