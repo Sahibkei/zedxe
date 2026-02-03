@@ -48,6 +48,7 @@ alter table public.retention_runs enable row level security;
 
 create or replace function public.prune_analytics(
   retention_hours int default 24,
+  model_cache_retention_hours int default 168,
   batch_size int default 50000
 )
 returns table(orderflow_deleted int, cache_deleted int)
@@ -56,8 +57,10 @@ security definer
 as $$
 declare
   cutoff timestamptz;
+  cache_cutoff timestamptz;
 begin
   cutoff := now() - (retention_hours || ' hours')::interval;
+  cache_cutoff := now() - (model_cache_retention_hours || ' hours')::interval;
 
   with to_delete as (
     select id
@@ -76,9 +79,9 @@ begin
   with cache_to_delete as (
     select key
     from public.model_cache
-    where expires_at is not null
-      and expires_at < now()
-    order by expires_at asc
+    where (expires_at is not null and expires_at < now())
+      or (expires_at is null and created_at < cache_cutoff)
+    order by coalesce(expires_at, created_at) asc
     limit batch_size
   ),
   cache_deleted_rows as (

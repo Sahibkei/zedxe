@@ -32,6 +32,7 @@ export async function runRetention(): Promise<RetentionResult> {
 
   const { data, error } = await supabaseAdmin.rpc("prune_analytics", {
     retention_hours: retentionHours,
+    model_cache_retention_hours: envServer.MODEL_CACHE_RETENTION_HOURS,
     batch_size: batchSize,
   });
 

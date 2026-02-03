@@ -4,7 +4,7 @@
 
 The SQL migration for PR-2 lives at:
 
-```
+```bash
 /supabase/migrations/202602141200_sql_phase_pr2.sql
 ```
 

@@ -439,8 +439,8 @@ export const runHourlyRetention = inngest.createFunction(
     { cron: '0 * * * *' },
     async ({ step }) => {
         if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-            console.warn('Retention job skipped: SUPABASE_SERVICE_ROLE_KEY is not set.');
-            return { skipped: true, reason: 'missing-service-role' } as const;
+            console.warn('Retention job skipped: SUPABASE_SERVICE_ROLE_KEY not set');
+            return { ok: true, skipped: true } as const;
         }
 
         return await step.run('run-retention', async () => {

@@ -29,10 +29,6 @@ if (!supabaseUrl) {
   missingRequired.push("SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)");
 }
 
-if (rawEnv.NODE_ENV === "production" && !rawEnv.SUPABASE_SERVICE_ROLE_KEY) {
-  missingRequired.push("SUPABASE_SERVICE_ROLE_KEY");
-}
-
 if (missingRequired.length > 0) {
   throw new Error(
     `Missing required server environment variables: ${missingRequired.join(", ")}`,
