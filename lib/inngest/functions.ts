@@ -9,6 +9,7 @@ import { getActiveAlerts, getAlertsByUser, markAlertTriggered, updateAlertLastPr
 import { connectToDatabase } from '@/database/mongoose';
 import { Portfolio } from '@/database/models/portfolio.model';
 import { getPortfolioPerformanceSeries, getPortfolioSummary } from '@/lib/portfolio/portfolio-service';
+import { runRetention } from "@/src/lib/retention/runRetention";
 
 export const sendSignUpEmail = inngest.createFunction(
     { id: 'sign-up-email' },
@@ -430,5 +431,32 @@ export const sendWeeklyPortfolioReport = inngest.createFunction(
         const skipped = results.filter((r) => r.status === 'skipped').length;
 
         return { success: true, processed, sent, skipped } as const;
+    }
+);
+
+export const runHourlyRetention = inngest.createFunction(
+    { id: 'retention.hourly' },
+    { cron: '0 * * * *' },
+    async ({ step }) => {
+        if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+            console.warn('Retention job skipped: SUPABASE_SERVICE_ROLE_KEY is not set.');
+            return { skipped: true, reason: 'missing-service-role' } as const;
+        }
+
+        return await step.run('run-retention', async () => {
+            const result = await runRetention();
+
+            if (!result.ok) {
+                console.error('Retention job failed.', result.error);
+                return { success: false, error: result.error } as const;
+            }
+
+            console.log('Retention job completed.', {
+                orderflowDeleted: result.orderflowDeleted,
+                cacheDeleted: result.cacheDeleted,
+            });
+
+            return { success: true, ...result } as const;
+        });
     }
 );
