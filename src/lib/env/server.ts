@@ -2,6 +2,9 @@ import "server-only";
 
 import { z } from "zod";
 
+/**
+ * Raw environment values used for server-side validation.
+ */
 const rawEnv = {
   SUPABASE_URL: process.env.SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -52,6 +55,11 @@ if (!parsed.success) {
   throw new Error(`Invalid server environment variables. ${details}`);
 }
 
+/**
+ * Validated server environment values.
+ *
+ * Throws a descriptive error if required keys are missing or invalid.
+ */
 export const envServer = {
   SUPABASE_URL: parsed.data.SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY: parsed.data.SUPABASE_SERVICE_ROLE_KEY,

@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+/**
+ * Client-side environment schema for NEXT_PUBLIC_* keys.
+ */
 const clientSchema = z
   .object({
     NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
@@ -29,6 +32,11 @@ if (!parsed.success) {
   throw new Error(`Invalid client environment variables. ${details}`);
 }
 
+/**
+ * Validated client environment values.
+ *
+ * Throws a descriptive error if public env vars are partially configured or invalid.
+ */
 export const envClient = {
   NEXT_PUBLIC_SUPABASE_URL: parsed.data.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: parsed.data.NEXT_PUBLIC_SUPABASE_ANON_KEY,

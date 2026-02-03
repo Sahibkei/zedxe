@@ -2,6 +2,12 @@ import "server-only";
 
 import { envServer } from "@/lib/env/server";
 
+/**
+ * Creates a Supabase admin client using the service role key.
+ *
+ * Throws if the service role key is missing or if @supabase/supabase-js
+ * is not installed at runtime.
+ */
 export function getSupabaseAdmin() {
   if (!envServer.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error(

@@ -1,10 +1,20 @@
 import { getRedis } from "@/lib/cache/redis";
 
+/**
+ * Fetches a cached JSON value or computes and stores it with a TTL.
+ *
+ * Returns compute() immediately when caching is disabled, ttlSeconds <= 0,
+ * or Redis errors occur. Never throws for cache failures.
+ */
 export async function getOrSetJSON<T>(
   key: string,
   ttlSeconds: number,
   compute: () => Promise<T>,
 ): Promise<T> {
+  if (ttlSeconds <= 0) {
+    return compute();
+  }
+
   const redis = getRedis();
 
   if (!redis) {
