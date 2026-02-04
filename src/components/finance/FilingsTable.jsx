@@ -36,10 +36,11 @@ export default function FilingsTable({ symbol }) {
             if (activeFilter) {
                 url += `&form=${encodeURIComponent(activeFilter)}`;
             }
-            const response = await fetch(url);
-            const text = await response.text();
+            const controller = new AbortController();
+            const response = await fetch(url, { signal: controller.signal, cache: "no-store" });
+            const text = await response.text().catch(() => "");
             if (!response.ok) {
-                throw new Error(`filings ${response.status}: ${text.slice(0, 200)}`);
+                throw new Error(`SEC filings API ${response.status}: ${text.slice(0, 200)}`);
             }
             try {
                 return JSON.parse(text);

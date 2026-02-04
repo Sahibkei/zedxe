@@ -115,11 +115,12 @@ function normalizeRecentFilings(recent, { cik, form, limit }) {
     const total = recent.form.length;
     const cikForUrl = cik.replace(/^0+/, "") || "0";
     const filings = [];
+    const filterUpper = form ? form.toUpperCase() : "";
 
     for (let idx = 0; idx < total; idx += 1) {
         const entryForm = recent.form[idx];
         if (!entryForm) continue;
-        if (form && entryForm !== form) continue;
+        if (filterUpper && entryForm.toUpperCase() !== filterUpper) continue;
         const accession = recent.accessionNumber?.[idx] ?? "";
         const accessionNoDashes = accession.replace(/-/g, "");
         const primaryDoc = recent.primaryDocument?.[idx] ?? "";
@@ -175,6 +176,10 @@ function buildPayload(symbol, cik, companyName, submissions, form, limit) {
  * @returns {Promise<void>}
  */
 export default async function handler(req, res) {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+
     if (req.method !== "GET") {
         res.status(405).json({ error: "Method not allowed" });
         return;
@@ -194,10 +199,9 @@ export default async function handler(req, res) {
 
     const rawLimit = typeof req.query?.limit === "string" ? Number(req.query.limit) : NaN;
     const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 25;
-    const form = typeof req.query?.form === "string" ? req.query.form.trim() : "";
-    const formFilter = form || undefined;
+    const formFilter = (req.query?.form || "").toString().trim().toUpperCase();
 
-    const cacheKey = `sec:filings:${symbol.toUpperCase()}:${formFilter ?? "all"}:${limit}`;
+    const cacheKey = `sec:filings:${symbol.toUpperCase()}:${formFilter || "all"}:${limit}`;
     const cached = await getCache(cacheKey);
     if (cached) {
         res.status(200).json(cached);
@@ -246,7 +250,7 @@ export default async function handler(req, res) {
         }
 
         const submissions = await submissionsResponse.json();
-        const payload = buildPayload(symbol, match.cik, match.companyName, submissions, formFilter, limit);
+        const payload = buildPayload(symbol, match.cik, match.companyName, submissions, formFilter || undefined, limit);
 
         try {
             await setCache(cacheKey, payload);
