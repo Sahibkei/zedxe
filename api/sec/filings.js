@@ -227,7 +227,15 @@ export default async function handler(req, res) {
         const submissions = await submissionsResponse.json();
         const payload = buildPayload(symbol, match.cik, match.companyName, submissions, formFilter, limit);
 
-        await setCache(cacheKey, payload);
+        try {
+            await setCache(cacheKey, payload);
+        } catch (cacheError) {
+            console.warn("[sec/filings] cache write failed", {
+                cacheKey,
+                message: cacheError?.message,
+            });
+        }
+
         res.status(200).json(payload);
     } catch (error) {
         console.error("[sec/filings] error", {

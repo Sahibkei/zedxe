@@ -27,15 +27,20 @@ export default function FilingsTable({ symbol }) {
         queryKey,
         enabled: Boolean(symbol),
         queryFn: async () => {
-            const params = new URLSearchParams({ symbol });
+            let url = `/api/sec/filings?symbol=${encodeURIComponent(symbol)}`;
             if (activeFilter) {
-                params.set("form", activeFilter);
+                url += `&form=${encodeURIComponent(activeFilter)}`;
             }
-            const response = await fetch(`/api/sec/filings?${params.toString()}`);
+            const response = await fetch(url);
             if (!response.ok) {
-                throw new Error("Failed to load filings");
+                const message = await response.text();
+                throw new Error(message || "Failed to load filings");
             }
-            return response.json();
+            try {
+                return await response.json();
+            } catch (parseError) {
+                throw new Error(parseError?.message || "Failed to parse filings response");
+            }
         },
     });
 
@@ -67,7 +72,7 @@ export default function FilingsTable({ symbol }) {
                                 )}
                                 onClick={() => setActiveFilter(option.value)}
                                 role="tab"
-                                aria-current={isActive ? "true" : "false"}
+                                aria-selected={isActive}
                             >
                                 {option.label}
                             </button>
@@ -98,7 +103,7 @@ export default function FilingsTable({ symbol }) {
             )}
 
             {!isPending && !isError && filings.length === 0 && (
-                <p className="text-sm text-slate-400">No filings available for this filter.</p>
+                <p className="text-sm text-slate-400">No filings found.</p>
             )}
 
             {!isPending && !isError && filings.length > 0 && (
@@ -122,22 +127,26 @@ export default function FilingsTable({ symbol }) {
                                     <td className="px-4 py-3 text-slate-300">{filing.description || "—"}</td>
                                     <td className="px-4 py-3">
                                         <div className="flex flex-wrap gap-3">
-                                            <a
-                                                href={filing.secIndexUrl}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="text-sky-300 underline decoration-sky-500/50 underline-offset-4"
-                                            >
-                                                Index
-                                            </a>
-                                            <a
-                                                href={filing.primaryDocUrl}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="text-sky-300 underline decoration-sky-500/50 underline-offset-4"
-                                            >
-                                                Document
-                                            </a>
+                                            {filing.secIndexUrl && (
+                                                <a
+                                                    href={filing.secIndexUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="text-sky-300 underline decoration-sky-500/50 underline-offset-4"
+                                                >
+                                                    Index
+                                                </a>
+                                            )}
+                                            {filing.primaryDocUrl && (
+                                                <a
+                                                    href={filing.primaryDocUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="text-sky-300 underline decoration-sky-500/50 underline-offset-4"
+                                                >
+                                                    Document
+                                                </a>
+                                            )}
                                         </div>
                                     </td>
                                 </tr>

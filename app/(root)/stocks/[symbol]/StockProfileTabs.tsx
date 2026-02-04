@@ -5,7 +5,7 @@ import type { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
 import { cn, formatMarketCapValue } from "@/lib/utils";
 import { formatCompactFinancialValue } from "@/utils/formatters";
 import { FinancialStatementTable, collectExpandableIds } from "./components/FinancialStatementTable";
-import FilingsTable from "@/src/components/finance/FilingsTable";
+import FilingsTable from "../../../../src/components/finance/FilingsTable";
 
 const tabList = [
     { key: "overview", label: "Overview" },
