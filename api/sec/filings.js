@@ -39,10 +39,18 @@ const redis = hasUpstash ? Redis.fromEnv() : null;
  * @returns {Promise<object|null>} Cached response.
  */
 async function getCache(key) {
-    if (redis) {
-        return (await redis.get(key)) ?? null;
+    try {
+        if (redis) {
+            return (await redis.get(key)) ?? null;
+        }
+        return getMemoryCache(key);
+    } catch (error) {
+        console.warn("[sec/filings] cache read failed", {
+            cacheKey: key,
+            message: error?.message,
+        });
+        return null;
     }
-    return getMemoryCache(key);
 }
 
 /**
@@ -66,7 +74,7 @@ async function setCache(key, value) {
  * @param {number} timeoutMs - Timeout in milliseconds.
  * @returns {Promise<Response>} Fetch response.
  */
-async function fetchWithTimeout(url, options, timeoutMs = 10000) {
+async function fetchWithTimeout(url, options, timeoutMs = 8000) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -180,7 +188,7 @@ export default async function handler(req, res) {
 
     const userAgent = process.env.SEC_USER_AGENT;
     if (!userAgent) {
-        res.status(500).json({ error: "SEC_USER_AGENT is required to call the SEC API." });
+        res.status(500).json({ error: "SEC_USER_AGENT is required to call the SEC API.", symbol });
         return;
     }
 
@@ -196,31 +204,44 @@ export default async function handler(req, res) {
         return;
     }
 
+    let currentUrl = "";
+    let currentCik = "";
+
     try {
         const headers = {
             "User-Agent": userAgent,
             Accept: "application/json",
         };
 
-        const tickerResponse = await fetchWithTimeout("https://www.sec.gov/files/company_tickers.json", { headers });
+        const tickerUrl = "https://www.sec.gov/files/company_tickers.json";
+        currentUrl = tickerUrl;
+        const tickerResponse = await fetchWithTimeout(tickerUrl, { headers });
         if (!tickerResponse.ok) {
-            res.status(tickerResponse.status).json({ error: "Failed to fetch SEC ticker mapping." });
+            res.status(tickerResponse.status).json({
+                error: "Failed to fetch SEC ticker mapping.",
+                details: `HTTP ${tickerResponse.status}`,
+                symbol,
+            });
             return;
         }
         const tickers = await tickerResponse.json();
         const match = resolveCik(symbol, tickers);
 
         if (!match) {
-            res.status(404).json({ error: `Ticker not found for symbol ${symbol}.` });
+            res.status(404).json({ error: `Ticker not found for symbol ${symbol}.`, symbol });
             return;
         }
 
-        const submissionsResponse = await fetchWithTimeout(
-            `https://data.sec.gov/submissions/CIK${match.cik}.json`,
-            { headers },
-        );
+        currentCik = match.cik;
+        const submissionsUrl = `https://data.sec.gov/submissions/CIK${match.cik}.json`;
+        currentUrl = submissionsUrl;
+        const submissionsResponse = await fetchWithTimeout(submissionsUrl, { headers });
         if (!submissionsResponse.ok) {
-            res.status(submissionsResponse.status).json({ error: "Failed to fetch SEC submissions." });
+            res.status(submissionsResponse.status).json({
+                error: "Failed to fetch SEC submissions.",
+                details: `HTTP ${submissionsResponse.status}`,
+                symbol,
+            });
             return;
         }
 
@@ -241,8 +262,13 @@ export default async function handler(req, res) {
         console.error("[sec/filings] error", {
             symbol,
             message: error?.message,
-            stack: error?.stack,
+            url: currentUrl,
+            cik: currentCik,
         });
-        res.status(500).json({ error: "Unexpected error fetching SEC filings." });
+        res.status(500).json({
+            error: "Unexpected error fetching SEC filings.",
+            details: error?.message,
+            symbol,
+        });
     }
 }

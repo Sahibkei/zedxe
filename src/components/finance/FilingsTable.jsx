@@ -23,9 +23,11 @@ export default function FilingsTable({ symbol }) {
     const [activeFilter, setActiveFilter] = useState("");
 
     const queryKey = useMemo(() => ["sec-filings", symbol, activeFilter], [symbol, activeFilter]);
-    const { data, isPending, isError, refetch } = useQuery({
+    const { data, isPending, isError, error, refetch } = useQuery({
         queryKey,
         enabled: Boolean(symbol),
+        staleTime: 5 * 60 * 1000,
+        refetchOnWindowFocus: false,
         queryFn: async () => {
             if (!symbol) {
                 throw new Error("Missing symbol");
@@ -94,7 +96,8 @@ export default function FilingsTable({ symbol }) {
 
             {isError && (
                 <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
-                    <p>Unable to load filings for {symbol?.toUpperCase()}.</p>
+                    <p>Filings failed to load for {symbol?.toUpperCase()}.</p>
+                    {error?.message && <p className="mt-1 text-xs text-red-100">{error.message}</p>}
                     <button
                         type="button"
                         className="mt-3 rounded-md border border-red-400/40 px-3 py-1.5 text-xs font-semibold text-red-100 hover:bg-red-500/20"
@@ -122,8 +125,11 @@ export default function FilingsTable({ symbol }) {
                             </tr>
                         </thead>
                         <tbody>
-                            {filings.map((filing) => (
-                                <tr key={`${filing.accession}-${filing.filed}`} className="border-t border-white/5">
+                            {filings.map((filing, idx) => (
+                                <tr
+                                    key={filing.accession ? `${filing.accession}-${filing.filed}` : `filing-${idx}`}
+                                    className="border-t border-white/5"
+                                >
                                     <td className="px-4 py-3 font-medium text-slate-100">{filing.filed || "—"}</td>
                                     <td className="px-4 py-3">{filing.form || "—"}</td>
                                     <td className="px-4 py-3">{filing.reportDate || "—"}</td>
