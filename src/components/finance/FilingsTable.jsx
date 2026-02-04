@@ -5,8 +5,12 @@ import { useQuery } from "@tanstack/react-query";
 
 function formatDate(value) {
     if (!value) return "";
-    const parsed = new Date(value);
+    const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+    const parsed = new Date(isDateOnly ? `${value}T00:00:00Z` : value);
     if (Number.isNaN(parsed.getTime())) return value;
+    if (isDateOnly) {
+        return parsed.toLocaleDateString(undefined, { timeZone: "UTC" });
+    }
     return parsed.toLocaleDateString();
 }
 
@@ -27,24 +31,46 @@ export default function FilingsTable({ symbol, form }) {
         queryKey: ["sec-filings", normalizedSymbol, normalizedForm],
         enabled: Boolean(normalizedSymbol),
         staleTime: 5 * 60 * 1000,
+        refetchOnWindowFocus: false,
         retry: 1,
         queryFn: async ({ signal }) => {
+            const url = buildFilingsUrl(normalizedSymbol, normalizedForm || "");
+            const bustedUrl = `${url}${url.includes("?") ? "&" : "?"}_t=${Date.now()}`;
+            let status;
             try {
-                const url = buildFilingsUrl(normalizedSymbol, normalizedForm || "");
-                const res = await fetch(url, {
+                const res = await fetch(bustedUrl, {
                     signal,
                     cache: "no-store",
                     headers: {
-                        "Cache-Control": "no-store",
+                        "Cache-Control": "no-cache",
                     },
                 });
+                status = res.status;
+                const text = await res.text();
                 if (!res.ok) {
-                    const text = await res.text().catch(() => "");
-                    throw new Error(`filings api ${res.status}: ${text.slice(0, 200)}`);
+                    throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
                 }
-                return res.json();
+                if (!text) {
+                    throw new Error(`Empty response body (HTTP ${res.status})`);
+                }
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (parseError) {
+                    throw new Error(`Invalid JSON (HTTP ${res.status})`);
+                }
+                if (!data || !Array.isArray(data.filings)) {
+                    throw new Error("Bad payload: missing filings[]");
+                }
+                return data;
             } catch (err) {
-                console.error("[filings] fetch failed", err);
+                const message = err instanceof Error ? err.message : String(err);
+                console.error("[filings] fetch failed", {
+                    symbol: normalizedSymbol,
+                    url: bustedUrl,
+                    status,
+                    message,
+                });
                 throw err;
             }
         },
@@ -68,8 +94,7 @@ export default function FilingsTable({ symbol, form }) {
 
             {isError && (
                 <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
-                    <p>Filings failed to load.</p>
-                    <p className="mt-1 text-xs text-red-100/80">{error?.message}</p>
+                    <p>Filings failed to load — {error?.message}</p>
                     <button
                         type="button"
                         className="mt-3 rounded-md border border-red-400/40 px-3 py-1.5 text-xs font-semibold text-red-100 hover:bg-red-500/20"

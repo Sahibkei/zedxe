@@ -358,7 +358,12 @@ export default async function handler(req, res) {
     }
 
     const cacheKey = `sec:companyfacts:${symbol.toUpperCase()}`;
-    const cached = await getCache(cacheKey);
+    let cached = null;
+    try {
+        cached = await getCache(cacheKey);
+    } catch (error) {
+        console.warn("cache read failed", error);
+    }
     if (cached) {
         res.status(200).json(cached);
         return;
@@ -400,7 +405,11 @@ export default async function handler(req, res) {
         const payload = buildPayload(symbol, factsJson);
         payload.cik = cik;
 
-        await setCache(cacheKey, payload);
+        try {
+            await setCache(cacheKey, payload);
+        } catch (error) {
+            console.warn("cache write failed", error);
+        }
         res.status(200).json(payload);
     } catch (error) {
         const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

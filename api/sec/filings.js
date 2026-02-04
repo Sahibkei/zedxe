@@ -189,7 +189,7 @@ function buildFilingsPayload(submissions, ticker, cik, formFilter) {
 }
 
 export default async function handler(req, res) {
-    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Cache-Control", "no-store, max-age=0");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
 
@@ -213,7 +213,12 @@ export default async function handler(req, res) {
     }
 
     const cacheKey = `sec:filings:${symbol}:${formFilter || "all"}`;
-    const cached = await getCache(cacheKey);
+    let cached = null;
+    try {
+        cached = await getCache(cacheKey);
+    } catch (error) {
+        console.warn("cache read failed", error);
+    }
     if (cached) {
         res.status(200).json(cached);
         return;
