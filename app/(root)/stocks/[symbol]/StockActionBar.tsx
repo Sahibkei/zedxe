@@ -36,12 +36,12 @@ const StockActionBar = ({ symbol, company, isInWatchlist, initialAlert }: { symb
             <Button
                 asChild
                 variant="outline"
-                className="h-10 rounded-lg border-white/20 px-4 text-sm text-slate-100 hover:bg-white/5"
+                className="h-10 rounded-lg border-white/10 bg-white/5 px-4 text-sm text-slate-100 hover:bg-white/10"
             >
                 <Link href={`/stocks/${symbol}/options`}>Options Analysis</Link>
             </Button>
             <Button
-                className="h-10 rounded-lg bg-yellow-500 px-4 text-sm font-semibold text-black hover:bg-yellow-400"
+                className="h-10 rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-900 hover:bg-white"
                 onClick={() => setModalOpen(true)}
             >
                 {alert ? 'Edit Alert' : 'Create Alert'}

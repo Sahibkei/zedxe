@@ -15,7 +15,7 @@ const COLORS = ['#60a5fa', '#3b82f6', '#2563eb', '#1d4ed8', '#1e40af'];
 const PortfolioAllocationPie = ({ positions }: PortfolioAllocationPieProps) => {
     if (!positions || positions.length === 0) {
         return (
-            <div className="rounded-lg border border-gray-800 bg-gray-900/60 p-4 text-sm text-gray-400">
+            <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 text-sm text-slate-400">
                 No holdings yet
             </div>
         );
@@ -32,13 +32,15 @@ const PortfolioAllocationPie = ({ positions }: PortfolioAllocationPieProps) => {
 
     if (data.length === 0) {
         return (
-            <div className="rounded-lg border border-gray-800 bg-gray-900/60 p-4 text-sm text-gray-400">No holdings yet</div>
+            <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 text-sm text-slate-400">
+                No holdings yet
+            </div>
         );
     }
 
     return (
-        <div className="rounded-lg border border-gray-800 bg-gray-900/60 p-4">
-            <h3 className="text-lg font-semibold text-gray-100">Allocation</h3>
+        <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 shadow-lg">
+            <h3 className="text-lg font-semibold text-slate-100">Allocation</h3>
             <div className="mt-4 h-72">
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -66,7 +68,7 @@ const PortfolioAllocationPie = ({ positions }: PortfolioAllocationPieProps) => {
                             contentStyle={{
                                 backgroundColor: 'rgba(15, 23, 42, 0.95)',
                                 borderRadius: 9999,
-                                border: '1px solid #1f2937',
+                                border: '1px solid rgba(255, 255, 255, 0.1)',
                                 padding: '4px 8px',
                             }}
                             itemStyle={{ color: '#ffffff' }}

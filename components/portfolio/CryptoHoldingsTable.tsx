@@ -21,10 +21,10 @@ const chainLabelMap = SUPPORTED_CHAINS.reduce<Record<string, string>>((acc, chai
 
 const CryptoHoldingsTable = ({ holdings }: { holdings: CryptoHolding[] }) => {
     return (
-        <div className="rounded-lg border border-gray-800 bg-gray-900/40">
+        <div className="rounded-2xl border border-white/10 bg-slate-900/40">
             <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-800 text-sm">
-                    <thead className="bg-gray-900/60 text-gray-400">
+                <table className="min-w-full divide-y divide-white/10 text-sm">
+                    <thead className="bg-white/5 text-slate-400">
                         <tr>
                             <th className="px-4 py-3 text-left font-semibold">Token</th>
                             <th className="px-4 py-3 text-left font-semibold">Symbol</th>
@@ -35,10 +35,10 @@ const CryptoHoldingsTable = ({ holdings }: { holdings: CryptoHolding[] }) => {
                             <th className="px-4 py-3 text-right font-semibold">Allocation</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-800 bg-gray-950/40 text-gray-100">
+                    <tbody className="divide-y divide-white/10 bg-slate-950/40 text-slate-100">
                         {holdings.length === 0 ? (
                             <tr>
-                                <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
+                                <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
                                     No crypto holdings yet. Paste a wallet address to load balances.
                                 </td>
                             </tr>
@@ -46,12 +46,12 @@ const CryptoHoldingsTable = ({ holdings }: { holdings: CryptoHolding[] }) => {
                             holdings.map((holding) => (
                                 <tr key={`${holding.chainId}-${holding.tokenAddress}`}>
                                     <td className="px-4 py-3">{holding.name}</td>
-                                    <td className="px-4 py-3 text-gray-300">{holding.symbol}</td>
-                                    <td className="px-4 py-3 text-gray-300">{chainLabelMap[holding.chainId] || holding.chainId}</td>
+                                    <td className="px-4 py-3 text-slate-300">{holding.symbol}</td>
+                                    <td className="px-4 py-3 text-slate-300">{chainLabelMap[holding.chainId] || holding.chainId}</td>
                                     <td className="px-4 py-3 text-right">{holding.balanceFormatted || holding.balance || '—'}</td>
                                     <td className="px-4 py-3 text-right">{formatCurrency(holding.usdPrice || 0)}</td>
                                     <td className="px-4 py-3 text-right">{formatCurrency(holding.usdValue || 0)}</td>
-                                    <td className="px-4 py-3 text-right text-gray-300">{formatNumber(holding.allocationPct)}%</td>
+                                    <td className="px-4 py-3 text-right text-slate-300">{formatNumber(holding.allocationPct)}%</td>
                                 </tr>
                             ))
                         )}

@@ -11,6 +11,7 @@ import PortfolioRatiosCard from '@/components/portfolio/PortfolioRatiosCard';
 import PortfolioSettingsDialog from '@/components/portfolio/PortfolioSettingsDialog';
 import CryptoPortfolioPanel from '@/components/portfolio/CryptoPortfolioPanel';
 import { Button } from '@/components/ui/button';
+import SectionCard from '@/src/components/ui/SectionCard';
 import { getPortfolioPerformanceAction, getPortfolioSummaryAction, getUserPortfoliosAction } from '@/lib/portfolio/actions';
 import type {
     PortfolioLean,
@@ -30,7 +31,7 @@ const formatCurrency = (value: number, currency: string) => {
 };
 
 const changeColor = (value: number) => {
-    if (!Number.isFinite(value) || value === 0) return 'text-gray-300';
+    if (!Number.isFinite(value) || value === 0) return 'text-slate-300';
     return value > 0 ? 'text-green-400' : 'text-red-400';
 };
 
@@ -240,9 +241,11 @@ const PortfolioPageClient = ({
     const renderStockPortfolios = () => {
         if (!hasPortfolios) {
             return (
-                <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-gray-800 bg-gray-900/40 p-10 text-center">
-                    <h2 className="text-2xl font-semibold text-gray-100">Your portfolio is empty</h2>
-                    <p className="max-w-xl text-gray-400">Create your first portfolio to start tracking your holdings and transactions.</p>
+                <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-white/10 bg-slate-900/40 p-10 text-center">
+                    <h2 className="text-2xl font-semibold text-slate-100">Your portfolio is empty</h2>
+                    <p className="max-w-xl text-slate-400">
+                        Create your first portfolio to start tracking your holdings and transactions.
+                    </p>
                     <AddPortfolioDialog triggerLabel="Create your first portfolio" onCreated={handlePortfolioCreated} />
                 </div>
             );
@@ -257,7 +260,11 @@ const PortfolioPageClient = ({
                             <Button
                                 key={p.id}
                                 variant={isActive ? 'default' : 'outline'}
-                                className={isActive ? 'bg-yellow-500 text-black hover:bg-yellow-400' : 'border-gray-700 text-gray-200'}
+                                className={
+                                    isActive
+                                        ? 'bg-slate-100 text-slate-900 hover:bg-white'
+                                        : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                                }
                                 onClick={() => handleSelectPortfolio(p.id)}
                             >
                                 {p.name} ({p.baseCurrency})
@@ -268,15 +275,17 @@ const PortfolioPageClient = ({
 
                 <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
                     <div className="space-y-4">
-                        <div className="rounded-lg border border-gray-800 bg-gray-900/60 p-6">
+                        <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6 shadow-lg">
                             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                                 <div>
-                                    <p className="text-sm text-gray-400">{summary?.portfolio.name || 'Portfolio'}</p>
-                                    <p className="text-xs text-gray-500">Base Currency: {baseCurrency}</p>
+                                    <p className="text-sm text-slate-400">{summary?.portfolio.name || 'Portfolio'}</p>
+                                    <p className="text-xs text-slate-500">Base Currency: {baseCurrency}</p>
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <div className="text-right">
-                                        <p className="text-3xl font-bold text-gray-100">{formatCurrency(totals.currentValue, baseCurrency)}</p>
+                                        <p className="text-3xl font-semibold text-slate-100">
+                                            {formatCurrency(totals.currentValue, baseCurrency)}
+                                        </p>
                                         <p className={`text-sm font-medium ${changeColor(totals.dayChangeValue)}`}>
                                             {formatCurrency(totals.dayChangeValue, baseCurrency)} ({totals.dayChangePct.toFixed(2)}% today)
                                         </p>
@@ -284,7 +293,7 @@ const PortfolioPageClient = ({
                                     <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="border border-gray-800 bg-gray-900 text-gray-200 hover:bg-gray-800"
+                                        className="border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
                                         onClick={() => setIsSettingsOpen(true)}
                                         disabled={!activePortfolioMeta}
                                     >
@@ -293,7 +302,7 @@ const PortfolioPageClient = ({
                                     </Button>
                                 </div>
                             </div>
-                            {loadingSummary && <p className="mt-2 text-sm text-gray-400">Refreshing portfolio...</p>}
+                            {loadingSummary && <p className="mt-2 text-sm text-slate-400">Refreshing portfolio...</p>}
                             <PortfolioPerformanceChart
                                 data={performancePoints}
                                 baseCurrency={baseCurrency}
@@ -305,7 +314,7 @@ const PortfolioPageClient = ({
                         </div>
 
                         <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-semibold text-gray-100">Holdings</h3>
+                            <h3 className="text-lg font-semibold text-slate-100">Holdings</h3>
                             <AddTransactionDialog
                                 key={selectedPortfolioId || portfolios[0]?.id}
                                 portfolios={portfolios}
@@ -362,11 +371,12 @@ const PortfolioPageClient = ({
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-8">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold text-gray-100">Portfolios</h1>
-                    <p className="text-sm text-gray-400">Manage your accounts, transactions, and holdings.</p>
+                    <p className="text-xs uppercase tracking-wide text-slate-400">Portfolio</p>
+                    <h1 className="text-2xl font-semibold text-slate-100">Portfolio Overview</h1>
+                    <p className="text-sm text-slate-400">Manage your accounts, transactions, and holdings.</p>
                 </div>
                 {mode === 'stocks' && <AddPortfolioDialog onCreated={handlePortfolioCreated} />}
             </div>
@@ -374,14 +384,22 @@ const PortfolioPageClient = ({
             <div className="flex items-center gap-2">
                 <Button
                     variant={mode === 'stocks' ? 'default' : 'outline'}
-                    className={mode === 'stocks' ? 'bg-yellow-500 text-black hover:bg-yellow-400' : 'border-gray-700 text-gray-200'}
+                    className={
+                        mode === 'stocks'
+                            ? 'bg-slate-100 text-slate-900 hover:bg-white'
+                            : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                    }
                     onClick={() => setMode('stocks')}
                 >
                     Stocks
                 </Button>
                 <Button
                     variant={mode === 'crypto' ? 'default' : 'outline'}
-                    className={mode === 'crypto' ? 'bg-yellow-500 text-black hover:bg-yellow-400' : 'border-gray-700 text-gray-200'}
+                    className={
+                        mode === 'crypto'
+                            ? 'bg-slate-100 text-slate-900 hover:bg-white'
+                            : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                    }
                     onClick={() => setMode('crypto')}
                 >
                     Crypto
@@ -391,7 +409,9 @@ const PortfolioPageClient = ({
             {mode === 'stocks' ? (
                 renderStockPortfolios()
             ) : (
-                <CryptoPortfolioPanel initialSnapshots={initialCryptoSnapshots} />
+                <SectionCard eyebrow="Crypto" title="Crypto Portfolio">
+                    <CryptoPortfolioPanel initialSnapshots={initialCryptoSnapshots} />
+                </SectionCard>
             )}
 
             {error && <p className="text-sm text-red-400">{error}</p>}
