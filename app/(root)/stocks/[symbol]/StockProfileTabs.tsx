@@ -32,8 +32,8 @@ function OverviewTab({ profile }: { profile: StockProfileV2Model }) {
         <div className="space-y-6">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground">Company</p>
-                    <p className="text-xl font-semibold">{profile.company.name || profile.finnhubSymbol}</p>
+                    <p className="text-sm text-slate-400">Company</p>
+                    <p className="text-xl font-semibold text-slate-100">{profile.company.name || profile.finnhubSymbol}</p>
                     {profile.company.website ? (
                         <a
                             href={profile.company.website}
@@ -44,34 +44,34 @@ function OverviewTab({ profile }: { profile: StockProfileV2Model }) {
                             {profile.company.website}
                         </a>
                     ) : (
-                        <p className="text-sm text-muted-foreground">Website not available.</p>
+                        <p className="text-sm text-slate-400">Website not available.</p>
                     )}
                 </div>
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-2 gap-4 text-sm text-slate-200">
                     <div>
-                        <p className="text-muted-foreground">Market Cap</p>
-                        <p className="font-medium">
+                        <p className="text-slate-400">Market Cap</p>
+                        <p className="font-medium text-slate-100">
                             {profile.company.marketCap ? formatMarketCapValue(profile.company.marketCap) : "—"}
                         </p>
                     </div>
                     <div>
-                        <p className="text-muted-foreground">Industry</p>
-                        <p className="font-medium">{profile.company.industry || "—"}</p>
+                        <p className="text-slate-400">Industry</p>
+                        <p className="font-medium text-slate-100">{profile.company.industry || "—"}</p>
                     </div>
                     <div>
-                        <p className="text-muted-foreground">Country</p>
-                        <p className="font-medium">{profile.company.country || "—"}</p>
+                        <p className="text-slate-400">Country</p>
+                        <p className="font-medium text-slate-100">{profile.company.country || "—"}</p>
                     </div>
                     <div>
-                        <p className="text-muted-foreground">Exchange</p>
-                        <p className="font-medium">{profile.company.exchange || "—"}</p>
+                        <p className="text-slate-400">Exchange</p>
+                        <p className="font-medium text-slate-100">{profile.company.exchange || "—"}</p>
                     </div>
                 </div>
             </div>
 
-            <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
-                <p className="text-sm font-medium">Business Overview</p>
-                <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
+            <div className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-2">
+                <p className="text-sm font-medium text-slate-100">Business Overview</p>
+                <p className="text-sm leading-relaxed text-slate-400">{description}</p>
             </div>
         </div>
     );
@@ -79,9 +79,9 @@ function OverviewTab({ profile }: { profile: StockProfileV2Model }) {
 
 function RatioRow({ label, value, isPercent = false }: { label: string; value?: number; isPercent?: boolean }) {
     return (
-        <div className="flex items-center justify-between border-b last:border-b-0 py-2 text-sm">
-            <span className="text-muted-foreground">{label}</span>
-            <span className="font-medium">{isPercent ? formatPercent(value) : formatNumber(value)}</span>
+        <div className="flex items-center justify-between border-b border-white/10 last:border-b-0 py-2 text-sm">
+            <span className="text-slate-400">{label}</span>
+            <span className="font-medium text-slate-100">{isPercent ? formatPercent(value) : formatNumber(value)}</span>
         </div>
     );
 }
@@ -89,7 +89,7 @@ function RatioRow({ label, value, isPercent = false }: { label: string; value?: 
 function RatiosTab({ profile }: { profile: StockProfileV2Model }) {
     const ratios = profile.metrics;
     return (
-        <div className="rounded-lg border divide-y">
+        <div className="rounded-lg border border-white/10 divide-y divide-white/10">
             <RatioRow label="P/E" value={ratios.pe} />
             <RatioRow label="P/B" value={ratios.pb} />
             <RatioRow label="P/S" value={ratios.ps} />
@@ -214,12 +214,12 @@ function FinancialsTab({ profile }: { profile: StockProfileV2Model }) {
 
     return (
         <div className="space-y-4">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-slate-400">
                 Values are in reported currency; figures shown in compact format (K/M/B/T).
             </p>
             <div className="flex flex-wrap items-center gap-2">
                 <div
-                    className="inline-flex flex-wrap gap-1 rounded-2xl border border-border/60 bg-muted/30 p-1 text-sm"
+                    className="inline-flex flex-wrap gap-1 rounded-2xl border border-white/10 bg-white/5 p-1 text-sm"
                     role="tablist"
                     aria-label="Financial statements"
                 >
@@ -232,8 +232,8 @@ function FinancialsTab({ profile }: { profile: StockProfileV2Model }) {
                                 className={cn(
                                     "rounded-xl px-3 py-1.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                                     isActive
-                                        ? "bg-primary/10 text-foreground shadow-sm ring-1 ring-primary/50"
-                                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                                        ? "bg-primary/10 text-slate-100 shadow-sm ring-1 ring-primary/50"
+                                        : "text-slate-400 hover:bg-white/10 hover:text-slate-100"
                                 )}
                                 type="button"
                                 role="tab"
@@ -291,7 +291,7 @@ export default function StockProfileTabs({ profile }: { profile: StockProfileV2M
     return (
         <div className="space-y-4">
             <div
-                className="inline-flex flex-wrap gap-2 rounded-2xl border border-border/60 bg-muted/30 p-1 text-sm font-medium"
+                className="flex flex-wrap gap-6 border-b border-white/10 text-sm font-medium"
                 role="tablist"
                 aria-label="Stock profile sections"
             >
@@ -304,10 +304,10 @@ export default function StockProfileTabs({ profile }: { profile: StockProfileV2M
                             key={tab.key}
                             onClick={() => setActiveTab(tab.key)}
                             className={cn(
-                                "rounded-xl px-4 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                                "border-b-2 border-transparent pb-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                                 isActive
-                                    ? "bg-primary/10 text-foreground shadow-sm ring-1 ring-primary/60"
-                                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                                    ? "border-primary text-slate-100"
+                                    : "text-slate-400 hover:text-slate-100"
                             )}
                             role="tab"
                             type="button"
@@ -322,12 +322,12 @@ export default function StockProfileTabs({ profile }: { profile: StockProfileV2M
             </div>
 
             {fundamentalsMissing && (
-                <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
+                <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-slate-400">
                     We couldn’t load fundamentals for this symbol right now. Please try again.
                 </div>
             )}
 
-            <div className="rounded-2xl border border-border/60 bg-card/60 p-4 shadow-sm">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-sm">
                 {tabList.map((tab) => {
                     const isActive = activeTab === tab.key;
                     const panelId = `${tab.key}-panel`;

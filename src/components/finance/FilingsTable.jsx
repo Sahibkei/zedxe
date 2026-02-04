@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ExternalLink } from "lucide-react";
 
 function formatDate(value) {
     if (!value) return "";
@@ -127,11 +128,11 @@ export default function FilingsTable({ symbol, form }) {
         <div className="space-y-3">
             {isPending && (
                 <div className="space-y-3">
-                    <div className="h-4 w-1/3 animate-pulse rounded bg-muted/50" />
-                    <div className="overflow-x-auto rounded-lg border border-border/60">
-                        <table className="w-full text-sm">
+                    <div className="h-4 w-1/3 animate-pulse rounded bg-white/10" />
+                    <div className="overflow-x-auto rounded-lg border border-white/10">
+                        <table className="w-full text-sm text-slate-200">
                             <thead>
-                                <tr className="text-left text-xs uppercase text-muted-foreground">
+                                <tr className="text-left text-xs uppercase text-slate-400">
                                     <th className="px-3 py-2">Form</th>
                                     <th className="px-3 py-2">Filed</th>
                                     <th className="px-3 py-2">Period End</th>
@@ -141,21 +142,21 @@ export default function FilingsTable({ symbol, form }) {
                             </thead>
                             <tbody>
                                 {Array.from({ length: 6 }).map((_, idx) => (
-                                    <tr key={`filing-skeleton-${idx}`} className="border-t">
+                                    <tr key={`filing-skeleton-${idx}`} className="border-t border-white/10">
                                         <td className="px-3 py-3">
-                                            <div className="h-5 w-12 animate-pulse rounded-full bg-muted/40" />
+                                            <div className="h-5 w-12 animate-pulse rounded-full bg-white/10" />
                                         </td>
                                         <td className="px-3 py-3">
-                                            <div className="h-4 w-20 animate-pulse rounded bg-muted/40" />
+                                            <div className="h-4 w-20 animate-pulse rounded bg-white/10" />
                                         </td>
                                         <td className="px-3 py-3">
-                                            <div className="h-4 w-20 animate-pulse rounded bg-muted/40" />
+                                            <div className="h-4 w-20 animate-pulse rounded bg-white/10" />
                                         </td>
                                         <td className="px-3 py-3">
-                                            <div className="h-4 w-48 animate-pulse rounded bg-muted/40" />
+                                            <div className="h-4 w-48 animate-pulse rounded bg-white/10" />
                                         </td>
                                         <td className="px-3 py-3 text-right">
-                                            <div className="ml-auto h-7 w-16 animate-pulse rounded bg-muted/40" />
+                                            <div className="ml-auto h-7 w-16 animate-pulse rounded bg-white/10" />
                                         </td>
                                     </tr>
                                 ))}
@@ -193,7 +194,7 @@ export default function FilingsTable({ symbol, form }) {
                                         className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
                                             isActive
                                                 ? "border-primary/50 bg-primary/15 text-primary"
-                                                : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted"
+                                                : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
                                         }`}
                                     >
                                         {formOption}
@@ -207,12 +208,12 @@ export default function FilingsTable({ symbol, form }) {
                                 value={searchTerm}
                                 onChange={(event) => setSearchTerm(event.target.value)}
                                 placeholder="Search description"
-                                className="h-9 w-full rounded-md border border-border/60 bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 sm:w-56"
+                                className="h-9 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/40 sm:w-56"
                             />
                             <select
                                 value={sortOrder}
                                 onChange={(event) => setSortOrder(event.target.value)}
-                                className="h-9 rounded-md border border-border/60 bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                className="h-9 rounded-md border border-white/10 bg-white/5 px-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/40"
                             >
                                 <option value="newest">Filed (newest)</option>
                                 <option value="oldest">Filed (oldest)</option>
@@ -221,12 +222,12 @@ export default function FilingsTable({ symbol, form }) {
                     </div>
 
                     {filteredFilings.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">No filings found for the selected filter.</p>
+                        <p className="text-sm text-slate-400">No filings found for the selected filter.</p>
                     ) : (
-                        <div className="overflow-x-auto rounded-lg border border-border/60">
-                            <table className="w-full text-sm">
+                        <div className="overflow-x-auto rounded-lg border border-white/10">
+                            <table className="w-full text-sm text-slate-200">
                                 <thead>
-                                    <tr className="text-left text-xs uppercase text-muted-foreground">
+                                    <tr className="text-left text-xs uppercase text-slate-400">
                                         <th className="px-3 py-2">Form</th>
                                         <th className="px-3 py-2">Filed</th>
                                         <th className="px-3 py-2">Period End</th>
@@ -241,21 +242,21 @@ export default function FilingsTable({ symbol, form }) {
                                         return (
                                             <tr
                                                 key={`${filing.accessionNumber || filing.formType}-${idx}`}
-                                                className="border-t border-border/60"
+                                                className="border-t border-white/10"
                                             >
                                                 <td className="px-3 py-3">
-                                                    <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs font-semibold text-foreground">
+                                                    <span className="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-xs font-semibold text-slate-100">
                                                         {filing.formType || "—"}
                                                     </span>
                                                 </td>
-                                                <td className="px-3 py-3 text-muted-foreground">
+                                                <td className="px-3 py-3 text-slate-400">
                                                     {formatDateOrDash(filing.filedAt)}
                                                 </td>
-                                                <td className="px-3 py-3 text-muted-foreground">
+                                                <td className="px-3 py-3 text-slate-400">
                                                     {formatDateOrDash(filing.reportDate || filing.periodEnd)}
                                                 </td>
                                                 <td className="px-3 py-3">
-                                                    <span className="block max-w-[220px] truncate text-muted-foreground sm:max-w-none sm:whitespace-normal">
+                                                    <span className="block max-w-[220px] truncate text-slate-300 sm:max-w-none sm:whitespace-normal">
                                                         {filing.description || filing.companyName || "—"}
                                                     </span>
                                                 </td>
@@ -265,7 +266,7 @@ export default function FilingsTable({ symbol, form }) {
                                                             type="button"
                                                             disabled
                                                             title="Link unavailable"
-                                                            className="cursor-not-allowed rounded-md border border-border/60 px-3 py-1.5 text-xs font-semibold text-muted-foreground/70"
+                                                            className="cursor-not-allowed rounded-md border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-500"
                                                         >
                                                             View
                                                         </button>
@@ -273,10 +274,11 @@ export default function FilingsTable({ symbol, form }) {
                                                         <a
                                                             href={link}
                                                             target="_blank"
-                                                            rel="noreferrer noopener"
-                                                            className="inline-flex items-center rounded-md border border-border/60 bg-muted/40 px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted"
+                                                            rel="noopener noreferrer"
+                                                            className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-semibold text-slate-100 transition hover:bg-white/20"
                                                         >
                                                             View
+                                                            <ExternalLink className="h-3.5 w-3.5" />
                                                         </a>
                                                     )}
                                                 </td>

@@ -12,6 +12,7 @@ const WatchlistButton = ({
     showTrashIcon = false,
     type = "button",
     onWatchlistChange,
+    className,
 }: WatchlistButtonProps) => {
     const [added, setAdded] = useState<boolean>(isInWatchlist);
     const [pending, startTransition] = useTransition();
@@ -61,7 +62,11 @@ const WatchlistButton = ({
     }
 
     return (
-        <button className={`watchlist-btn ${added ? "watchlist-remove" : ""}`} onClick={handleToggle} disabled={pending}>
+        <button
+            className={`watchlist-btn ${added ? "watchlist-remove" : ""} ${className ?? ""}`}
+            onClick={handleToggle}
+            disabled={pending}
+        >
             {pending ? "Updating..." : added ? "Remove from Watchlist" : "Add to Watchlist"}
         </button>
     );
