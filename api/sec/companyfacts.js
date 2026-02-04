@@ -4,6 +4,11 @@ const MEMORY_TTL_MS = 60 * 60 * 1000;
 const UPSTASH_TTL_SECONDS = 60 * 60 * 24;
 const memoryCache = new Map();
 
+/**
+ * Get a cached value from the in-memory cache if not expired.
+ * @param {string} key - Cache key.
+ * @returns {object|null} Cached value or null.
+ */
 function getMemoryCache(key) {
     const entry = memoryCache.get(key);
     if (!entry) return null;
@@ -14,6 +19,13 @@ function getMemoryCache(key) {
     return entry.value;
 }
 
+/**
+ * Store a value in the in-memory cache with TTL.
+ * @param {string} key - Cache key.
+ * @param {object} value - Value to store.
+ * @param {number} ttlMs - TTL in milliseconds.
+ * @returns {void}
+ */
 function setMemoryCache(key, value, ttlMs) {
     memoryCache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
@@ -21,6 +33,11 @@ function setMemoryCache(key, value, ttlMs) {
 const hasUpstash = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
 const redis = hasUpstash ? Redis.fromEnv() : null;
 
+/**
+ * Fetch a cached response from Upstash or memory.
+ * @param {string} key - Cache key.
+ * @returns {Promise<object|null>} Cached response.
+ */
 async function getCache(key) {
     if (redis) {
         return (await redis.get(key)) ?? null;
@@ -28,6 +45,12 @@ async function getCache(key) {
     return getMemoryCache(key);
 }
 
+/**
+ * Store a response in cache (Upstash or memory).
+ * @param {string} key - Cache key.
+ * @param {object} value - Value to cache.
+ * @returns {Promise<void>}
+ */
 async function setCache(key, value) {
     if (redis) {
         await redis.set(key, value, { ex: UPSTASH_TTL_SECONDS });
@@ -40,6 +63,28 @@ const FORM_PRIORITY = ["10-K", "20-F", "40-F"];
 const PREFERRED_UNITS = ["USD"];
 const EPS_UNITS = ["USD/shares", "USD/share"];
 
+/**
+ * Fetch with timeout using AbortController.
+ * @param {string} url - URL to fetch.
+ * @param {RequestInit} options - Fetch options.
+ * @param {number} timeoutMs - Timeout in milliseconds.
+ * @returns {Promise<Response>} Fetch response.
+ */
+async function fetchWithTimeout(url, options, timeoutMs = 10000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+/**
+ * Coerce a value to a number or null.
+ * @param {unknown} value - Raw value.
+ * @returns {number|null} Parsed number or null.
+ */
 function toNumber(value) {
     if (value === null || value === undefined) return null;
     if (typeof value === "number") return value;
@@ -47,6 +92,13 @@ function toNumber(value) {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Choose the first available fact entry by tag and preferred units.
+ * @param {Record<string, { units?: Record<string, Array<object>> }>} factMap - SEC fact map.
+ * @param {string[]} tags - Preferred tag list.
+ * @param {string[]} preferredUnits - Preferred unit list.
+ * @returns {{ unitKey: string, entries: Array<object> } | null} Selection.
+ */
 function chooseFact(factMap, tags, preferredUnits) {
     for (const tag of tags) {
         const fact = factMap?.[tag];
@@ -63,6 +115,11 @@ function chooseFact(factMap, tags, preferredUnits) {
     return null;
 }
 
+/**
+ * Normalize SEC fact entries to FY values by latest filed date and preferred form.
+ * @param {Array<object>} entries - SEC fact entries.
+ * @returns {Map<string, { value: number|null, rank?: number, filed?: string }>} Map of year to value.
+ */
 function normalizeEntries(entries) {
     const normalized = new Map();
     if (!Array.isArray(entries)) return normalized;
@@ -82,6 +139,12 @@ function normalizeEntries(entries) {
     return normalized;
 }
 
+/**
+ * Build a metric from SEC facts for the provided tags.
+ * @param {Record<string, { units?: Record<string, Array<object>> }>} factMap - SEC fact map.
+ * @param {{ metric: string, tags: string[], unit: string, preferredUnits?: string[] }} options - Metric options.
+ * @returns {{ metric: string, unit: string, valuesByYear: Map<string, { value: number|null }> }} Metric data.
+ */
 function buildMetric(factMap, { metric, tags, unit, preferredUnits }) {
     const selection = chooseFact(factMap, tags, preferredUnits ?? PREFERRED_UNITS);
     if (!selection) {
@@ -90,6 +153,11 @@ function buildMetric(factMap, { metric, tags, unit, preferredUnits }) {
     return { metric, unit, valuesByYear: normalizeEntries(selection.entries) };
 }
 
+/**
+ * Extract and sort all years from metric maps.
+ * @param {Array<Map<string, { value: number|null }>>} maps - Metric year maps.
+ * @returns {string[]} Years sorted descending.
+ */
 function extractYears(maps) {
     const yearSet = new Set();
     maps.forEach((map) => {
@@ -98,6 +166,12 @@ function extractYears(maps) {
     return Array.from(yearSet).sort((a, b) => Number(b) - Number(a));
 }
 
+/**
+ * Align metric values to the complete year list.
+ * @param {{ metric: string, unit: string, valuesByYear: Map<string, { value: number|null }> }} metricData - Metric data.
+ * @param {string[]} years - Year list.
+ * @returns {{ metric: string, unit: string, values: Array<number|null> }} Aligned metric.
+ */
 function alignMetric(metricData, years) {
     return {
         metric: metricData.metric,
@@ -106,6 +180,13 @@ function alignMetric(metricData, years) {
     };
 }
 
+/**
+ * Sum long-term and current debt values by year.
+ * @param {{ valuesByYear: Map<string, { value: number|null }> }} longTerm - Long-term debt.
+ * @param {{ valuesByYear: Map<string, { value: number|null }> }} current - Current debt.
+ * @param {string[]} years - Year list.
+ * @returns {{ metric: string, unit: string, valuesByYear: Map<string, { value: number|null }> }} Total debt metric.
+ */
 function sumDebt(longTerm, current, years) {
     const valuesByYear = new Map();
     years.forEach((year) => {
@@ -120,6 +201,12 @@ function sumDebt(longTerm, current, years) {
     return { metric: "Total Debt", unit: "USD", valuesByYear };
 }
 
+/**
+ * Build the normalized response payload for the frontend.
+ * @param {string} symbol - Ticker symbol.
+ * @param {object} data - SEC companyfacts payload.
+ * @returns {object} Normalized response.
+ */
 function buildPayload(symbol, data) {
     const factMap = data?.facts?.["us-gaap"] ?? {};
 
@@ -246,6 +333,12 @@ function buildPayload(symbol, data) {
     };
 }
 
+/**
+ * Vercel serverless handler for SEC companyfacts proxy.
+ * @param {import("http").IncomingMessage} req - Incoming request.
+ * @param {import("http").ServerResponse} res - Server response.
+ * @returns {Promise<void>}
+ */
 export default async function handler(req, res) {
     if (req.method !== "GET") {
         res.status(405).json({ error: "Method not allowed" });
@@ -272,14 +365,15 @@ export default async function handler(req, res) {
     }
 
     try {
+        const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
         const headers = {
             "User-Agent": userAgent,
             Accept: "application/json",
         };
 
-        const tickerResponse = await fetch("https://www.sec.gov/files/company_tickers.json", { headers });
+        const tickerResponse = await fetchWithTimeout("https://www.sec.gov/files/company_tickers.json", { headers });
         if (!tickerResponse.ok) {
-            res.status(tickerResponse.status).json({ error: "Failed to fetch SEC ticker mapping." });
+            res.status(tickerResponse.status).json({ error: "Failed to fetch SEC ticker mapping.", requestId });
             return;
         }
         const tickers = await tickerResponse.json();
@@ -288,14 +382,17 @@ export default async function handler(req, res) {
         );
 
         if (!match) {
-            res.status(404).json({ error: `Ticker not found for symbol ${symbol}.` });
+            res.status(404).json({ error: `Ticker not found for symbol ${symbol}.`, requestId });
             return;
         }
 
         const cik = String(match.cik_str).padStart(10, "0");
-        const factsResponse = await fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, { headers });
+        const factsResponse = await fetchWithTimeout(
+            `https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`,
+            { headers },
+        );
         if (!factsResponse.ok) {
-            res.status(factsResponse.status).json({ error: "Failed to fetch SEC company facts." });
+            res.status(factsResponse.status).json({ error: "Failed to fetch SEC company facts.", requestId });
             return;
         }
 
@@ -306,6 +403,15 @@ export default async function handler(req, res) {
         await setCache(cacheKey, payload);
         res.status(200).json(payload);
     } catch (error) {
-        res.status(500).json({ error: "Unexpected error fetching SEC company facts." });
+        const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        console.error("[sec/companyfacts] error", {
+            symbol,
+            message: error?.message,
+            stack: error?.stack,
+        });
+        res.status(500).json({
+            error: "Unexpected error fetching SEC company facts.",
+            requestId,
+        });
     }
 }

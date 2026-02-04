@@ -18,12 +18,28 @@ const epsFormatter = new Intl.NumberFormat("en-US", {
 
 const chartColors = ["#38bdf8", "#a855f7", "#22c55e", "#f97316", "#facc15"];
 
+/**
+ * Format numeric values based on unit.
+ * @param {number|null|undefined} value - Raw value.
+ * @param {string} unit - Unit string.
+ * @returns {string} Formatted value.
+ */
 function formatValue(value, unit) {
     if (value === null || value === undefined) return "—";
     if (unit === "USD/share") return epsFormatter.format(value);
     return compactFormatter.format(value);
 }
 
+/**
+ * Render a financial statement table with selectable metric rows.
+ * @param {object} props - Component props.
+ * @param {string} props.title - Table title.
+ * @param {Array<{ metric: string, values: Array<number|null>, unit: string, isPercent?: boolean }>} props.rows - Table rows.
+ * @param {string[]} props.years - Year columns.
+ * @param {Set<string>} props.selectedKeys - Selected row keys.
+ * @param {(key: string, row: object) => void} props.onToggle - Toggle handler.
+ * @returns {JSX.Element} Table component.
+ */
 function FinancialStatementTable({ title, rows, years, selectedKeys, onToggle }) {
     return (
         <div className="space-y-3">
@@ -51,11 +67,21 @@ function FinancialStatementTable({ title, rows, years, selectedKeys, onToggle })
                             return (
                                 <tr
                                     key={row.metric}
+                                    role={isSelectable ? "button" : undefined}
+                                    tabIndex={isSelectable ? 0 : undefined}
+                                    aria-pressed={isSelectable ? isSelected : undefined}
                                     className={`border-t border-white/5 transition ${
                                         isSelectable ? "cursor-pointer hover:bg-white/5" : "cursor-default"
                                     } ${isSelected ? "bg-sky-500/10" : ""}`}
                                     onClick={() => {
                                         if (isSelectable) onToggle(key, row);
+                                    }}
+                                    onKeyDown={(event) => {
+                                        if (!isSelectable) return;
+                                        if (event.key === "Enter" || event.key === " ") {
+                                            event.preventDefault();
+                                            onToggle(key, row);
+                                        }
                                     }}
                                 >
                                     <td className="px-4 py-3 font-medium text-slate-100">
@@ -77,6 +103,12 @@ function FinancialStatementTable({ title, rows, years, selectedKeys, onToggle })
     );
 }
 
+/**
+ * Fetch and render SEC-based financial tables with chart selection.
+ * @param {object} props - Component props.
+ * @param {string} props.symbol - Ticker symbol.
+ * @returns {JSX.Element} Financials table UI.
+ */
 export default function FinancialsTable({ symbol }) {
     const [selectedRows, setSelectedRows] = useState(new Map());
     const [showChart, setShowChart] = useState(false);
@@ -85,7 +117,7 @@ export default function FinancialsTable({ symbol }) {
         queryKey: ["sec-companyfacts", symbol],
         enabled: Boolean(symbol),
         queryFn: async () => {
-            const response = await fetch(`/api/sec/companyfacts?symbol=${symbol}`);
+            const response = await fetch(`/api/sec/companyfacts?symbol=${encodeURIComponent(symbol)}`);
             if (!response.ok) {
                 throw new Error("Failed to load financials");
             }
@@ -93,7 +125,7 @@ export default function FinancialsTable({ symbol }) {
         },
     });
 
-    const selectedList = Array.from(selectedRows.values());
+    const selectedList = useMemo(() => Array.from(selectedRows.values()), [selectedRows]);
 
     const chartData = useMemo(() => {
         if (!data?.years || selectedList.length === 0) return [];
@@ -108,6 +140,8 @@ export default function FinancialsTable({ symbol }) {
             return point;
         });
     }, [data, selectedList]);
+
+    const chartUnit = selectedList[0]?.unit ?? "USD";
 
     const handleToggle = (key, row) => {
         setSelectedRows((prev) => {
@@ -204,7 +238,7 @@ export default function FinancialsTable({ symbol }) {
                                             stroke="#94a3b8"
                                             tickLine={false}
                                             axisLine={false}
-                                            tickFormatter={(value) => formatValue(value)}
+                                            tickFormatter={(value) => formatValue(value, chartUnit)}
                                         />
                                         <Tooltip
                                             formatter={(value, name) => {
