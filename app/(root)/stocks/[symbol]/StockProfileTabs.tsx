@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { StockProfileV2Model } from "@/lib/stocks/stockProfileV2.types";
 import { cn, formatMarketCapValue } from "@/lib/utils";
 import { formatCompactFinancialValue } from "@/utils/formatters";
+import FilingsTable from "@/src/components/finance/FilingsTable";
 import { FinancialStatementTable, collectExpandableIds } from "./components/FinancialStatementTable";
 
 const tabList = [
@@ -277,36 +278,8 @@ function FinancialsTab({ profile }: { profile: StockProfileV2Model }) {
 }
 
 function FilingsTab({ profile }: { profile: StockProfileV2Model }) {
-    if (!profile.filings || profile.filings.length === 0) {
-        return <p className="text-sm text-muted-foreground">No filings available.</p>;
-    }
-
-    return (
-        <div className="space-y-3">
-            {profile.filings.map((filing, idx) => (
-                <div key={`${filing.accessionNumber}-${idx}`} className="border rounded-lg p-3 text-sm">
-                    <div className="flex items-center justify-between">
-                        <span className="font-semibold">{filing.formType}</span>
-                        <span className="text-muted-foreground">
-                            {filing.filedAt || ""}
-                            {filing.periodEnd ? ` · Period end ${filing.periodEnd}` : ""}
-                        </span>
-                    </div>
-                    <p className="text-muted-foreground">{filing.companyName || filing.description || ""}</p>
-                    {filing.link && (
-                        <a
-                            href={filing.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 underline text-sm"
-                        >
-                            View filing
-                        </a>
-                    )}
-                </div>
-            ))}
-        </div>
-    );
+    const symbol = profile.secTicker || profile.symbolRaw || profile.finnhubSymbol;
+    return <FilingsTable symbol={symbol} />;
 }
 
 export default function StockProfileTabs({ profile }: { profile: StockProfileV2Model }) {
