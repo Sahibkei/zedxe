@@ -27,19 +27,22 @@ export default function FilingsTable({ symbol }) {
         queryKey,
         enabled: Boolean(symbol),
         queryFn: async () => {
+            if (!symbol) {
+                throw new Error("Missing symbol");
+            }
             let url = `/api/sec/filings?symbol=${encodeURIComponent(symbol)}`;
             if (activeFilter) {
                 url += `&form=${encodeURIComponent(activeFilter)}`;
             }
             const response = await fetch(url);
+            const text = await response.text();
             if (!response.ok) {
-                const message = await response.text();
-                throw new Error(message || "Failed to load filings");
+                throw new Error(`filings ${response.status}: ${text.slice(0, 200)}`);
             }
             try {
-                return await response.json();
+                return JSON.parse(text);
             } catch (parseError) {
-                throw new Error(parseError?.message || "Failed to parse filings response");
+                throw new Error(parseError?.message || "Invalid JSON");
             }
         },
     });

@@ -6,6 +6,7 @@ import { cn, formatMarketCapValue } from "@/lib/utils";
 import { formatCompactFinancialValue } from "@/utils/formatters";
 import { FinancialStatementTable, collectExpandableIds } from "./components/FinancialStatementTable";
 import FilingsTable from "../../../../src/components/finance/FilingsTable";
+import ErrorBoundary from "../../../../src/components/common/ErrorBoundary";
 
 const tabList = [
     { key: "overview", label: "Overview" },
@@ -278,7 +279,11 @@ function FinancialsTab({ profile }: { profile: StockProfileV2Model }) {
 }
 
 function FilingsTab({ profile }: { profile: StockProfileV2Model }) {
-    return <FilingsTable symbol={profile.secTicker || profile.finnhubSymbol} />;
+    return (
+        <ErrorBoundary fallback={<div className="p-4 text-slate-300">Filings failed to load.</div>}>
+            <FilingsTable symbol={profile.secTicker || profile.finnhubSymbol} />
+        </ErrorBoundary>
+    );
 }
 
 export default function StockProfileTabs({ profile }: { profile: StockProfileV2Model }) {
