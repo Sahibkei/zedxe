@@ -15,7 +15,7 @@ const formatNumber = (value: number, digits = 2) => {
 };
 
 const getChangeClass = (value: number) => {
-    if (!Number.isFinite(value) || value === 0) return 'text-gray-300';
+    if (!Number.isFinite(value) || value === 0) return 'text-slate-300';
     return value > 0 ? 'text-green-400' : 'text-red-400';
 };
 
@@ -38,10 +38,10 @@ const PortfolioHoldingsTable = ({
     const { totalPnlAbs, totalPnlPct } = calculateTotals(positions);
 
     return (
-        <div className="rounded-lg border border-gray-800 bg-gray-900/40">
+        <div className="rounded-2xl border border-white/10 bg-slate-900/40">
             <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-800 text-sm">
-                    <thead className="bg-gray-900/60 text-gray-400">
+                <table className="min-w-full divide-y divide-white/10 text-sm">
+                    <thead className="bg-white/5 text-slate-400">
                         <tr>
                             <th className="px-4 py-3 text-left font-semibold">Company</th>
                             <th className="px-4 py-3 text-left font-semibold">Symbol</th>
@@ -55,10 +55,10 @@ const PortfolioHoldingsTable = ({
                             <th className="px-4 py-3 text-right font-semibold">Actions</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-800 bg-gray-950/40 text-gray-100">
+                    <tbody className="divide-y divide-white/10 bg-slate-950/40 text-slate-100">
                         {positions.length === 0 ? (
                             <tr>
-                                <td colSpan={10} className="px-4 py-6 text-center text-gray-400">
+                                <td colSpan={10} className="px-4 py-6 text-center text-slate-400">
                                     No holdings yet. Add your first transaction.
                                 </td>
                             </tr>
@@ -66,7 +66,7 @@ const PortfolioHoldingsTable = ({
                             positions.map((position) => (
                                 <tr key={position.symbol}>
                                     <td className="px-4 py-3">{position.companyName || position.symbol}</td>
-                                    <td className="px-4 py-3 text-gray-300">{position.symbol}</td>
+                                    <td className="px-4 py-3 text-slate-300">{position.symbol}</td>
                                     <td className="px-4 py-3 text-right">{formatNumber(position.quantity, 4)}</td>
                                     <td className="px-4 py-3 text-right">{formatCurrency(position.avgPrice, baseCurrency)}</td>
                                     <td className="px-4 py-3 text-right">{formatCurrency(position.currentPrice, baseCurrency)}</td>
@@ -77,11 +77,11 @@ const PortfolioHoldingsTable = ({
                                     <td className={`px-4 py-3 text-right ${getChangeClass(position.pnlPct)}`}>
                                         {formatNumber(position.pnlPct)}%
                                     </td>
-                                    <td className="px-4 py-3 text-right text-gray-300">{formatNumber(position.weightPct)}%</td>
+                                    <td className="px-4 py-3 text-right text-slate-300">{formatNumber(position.weightPct)}%</td>
                                     <td className="px-4 py-3 text-right">
                                         <Button
                                             variant="link"
-                                            className="px-0 text-yellow-400"
+                                            className="px-0 text-emerald-300"
                                             onClick={() => onAddTransactionForSymbol?.(position.symbol)}
                                         >
                                             Add
@@ -91,7 +91,7 @@ const PortfolioHoldingsTable = ({
                             ))
                         )}
                     </tbody>
-                    <tfoot className="bg-gray-900/60 text-gray-100">
+                    <tfoot className="bg-white/5 text-slate-100">
                         <tr>
                             <td colSpan={6} className="px-4 py-3 text-right font-semibold">
                                 Total P/L

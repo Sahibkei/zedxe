@@ -148,44 +148,46 @@ const CryptoPortfolioPanel = ({ initialSnapshots }: { initialSnapshots: CryptoPo
 
     return (
         <div className="space-y-6">
-            <div className="rounded-lg border border-gray-800 bg-gray-900/60 p-6">
+            <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6 shadow-lg">
                 <div className="flex flex-col gap-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <div className="flex items-center gap-2 text-sm text-gray-400">
+                        <div className="flex items-center gap-2 text-sm text-slate-400">
                             <span>Supported chains:</span>
                             {SUPPORTED_CHAINS.map((chain) => (
-                                <span key={chain.id} className="rounded-full bg-gray-800 px-3 py-1 text-xs text-gray-200">
+                                <span key={chain.id} className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200">
                                     {chain.label}
                                 </span>
                             ))}
                         </div>
                         <div className="text-right">
-                            <p className="text-sm text-gray-400">Total Value (USDT ≈ USD)</p>
-                            <p className="text-3xl font-bold text-gray-100">{formatCurrency(snapshot?.totalValueUsd || 0)}</p>
+                            <p className="text-sm text-slate-400">Total Value (USDT ≈ USD)</p>
+                            <p className="text-3xl font-semibold text-slate-100">
+                                {formatCurrency(snapshot?.totalValueUsd || 0)}
+                            </p>
                         </div>
                     </div>
 
                     <div className="grid gap-4 md:grid-cols-2">
                         <div className="space-y-2">
-                            <Label className="text-sm text-gray-300">Saved wallets</Label>
+                            <Label className="text-sm text-slate-300">Saved wallets</Label>
                             <Select value={selectedSnapshotId || 'new'} onValueChange={handleSelectWallet}>
-                                <SelectTrigger className="w-full border-gray-800 bg-gray-900 text-gray-100">
+                                <SelectTrigger className="w-full border-white/10 bg-slate-950/60 text-slate-100">
                                     <SelectValue placeholder="Select a saved wallet" />
                                 </SelectTrigger>
-                                <SelectContent className="border-gray-800 bg-gray-900 text-gray-100">
+                                <SelectContent className="border-white/10 bg-slate-950 text-slate-100">
                                     {snapshots.map((s) => (
-                                        <SelectItem key={s.id} value={s.id} className="hover:bg-gray-800">
+                                        <SelectItem key={s.id} value={s.id} className="hover:bg-white/10">
                                             {formatWalletLabel(s)}
                                         </SelectItem>
                                     ))}
-                                    <SelectItem value="new" className="hover:bg-gray-800">
+                                    <SelectItem value="new" className="hover:bg-white/10">
                                         + New wallet
                                     </SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label className="text-sm text-gray-300" htmlFor="walletName">
+                            <Label className="text-sm text-slate-300" htmlFor="walletName">
                                 Wallet name
                             </Label>
                             <Input
@@ -197,7 +199,7 @@ const CryptoPortfolioPanel = ({ initialSnapshots }: { initialSnapshots: CryptoPo
                             />
                         </div>
                         <div className="space-y-2 md:col-span-2">
-                            <Label className="text-sm text-gray-300" htmlFor="walletAddress">
+                            <Label className="text-sm text-slate-300" htmlFor="walletAddress">
                                 Wallet address
                             </Label>
                             <Input
@@ -212,7 +214,7 @@ const CryptoPortfolioPanel = ({ initialSnapshots }: { initialSnapshots: CryptoPo
                             {selectedSnapshotId && (
                                 <Button
                                     variant="ghost"
-                                    className="border border-gray-800 text-red-400 hover:bg-gray-800"
+                                    className="border border-white/10 text-red-400 hover:bg-white/10"
                                     onClick={handleDelete}
                                     disabled={isSavingMeta}
                                 >
@@ -222,14 +224,19 @@ const CryptoPortfolioPanel = ({ initialSnapshots }: { initialSnapshots: CryptoPo
                             {selectedSnapshotId && (
                                 <Button
                                     variant="outline"
-                                    className="border-gray-800 text-gray-100 hover:bg-gray-800"
+                                    className="border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
                                     onClick={handleSaveMeta}
                                     disabled={isSavingMeta}
                                 >
                                     Save changes
                                 </Button>
                             )}
-                            <Button onClick={handleRefresh} disabled={isRefreshing} className="md:w-auto" variant="secondary">
+                            <Button
+                                onClick={handleRefresh}
+                                disabled={isRefreshing}
+                                className="md:w-auto bg-slate-100 text-slate-900 hover:bg-white"
+                                variant="secondary"
+                            >
                                 <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                                 {snapshot ? 'Refresh balances' : 'Save & refresh'}
                             </Button>
@@ -237,7 +244,7 @@ const CryptoPortfolioPanel = ({ initialSnapshots }: { initialSnapshots: CryptoPo
                     </div>
                     {error && <p className="text-sm text-red-400">{error}</p>}
                     {snapshot?.updatedAt && (
-                        <p className="text-xs text-gray-500">Last updated: {new Date(snapshot.updatedAt).toLocaleString()}</p>
+                        <p className="text-xs text-slate-500">Last updated: {new Date(snapshot.updatedAt).toLocaleString()}</p>
                     )}
                 </div>
             </div>

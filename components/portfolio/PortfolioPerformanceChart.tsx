@@ -43,7 +43,7 @@ const PortfolioPerformanceChart = ({
         <div className="mt-4 flex flex-col gap-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <p className="text-sm text-gray-400">Performance</p>
+                    <p className="text-sm text-slate-400">Performance</p>
                     {error && <p className="text-xs text-red-400">{error}</p>}
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -56,8 +56,8 @@ const PortfolioPerformanceChart = ({
                                 variant={isActive ? 'default' : 'outline'}
                                 className={
                                     isActive
-                                        ? 'bg-yellow-500 text-black hover:bg-yellow-400'
-                                        : 'border-gray-700 text-gray-200 hover:bg-gray-800'
+                                        ? 'bg-slate-100 text-slate-900 hover:bg-white'
+                                        : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
                                 }
                                 onClick={() => onRangeChange?.(range)}
                                 disabled={loading || !onRangeChange}
@@ -69,35 +69,39 @@ const PortfolioPerformanceChart = ({
                 </div>
             </div>
 
-            <div className="h-72 w-full rounded-lg border border-gray-800 bg-gray-900/60 p-4">
+            <div className="h-72 w-full rounded-2xl border border-white/10 bg-slate-900/60 p-4">
                 {loading ? (
-                    <div className="flex h-full items-center justify-center text-sm text-gray-400">Loading performance...</div>
+                    <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading performance...</div>
                 ) : chartData.length < 2 ? (
-                    <div className="flex h-full items-center justify-center text-center text-sm text-gray-400">
+                    <div className="flex h-full items-center justify-center text-center text-sm text-slate-400">
                         Not enough data to render a chart yet
                     </div>
                 ) : (
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={chartData} margin={{ left: 12, right: 12, top: 12, bottom: 12 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.2)" />
                             <XAxis
                                 dataKey="date"
-                                tick={{ fill: '#9ca3af', fontSize: 12 }}
+                                tick={{ fill: '#94a3b8', fontSize: 12 }}
                                 tickLine={false}
-                                axisLine={{ stroke: '#1f2937' }}
+                                axisLine={{ stroke: 'rgba(148, 163, 184, 0.2)' }}
                             />
                             <YAxis
-                                tick={{ fill: '#9ca3af', fontSize: 12 }}
+                                tick={{ fill: '#94a3b8', fontSize: 12 }}
                                 tickLine={false}
-                                axisLine={{ stroke: '#1f2937' }}
+                                axisLine={{ stroke: 'rgba(148, 163, 184, 0.2)' }}
                                 tickFormatter={(value: number) => formatCurrency(value, baseCurrency)}
                             />
                             <Tooltip
-                                contentStyle={{ backgroundColor: '#0b1224', borderColor: '#1f2937', color: '#e5e7eb' }}
+                                contentStyle={{
+                                    backgroundColor: '#0b1220',
+                                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                                    color: '#e2e8f0',
+                                }}
                                 formatter={(value: number) => formatCurrency(value, baseCurrency)}
                                 labelFormatter={(label) => label}
                             />
-                            <Line type="monotone" dataKey="value" stroke="#facc15" strokeWidth={2} dot={false} />
+                            <Line type="monotone" dataKey="value" stroke="#38bdf8" strokeWidth={2} dot={false} />
                         </LineChart>
                     </ResponsiveContainer>
                 )}

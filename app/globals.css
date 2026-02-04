@@ -116,7 +116,7 @@
 @theme {
     /* Extended Gray Scale */
     --color-gray-900: #050505;
-    --color-gray-800: #141414;
+    --color-gray-800: #0b0f14;
     --color-gray-700: #212328;
     --color-gray-600: #30333A;
     --color-gray-500: #9095A1;
@@ -261,10 +261,10 @@
         @apply w-full grid-cols-1 gap-6 xl:grid-cols-3 space-y-6 sm:space-y-8;
     }
     .watchlist-btn {
-        @apply bg-yellow-500 text-base hover:bg-yellow-500 text-gray-900 w-full rounded h-11 font-semibold cursor-pointer;
+        @apply bg-white/10 text-base hover:bg-white/20 text-slate-100 w-full rounded-lg h-11 font-semibold cursor-pointer border border-white/10;
     }
     .watchlist-remove {
-        @apply bg-red-500! hover:bg-red-500! text-gray-900!
+        @apply bg-red-500/20 hover:bg-red-500/30 text-red-200 border-red-500/40;
     }
     .watchlist-empty-container {
         @apply container gap-8 flex-col items-center md:mt-10 p-6 text-center;
@@ -398,30 +398,30 @@
 /* TradingView Advanced Chart Widget Styles */
 .tradingview-widget-container {
     position: relative;
-    background-color: #141414 !important;
+    background-color: #0b0f14 !important;
     border-radius: 8px !important;
     overflow: hidden !important;
 }
 
 .tv-embed-widget-wrapper__body {
-    background-color: #141414 !important;
+    background-color: #0b0f14 !important;
 }
 
 .tradingview-widget-container__widget {
-    background-color: #141414 !important;
+    background-color: #0b0f14 !important;
     height: 100% !important;
 
 }
 
 .widget-stock-heatmap-container .screenerMapWrapper-BBVfGP0b {
     overflow: hidden !important;
-    background: #141414 !important;
-    background-color: #141414 !important;
+    background: #0b0f14 !important;
+    background-color: #0b0f14 !important;
 }
 
 .canvasContainer-tyaAU8aH {
-    background: #141414 !important;
-    background-color: #141414 !important;
+    background: #0b0f14 !important;
+    background-color: #0b0f14 !important;
 }
 
 .tv-site-widget--bg_none {
@@ -448,12 +448,12 @@
 }
 
 .tv-embed-widget-wrapper .tv-embed-widget-wrapper__body {
-    background: #141414 !important;
-    background-color: #141414 !important;
+    background: #0b0f14 !important;
+    background-color: #0b0f14 !important;
 }
 
 .tradingview-widget-container iframe {
-    background-color: #141414 !important;
+    background-color: #0b0f14 !important;
     width: 100% !important;
 }
 

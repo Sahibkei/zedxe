@@ -26,12 +26,24 @@ const StockActionBar = ({ symbol, company, isInWatchlist, initialAlert }: { symb
     };
 
     return (
-        <div className="flex items-center gap-3">
-            <WatchlistButton symbol={symbol} company={company} isInWatchlist={isInWatchlist} />
-            <Button asChild variant="outline">
+        <div className="flex flex-wrap items-center gap-3">
+            <WatchlistButton
+                symbol={symbol}
+                company={company}
+                isInWatchlist={isInWatchlist}
+                className="h-10 w-auto rounded-lg px-4 text-sm font-semibold"
+            />
+            <Button
+                asChild
+                variant="outline"
+                className="h-10 rounded-lg border-white/10 bg-white/5 px-4 text-sm text-slate-100 hover:bg-white/10"
+            >
                 <Link href={`/stocks/${symbol}/options`}>Options Analysis</Link>
             </Button>
-            <Button className="bg-yellow-500 text-black hover:bg-yellow-400" onClick={() => setModalOpen(true)}>
+            <Button
+                className="h-10 rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-900 hover:bg-white"
+                onClick={() => setModalOpen(true)}
+            >
                 {alert ? 'Edit Alert' : 'Create Alert'}
             </Button>
             {modalOpen && (
