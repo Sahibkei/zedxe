@@ -7,7 +7,7 @@ interface TradingViewWidgetProps {
     title?: string;
     scripUrl: string;
     config: Record<string, unknown>;
-    height?: number;
+    height?: number | string;
     className?: string;
 }
 
@@ -15,7 +15,7 @@ const TradingViewWidget = ({ title, scripUrl, config, height, className}: Tradin
     const containerRef = useTradingViewWidget(scripUrl, config, height ?? 600);
 
     return (
-        <div className="w-full">
+        <div className="h-full w-full">
             {title && <h3 className="font-semibold text-2xl text-gray-100 mb-5">{title}</h3>}
             <div
                 className={cn('tradingview-widget-container tv-embed w-full', className)}

@@ -54,8 +54,8 @@ const MarketOverviewCard = () => {
                 <span className="text-xs font-mono text-slate-500">{activeTab} sector</span>
             </div>
 
-            <div className="mt-4 rounded-lg border border-[#1c2432] bg-[#0b0f14] p-3">
-                <div className="h-40 w-full">
+            <div className="mt-4 h-[260px] w-full overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+                <div className="h-full w-full">
                     <MarketOverviewTradingView symbol={symbol} range={range} />
                 </div>
             </div>

@@ -21,7 +21,7 @@ const IndicesStrip = ({ quotes }: { quotes: Record<string, MarketQuote | null> }
                     <div
                         key={index.label}
                         tabIndex={0}
-                        className="flex min-w-[180px] flex-1 cursor-pointer flex-col gap-2 rounded-xl border border-[#1c2432] bg-gradient-to-br from-[#0d1117]/80 to-[#0b0f14] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-500/60 hover:bg-white/5 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_16px_40px_rgba(0,0,0,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500/60"
+                        className="flex min-w-[180px] flex-1 cursor-pointer flex-col gap-2 rounded-xl border border-[#1c2432] bg-gradient-to-br from-[#0d1117]/80 to-[#0b0f14] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/5 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_18px_40px_rgba(0,0,0,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
                     >
                         <div className="flex items-center justify-between">
                             <span className="text-xs font-mono text-slate-400">{index.label}</span>
