@@ -37,47 +37,47 @@ const UserDropdown = ({ user, initialStocks }: {user: User, initialStocks: Stock
         <>
             <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="flex items-center gap-3 text-gray-4 hover:text-yellow-500">
+                    <Button variant="ghost" className="flex items-center gap-3 text-slate-200 hover:text-[#58a6ff]">
                         <Avatar className="h-8 w-8">
                             <AvatarImage src={user.image || undefined} />
-                            <AvatarFallback className="bg-yellow-500 text-yellow-900 text-sm font-bold">
+                            <AvatarFallback className="bg-[#58a6ff] text-[#010409] text-sm font-bold">
                                 {userInitial}
                             </AvatarFallback>
                         </Avatar>
                         <div className="hidden md:flex flex-col items-start">
-                            <span className='text-base font-medium text-gray-400'>
+                            <span className='text-base font-medium text-slate-200'>
                                 {user.name}
                             </span>
                         </div>
                     </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent className="text-gray-400">
+                <DropdownMenuContent className="border-[#1c2432] bg-[#0d1117] text-slate-200">
                     <DropdownMenuLabel>
                         <div className="flex relative items-center gap-3 py-2">
                             <Avatar className="h-10 w-10">
                                 <AvatarImage src={user.image || undefined} />
-                                <AvatarFallback className="bg-yellow-500 text-yellow-900 text-sm font-bold">
+                                <AvatarFallback className="bg-[#58a6ff] text-[#010409] text-sm font-bold">
                                     {userInitial}
                                 </AvatarFallback>
                             </Avatar>
                             <div className="flex flex-col">
-                                <span className='text-base font-medium text-gray-400'>
+                                <span className='text-base font-medium text-slate-200'>
                                     {user.name}
                                 </span>
-                                <span className="text-sm text-gray-500">{user.email}</span>
+                                <span className="text-sm text-slate-400">{user.email}</span>
                             </div>
                         </div>
                     </DropdownMenuLabel>
-                    <DropdownMenuSeparator className="bg-gray-600"/>
-                    <DropdownMenuItem onClick={handleOpenProfile} className="text-gray-100 text-md font-medium focus:bg-transparent focus:text-yellow-500 transition-colors cursor-pointer">
+                    <DropdownMenuSeparator className="bg-[#1c2432]"/>
+                    <DropdownMenuItem onClick={handleOpenProfile} className="cursor-pointer text-md font-medium text-slate-100 transition-colors focus:bg-transparent focus:text-[#58a6ff]">
                         <UserIcon className="h-4 w-4 mr-2 hidden sm:block" />
                         Profile
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleSignOut} className="text-gray-100 text-md font-medium focus:bg-transparent focus:text-yellow-500 transition-colors cursor-pointer">
+                    <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-md font-medium text-slate-100 transition-colors focus:bg-transparent focus:text-[#58a6ff]">
                         <LogOut className="h-4 w-4 mr-2 hidden sm:block" />
                         Logout
                     </DropdownMenuItem>
-                    <DropdownMenuSeparator className="hidden sm:block bg-gray-600"/>
+                    <DropdownMenuSeparator className="hidden sm:block bg-[#1c2432]"/>
                     <nav className="sm:hidden">
                         <NavItems initialStocks={initialStocks} />
                     </nav>
