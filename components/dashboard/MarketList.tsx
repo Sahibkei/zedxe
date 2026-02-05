@@ -1,3 +1,5 @@
+import type { MarketQuote } from '@/lib/market/providers';
+
 const formatCurrency = (value: number) =>
     value.toLocaleString('en-US', {
         style: 'currency',
@@ -6,33 +8,14 @@ const formatCurrency = (value: number) =>
         maximumFractionDigits: 2,
     });
 
-const buildMetrics = (symbol: string) => {
-    const seed = symbol
-        .toUpperCase()
-        .split('')
-        .reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const price = 80 + (seed % 1800) / 10;
-    const changePercent = ((seed % 400) - 200) / 100;
-    const changeValue = (price * changePercent) / 100;
-
-    return {
-        price,
-        changePercent,
-        changeValue,
-    };
-};
-
-const fallbackStocks: StockWithWatchlistStatus[] = [
-    { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ', type: 'Common Stock', isInWatchlist: false },
-    { symbol: 'MSFT', name: 'Microsoft Corp.', exchange: 'NASDAQ', type: 'Common Stock', isInWatchlist: false },
-    { symbol: 'AMZN', name: 'Amazon.com Inc.', exchange: 'NASDAQ', type: 'Common Stock', isInWatchlist: false },
-    { symbol: 'NVDA', name: 'NVIDIA Corp.', exchange: 'NASDAQ', type: 'Common Stock', isInWatchlist: false },
-    { symbol: 'TSLA', name: 'Tesla Inc.', exchange: 'NASDAQ', type: 'Common Stock', isInWatchlist: false },
-    { symbol: 'META', name: 'Meta Platforms', exchange: 'NASDAQ', type: 'Common Stock', isInWatchlist: false },
-];
-
-const MarketList = ({ stocks }: { stocks: StockWithWatchlistStatus[] }) => {
-    const rows = (stocks.length ? stocks : fallbackStocks).slice(0, 6);
+const MarketList = ({
+    stocks,
+    quotes,
+}: {
+    stocks: StockWithWatchlistStatus[];
+    quotes: Record<string, MarketQuote | null>;
+}) => {
+    const rows = stocks.slice(0, 6);
 
     return (
         <div className="rounded-xl border border-[#1c2432] bg-[#0d1117]">
@@ -42,9 +25,13 @@ const MarketList = ({ stocks }: { stocks: StockWithWatchlistStatus[] }) => {
             </div>
             <div className="divide-y divide-[#1c2432]">
                 {rows.map((stock) => {
-                    const metrics = buildMetrics(stock.symbol);
-                    const isPositive = metrics.changePercent >= 0;
-                    const color = isPositive ? 'text-[#00d395]' : 'text-[#ff6b6b]';
+                    const quote = quotes[stock.symbol.toUpperCase()];
+                    const changePercent = quote?.dp;
+                    const changeValue = quote?.d;
+                    const priceValue = quote?.c;
+                    const isPositive = typeof changePercent === 'number' ? changePercent >= 0 : true;
+                    const color =
+                        typeof changePercent === 'number' ? (isPositive ? 'text-[#00d395]' : 'text-[#ff6b6b]') : 'text-slate-500';
                     const sign = isPositive ? '+' : '';
 
                     return (
@@ -62,11 +49,19 @@ const MarketList = ({ stocks }: { stocks: StockWithWatchlistStatus[] }) => {
                                 </div>
                             </div>
                             <div className="text-right">
-                                <p className="text-sm font-semibold text-slate-100">{formatCurrency(metrics.price)}</p>
+                                <p className="text-sm font-semibold text-slate-100">
+                                    {typeof priceValue === 'number' ? formatCurrency(priceValue) : '--'}
+                                </p>
                                 <p className={`text-xs font-mono ${color}`}>
-                                    {sign}
-                                    {metrics.changeValue.toFixed(2)} ({sign}
-                                    {metrics.changePercent.toFixed(2)}%)
+                                    {typeof priceValue === 'number' && typeof changeValue === 'number' && typeof changePercent === 'number' ? (
+                                        <>
+                                            {sign}
+                                            {changeValue.toFixed(2)} ({sign}
+                                            {changePercent.toFixed(2)}%)
+                                        </>
+                                    ) : (
+                                        '--'
+                                    )}
                                 </p>
                             </div>
                         </div>

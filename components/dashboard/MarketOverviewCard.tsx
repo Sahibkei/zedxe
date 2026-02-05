@@ -1,35 +1,63 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 const tabs = ['Financial', 'Technology', 'Services'] as const;
 const ranges = ['1D', '1M', '3M', '1Y', '5Y', 'All'] as const;
 
 type Range = (typeof ranges)[number];
+type Tab = (typeof tabs)[number];
 
 type ChartPoint = {
     label: string;
     value: number;
 };
 
-const buildSeries = (range: Range): ChartPoint[] => {
-    const points = range === '1D' ? 12 : range === '1M' ? 18 : range === '3M' ? 24 : range === '1Y' ? 28 : range === '5Y' ? 32 : 36;
-    return Array.from({ length: points }).map((_, index) => {
-        const base = 100 + index * 1.5;
-        const wave = Math.sin(index / 2.3) * 6 + Math.cos(index / 1.3) * 3;
-        return {
-            label: `${index}`,
-            value: Number((base + wave).toFixed(2)),
-        };
-    });
-};
+type ApiPoint = { t: number; v: number };
+type ApiResponse = { points: ApiPoint[] };
 
 const MarketOverviewCard = () => {
-    const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>('Financial');
+    const [activeTab, setActiveTab] = useState<Tab>('Financial');
     const [activeRange, setActiveRange] = useState<Range>('1Y');
+    const [points, setPoints] = useState<ApiPoint[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
 
-    const chartData = useMemo(() => buildSeries(activeRange), [activeRange]);
+    useEffect(() => {
+        const controller = new AbortController();
+        const load = async () => {
+            setIsLoading(true);
+            try {
+                const params = new URLSearchParams({
+                    sector: activeTab.toLowerCase(),
+                    range: activeRange.toUpperCase(),
+                });
+                const res = await fetch(`/api/market/overview?${params.toString()}`, { signal: controller.signal });
+                if (!res.ok) {
+                    throw new Error('Failed to load market overview');
+                }
+                const data = (await res.json()) as ApiResponse;
+                setPoints(Array.isArray(data.points) ? data.points : []);
+            } catch (error) {
+                if ((error as Error).name !== 'AbortError') {
+                    console.error('Market overview fetch failed', error);
+                    setPoints([]);
+                }
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        void load();
+        return () => controller.abort();
+    }, [activeRange, activeTab]);
+
+    const chartData = useMemo<ChartPoint[]>(() => {
+        return points.map((point) => ({
+            label: new Date(point.t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            value: point.v,
+        }));
+    }, [points]);
 
     return (
         <div className="rounded-xl border border-[#1c2432] bg-[#0d1117] p-4">
@@ -56,25 +84,35 @@ const MarketOverviewCard = () => {
 
             <div className="mt-4 rounded-lg border border-[#1c2432] bg-[#0b0f14] p-3">
                 <div className="h-40 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData} margin={{ left: 0, right: 0, top: 10, bottom: 0 }}>
-                            <XAxis dataKey="label" hide />
-                            <YAxis domain={['dataMin - 5', 'dataMax + 5']} hide />
-                            <Tooltip
-                                cursor={{ stroke: '#1c2432', strokeWidth: 1 }}
-                                contentStyle={{
-                                    backgroundColor: '#0d1117',
-                                    borderColor: '#1c2432',
-                                    borderRadius: '8px',
-                                    fontSize: '12px',
-                                    color: '#e2e8f0',
-                                }}
-                                labelStyle={{ color: '#94a3b8' }}
-                                formatter={(value: number) => [`${value.toFixed(2)}`, 'Value']}
-                            />
-                            <Line type="monotone" dataKey="value" stroke="#00d395" strokeWidth={2} dot={false} />
-                        </LineChart>
-                    </ResponsiveContainer>
+                    {isLoading ? (
+                        <div className="flex h-full w-full animate-pulse items-center justify-center rounded-md border border-[#1c2432] bg-[#0d1117] text-xs font-mono text-slate-500">
+                            Loading market data...
+                        </div>
+                    ) : chartData.length ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={chartData} margin={{ left: 0, right: 0, top: 10, bottom: 0 }}>
+                                <XAxis dataKey="label" hide />
+                                <YAxis domain={['dataMin - 5', 'dataMax + 5']} hide />
+                                <Tooltip
+                                    cursor={{ stroke: '#1c2432', strokeWidth: 1 }}
+                                    contentStyle={{
+                                        backgroundColor: '#0d1117',
+                                        borderColor: '#1c2432',
+                                        borderRadius: '8px',
+                                        fontSize: '12px',
+                                        color: '#e2e8f0',
+                                    }}
+                                    labelStyle={{ color: '#94a3b8' }}
+                                    formatter={(value: number) => [`${value.toFixed(2)}`, 'Close']}
+                                />
+                                <Line type="monotone" dataKey="value" stroke="#00d395" strokeWidth={2} dot={false} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="flex h-full w-full items-center justify-center rounded-md border border-[#1c2432] bg-[#0d1117] text-xs font-mono text-slate-500">
+                            No data available.
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -97,7 +135,9 @@ const MarketOverviewCard = () => {
                     );
                 })}
             </div>
-            <p className="mt-3 text-xs font-mono text-slate-500">TODO: Replace mock market overview series with live data.</p>
+            {process.env.NODE_ENV !== 'production' ? (
+                <p className="mt-3 text-xs font-mono text-slate-500">Market overview data sourced via Finnhub.</p>
+            ) : null}
         </div>
     );
 };
