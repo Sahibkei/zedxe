@@ -10,7 +10,7 @@ type Range = (typeof ranges)[number];
 type Tab = (typeof tabs)[number];
 
 type ChartPoint = {
-    label: string;
+    t: number;
     value: number;
 };
 
@@ -53,11 +53,15 @@ const MarketOverviewCard = () => {
     }, [activeRange, activeTab]);
 
     const chartData = useMemo<ChartPoint[]>(() => {
-        return points.map((point) => ({
-            label: new Date(point.t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            value: point.v,
-        }));
+        return points
+            .filter((point) => Number.isFinite(point.t) && Number.isFinite(point.v))
+            .map((point) => ({
+                t: point.t * 1000,
+                value: point.v,
+            }));
     }, [points]);
+
+    const hasChartData = chartData.length >= 2;
 
     return (
         <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-4">
@@ -88,10 +92,10 @@ const MarketOverviewCard = () => {
                         <div className="flex h-full w-full animate-pulse items-center justify-center rounded-md border border-[#1c2432] bg-[#0d1117] text-xs font-mono text-slate-500">
                             Loading market data...
                         </div>
-                    ) : chartData.length ? (
+                    ) : hasChartData ? (
                         <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={chartData} margin={{ left: 0, right: 0, top: 10, bottom: 0 }}>
-                                <XAxis dataKey="label" hide />
+                                <XAxis dataKey="t" hide />
                                 <YAxis domain={['dataMin - 5', 'dataMax + 5']} hide />
                                 <Tooltip
                                     cursor={{ stroke: '#1c2432', strokeWidth: 1 }}
@@ -103,6 +107,13 @@ const MarketOverviewCard = () => {
                                         color: '#e2e8f0',
                                     }}
                                     labelStyle={{ color: '#94a3b8' }}
+                                    labelFormatter={(value) =>
+                                        new Date(Number(value)).toLocaleDateString('en-US', {
+                                            month: 'short',
+                                            day: 'numeric',
+                                            year: 'numeric',
+                                        })
+                                    }
                                     formatter={(value: number) => [`${value.toFixed(2)}`, 'Close']}
                                 />
                                 <Line type="monotone" dataKey="value" stroke="#00d395" strokeWidth={2} dot={false} />
@@ -110,7 +121,7 @@ const MarketOverviewCard = () => {
                         </ResponsiveContainer>
                     ) : (
                         <div className="flex h-full w-full items-center justify-center rounded-md border border-[#1c2432] bg-[#0d1117] text-xs font-mono text-slate-500">
-                            No candles available (market closed).
+                            No data available.
                         </div>
                     )}
                 </div>
