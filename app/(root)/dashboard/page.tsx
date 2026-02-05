@@ -4,7 +4,7 @@ import MarketOverviewCard from '@/components/dashboard/MarketOverviewCard';
 import TopMovers from '@/components/dashboard/TopMovers';
 import { HEATMAP_WIDGET_CONFIG } from '@/lib/constants';
 import { searchStocks } from '@/lib/actions/finnhub.actions';
-import { getQuotes } from '@/lib/market/providers';
+import { getQuotes, type MarketQuote } from '@/lib/market/providers';
 
 const DashboardPage = async () => {
     const fallbackStocks: StockWithWatchlistStatus[] = [
@@ -31,7 +31,13 @@ const DashboardPage = async () => {
 
     const stocks = initialStocks.length ? initialStocks : fallbackStocks;
     const symbols = stocks.map((stock) => stock.symbol);
-    const quotes = await getQuotes(symbols);
+    const HEATMAP_HEIGHT = 720;
+    let quotes: Record<string, MarketQuote | null> = {};
+    try {
+        quotes = await getQuotes(symbols);
+    } catch (error) {
+        console.error('getQuotes failed:', error);
+    }
 
     const movers = stocks
         .map((stock) => ({ stock, quote: quotes[stock.symbol.toUpperCase()] ?? null }))
@@ -72,12 +78,12 @@ const DashboardPage = async () => {
                             <span className="text-xs font-mono text-slate-500">S&amp;P 500</span>
                         </div>
                         <div className="relative flex min-h-[720px] flex-col rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-4 overflow-hidden">
-                            <div className="h-[640px] w-full md:h-[680px] xl:h-[720px]">
+                            <div className="tv-embed h-[720px] w-full overflow-hidden" style={{ height: HEATMAP_HEIGHT }}>
                                 <TradingViewWidget
                                     scripUrl={`${scriptUrl}stock-heatmap.js`}
-                                    config={{ ...HEATMAP_WIDGET_CONFIG, height: 720 }}
-                                    className="h-full w-full tv-widget overflow-hidden"
-                                    height={720}
+                                    config={{ ...HEATMAP_WIDGET_CONFIG, height: HEATMAP_HEIGHT }}
+                                    className="h-full w-full"
+                                    height={HEATMAP_HEIGHT}
                                 />
                             </div>
                         </div>

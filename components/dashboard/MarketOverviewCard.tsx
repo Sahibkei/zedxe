@@ -110,7 +110,7 @@ const MarketOverviewCard = () => {
                         </ResponsiveContainer>
                     ) : (
                         <div className="flex h-full w-full items-center justify-center rounded-md border border-[#1c2432] bg-[#0d1117] text-xs font-mono text-slate-500">
-                            No data available.
+                            No candles available (market closed).
                         </div>
                     )}
                 </div>

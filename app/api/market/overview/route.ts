@@ -14,12 +14,21 @@ const rangeConfig: Record<
         lookbackDays: number;
     }
 > = {
-    '1D': { resolution: '5', lookbackDays: 1 },
-    '1M': { resolution: '60', lookbackDays: 30 },
-    '3M': { resolution: 'D', lookbackDays: 90 },
-    '1Y': { resolution: 'D', lookbackDays: 365 },
-    '5Y': { resolution: 'W', lookbackDays: 365 * 5 },
-    ALL: { resolution: 'M', lookbackDays: 365 * 10 },
+    '1D': { resolution: '15', lookbackDays: 3 },
+    '1M': { resolution: '60', lookbackDays: 35 },
+    '3M': { resolution: 'D', lookbackDays: 120 },
+    '1Y': { resolution: 'D', lookbackDays: 370 },
+    '5Y': { resolution: 'W', lookbackDays: 370 * 5 },
+    ALL: { resolution: 'W', lookbackDays: 370 * 10 },
+};
+
+const buildPoints = (response: { c?: number[]; t?: number[]; s?: string }) => {
+    if (!response || response.s !== 'ok' || !response.c || !response.t) return [];
+    const n = Math.min(response.c.length, response.t.length);
+    return Array.from({ length: n }, (_, index) => ({
+        t: response.t?.[index],
+        v: response.c?.[index],
+    })).filter((point) => Number.isFinite(point.t) && Number.isFinite(point.v));
 };
 
 export async function GET(request: Request) {
@@ -33,15 +42,13 @@ export async function GET(request: Request) {
     const now = Math.floor(Date.now() / 1000);
     const from = now - config.lookbackDays * 24 * 60 * 60;
 
-    const candleResponse = await getCandles({ symbol, resolution: config.resolution, from, to: now });
-    if (!candleResponse || candleResponse.s !== 'ok' || !candleResponse.c || !candleResponse.t) {
-        return NextResponse.json({ points: [] });
-    }
+    const primaryResponse = await getCandles({ symbol, resolution: config.resolution, from, to: now });
+    let points = buildPoints(primaryResponse ?? {});
 
-    const points = candleResponse.t.map((timestamp, index) => ({
-        t: timestamp,
-        v: candleResponse.c?.[index] ?? 0,
-    }));
+    if (!points.length) {
+        const fallbackResponse = await getCandles({ symbol: 'SPY', resolution: config.resolution, from, to: now });
+        points = buildPoints(fallbackResponse ?? {});
+    }
 
     return NextResponse.json({ points });
 }

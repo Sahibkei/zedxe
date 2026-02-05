@@ -481,6 +481,14 @@
     height: 100% !important;
 }
 
+.tv-embed,
+.tv-embed .tradingview-widget-container__widget,
+.tv-embed iframe {
+    width: 100% !important;
+    height: 100% !important;
+    display: block !important;
+}
+
 .custom-chart.tradingview-widget-container iframe {
     border: 1px solid #30333A;
     border-radius: 8px !important;
