@@ -475,6 +475,12 @@
     width: 100% !important;
 }
 
+.tv-widget,
+.tv-widget iframe {
+    width: 100% !important;
+    height: 100% !important;
+}
+
 .custom-chart.tradingview-widget-container iframe {
     border: 1px solid #30333A;
     border-radius: 8px !important;

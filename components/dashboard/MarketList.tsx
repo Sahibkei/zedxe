@@ -18,7 +18,7 @@ const MarketList = ({
     const rows = stocks.slice(0, 6);
 
     return (
-        <div className="rounded-xl border border-[#1c2432] bg-[#0d1117]">
+        <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70">
             <div className="flex items-center justify-between border-b border-[#1c2432] px-4 py-3">
                 <p className="text-sm font-mono text-slate-400">Trending Stocks</p>
                 <span className="text-xs font-mono text-slate-500">Live snapshot</span>

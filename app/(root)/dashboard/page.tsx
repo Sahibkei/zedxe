@@ -68,18 +68,20 @@ const DashboardPage = async () => {
 
                     <section className="flex flex-col gap-6">
                         <div className="flex items-center justify-between">
-                            <h2 className="text-xl font-semibold text-slate-100">Stock Heatmap</h2>
+                            <h2 className="mb-3 text-xl font-semibold text-slate-100">Stock Heatmap</h2>
                             <span className="text-xs font-mono text-slate-500">S&amp;P 500</span>
                         </div>
-                        <div className="relative flex min-h-[760px] flex-col rounded-xl border border-[#1c2432] bg-[#0d1117] p-4 overflow-hidden">
-                            <TradingViewWidget
-                                scripUrl={`${scriptUrl}stock-heatmap.js`}
-                                config={{ ...HEATMAP_WIDGET_CONFIG, height: '100%' }}
-                                className="h-[720px]"
-                                height={720}
-                            />
+                        <div className="relative flex min-h-[720px] flex-col rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-4 overflow-hidden">
+                            <div className="h-[640px] w-full md:h-[680px] xl:h-[720px]">
+                                <TradingViewWidget
+                                    scripUrl={`${scriptUrl}stock-heatmap.js`}
+                                    config={{ ...HEATMAP_WIDGET_CONFIG, height: 720 }}
+                                    className="h-full w-full tv-widget overflow-hidden"
+                                    height={720}
+                                />
+                            </div>
                         </div>
-                        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                             <TopMovers title="Top Gainers" movers={topGainers} />
                             <TopMovers title="Top Losers" movers={topLosers} />
                         </div>

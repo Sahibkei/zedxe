@@ -60,7 +60,7 @@ const MarketOverviewCard = () => {
     }, [points]);
 
     return (
-        <div className="rounded-xl border border-[#1c2432] bg-[#0d1117] p-4">
+        <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2 rounded-full border border-[#1c2432] bg-[#0b0f14] p-1">
                     {tabs.map((tab) => {
