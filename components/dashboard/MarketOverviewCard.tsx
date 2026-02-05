@@ -1,0 +1,105 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+
+const tabs = ['Financial', 'Technology', 'Services'] as const;
+const ranges = ['1D', '1M', '3M', '1Y', '5Y', 'All'] as const;
+
+type Range = (typeof ranges)[number];
+
+type ChartPoint = {
+    label: string;
+    value: number;
+};
+
+const buildSeries = (range: Range): ChartPoint[] => {
+    const points = range === '1D' ? 12 : range === '1M' ? 18 : range === '3M' ? 24 : range === '1Y' ? 28 : range === '5Y' ? 32 : 36;
+    return Array.from({ length: points }).map((_, index) => {
+        const base = 100 + index * 1.5;
+        const wave = Math.sin(index / 2.3) * 6 + Math.cos(index / 1.3) * 3;
+        return {
+            label: `${index}`,
+            value: Number((base + wave).toFixed(2)),
+        };
+    });
+};
+
+const MarketOverviewCard = () => {
+    const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>('Financial');
+    const [activeRange, setActiveRange] = useState<Range>('1Y');
+
+    const chartData = useMemo(() => buildSeries(activeRange), [activeRange]);
+
+    return (
+        <div className="rounded-xl border border-[#1c2432] bg-[#0d1117] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 rounded-full border border-[#1c2432] bg-[#0b0f14] p-1">
+                    {tabs.map((tab) => {
+                        const isActive = tab === activeTab;
+                        return (
+                            <button
+                                key={tab}
+                                type="button"
+                                onClick={() => setActiveTab(tab)}
+                                className={`rounded-full px-4 py-1 text-xs font-mono transition ${
+                                    isActive ? 'bg-[#1c2432] text-white' : 'text-slate-400 hover:text-slate-200'
+                                }`}
+                            >
+                                {tab}
+                            </button>
+                        );
+                    })}
+                </div>
+                <span className="text-xs font-mono text-slate-500">{activeTab} sector</span>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-[#1c2432] bg-[#0b0f14] p-3">
+                <div className="h-40 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData} margin={{ left: 0, right: 0, top: 10, bottom: 0 }}>
+                            <XAxis dataKey="label" hide />
+                            <YAxis domain={['dataMin - 5', 'dataMax + 5']} hide />
+                            <Tooltip
+                                cursor={{ stroke: '#1c2432', strokeWidth: 1 }}
+                                contentStyle={{
+                                    backgroundColor: '#0d1117',
+                                    borderColor: '#1c2432',
+                                    borderRadius: '8px',
+                                    fontSize: '12px',
+                                    color: '#e2e8f0',
+                                }}
+                                labelStyle={{ color: '#94a3b8' }}
+                                formatter={(value: number) => [`${value.toFixed(2)}`, 'Value']}
+                            />
+                            <Line type="monotone" dataKey="value" stroke="#00d395" strokeWidth={2} dot={false} />
+                        </LineChart>
+                    </ResponsiveContainer>
+                </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+                {ranges.map((range) => {
+                    const isActive = range === activeRange;
+                    return (
+                        <button
+                            key={range}
+                            type="button"
+                            onClick={() => setActiveRange(range)}
+                            className={`rounded-full border px-3 py-1 text-xs font-mono transition ${
+                                isActive
+                                    ? 'border-[#1c2432] bg-[#1c2432] text-white'
+                                    : 'border-transparent bg-[#0b0f14] text-slate-400 hover:text-slate-200'
+                            }`}
+                        >
+                            {range}
+                        </button>
+                    );
+                })}
+            </div>
+            <p className="mt-3 text-xs font-mono text-slate-500">TODO: Replace mock market overview series with live data.</p>
+        </div>
+    );
+};
+
+export default MarketOverviewCard;
