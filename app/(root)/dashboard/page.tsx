@@ -4,6 +4,7 @@ import MarketOverviewCard from '@/components/dashboard/MarketOverviewCard';
 import MarketNews from '@/components/dashboard/MarketNews';
 import TopMovers from '@/components/dashboard/TopMovers';
 import { searchStocks } from '@/lib/actions/finnhub.actions';
+import { getIndexQuotes } from '@/lib/market/indices';
 import { getQuotes, type MarketQuote } from '@/lib/market/providers';
 
 const DashboardPage = async () => {
@@ -31,18 +32,18 @@ const DashboardPage = async () => {
 
     const stocks = initialStocks.length ? initialStocks : fallbackStocks;
     const symbols = stocks.map((stock) => stock.symbol);
-    const indexSymbols = ['^GSPC', '^NDX', '^DJI', '^RUT', '^VIX', '^TNX'];
     let quotes: Record<string, MarketQuote | null> = {};
     try {
         quotes = await getQuotes(symbols);
     } catch (error) {
         console.error('getQuotes failed:', error);
     }
+
     let indexQuotes: Record<string, MarketQuote | null> = {};
     try {
-        indexQuotes = await getQuotes(indexSymbols);
+        indexQuotes = await getIndexQuotes();
     } catch (error) {
-        console.error('getQuotes for indices failed:', error);
+        console.error('getIndexQuotes failed:', error);
     }
 
     const movers = stocks
