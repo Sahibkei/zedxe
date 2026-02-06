@@ -76,13 +76,17 @@ const WatchlistTable = ({
                 </thead>
                 <tbody className="divide-y divide-gray-700 bg-gray-900/40">
                     {items.map((item) => (
-                        <tr key={item.symbol} className="table-row">
+                        <tr key={item.symbol} className="table-row hover:bg-gray-800/40">
                             <td className="px-4 py-4 text-left">
                                 <Link href={`/stocks/${item.symbol}`} className="flex flex-col">
                                     <span className="font-semibold text-gray-100">{item.company}</span>
                                 </Link>
                             </td>
-                            <td className="px-4 py-4 text-left text-sm text-gray-400">{item.symbol}</td>
+                            <td className="px-4 py-4 text-left text-sm text-gray-400">
+                                <Link href={`/stocks/${item.symbol}`} className="font-medium text-gray-200 hover:text-gray-100">
+                                    {item.symbol}
+                                </Link>
+                            </td>
                             <td className="px-4 py-4 text-right table-cell">{formatPriceValue(item)}</td>
                             <td className={`px-4 py-4 text-right table-cell ${getChangeClass(item.changePercent)}`}>
                                 {formatChangeValue(item)}
