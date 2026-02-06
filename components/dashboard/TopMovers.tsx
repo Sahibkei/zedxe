@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 import type { MarketQuote } from '@/lib/market/providers';
 
 const formatCurrency = (value: number) =>
@@ -35,7 +37,11 @@ const TopMovers = ({ title, movers }: { title: string; movers: Mover[] }) => {
                     const sign = isPositive ? '+' : '';
 
                     return (
-                        <div key={item.symbol} className="flex items-center justify-between gap-4 px-4 py-3">
+                        <Link
+                            key={item.symbol}
+                            href={`/stocks/${item.symbol}`}
+                            className="flex items-center justify-between gap-4 px-4 py-3 transition hover:border-emerald-500/40 hover:bg-[#0b0f14] hover:shadow-[0_0_0_1px_rgba(16,185,129,0.25)]"
+                        >
                             <div>
                                 <p className="text-sm font-semibold text-slate-100">{item.symbol}</p>
                                 <p className="text-xs text-slate-500">{item.name}</p>
@@ -48,7 +54,7 @@ const TopMovers = ({ title, movers }: { title: string; movers: Mover[] }) => {
                                     {typeof changePercent === 'number' ? `${sign}${changePercent.toFixed(2)}%` : '--'}
                                 </span>
                             </div>
-                        </div>
+                        </Link>
                     );
                 })}
             </div>

@@ -1,0 +1,56 @@
+import { cn } from "@/lib/utils";
+import type { StockProfileHeader } from "@/src/features/stock-profile-v2/contract/types";
+
+const formatPrice = (value: number) =>
+    value.toLocaleString("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+
+const StockProfileHeader = ({ header, className }: { header: StockProfileHeader; className?: string }) => {
+    const isPositive = header.change >= 0;
+    const badgeClasses = isPositive
+        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+        : "bg-rose-500/15 text-rose-300 border-rose-500/40";
+    const changePrefix = isPositive ? "+" : "";
+
+    return (
+        <div className={cn("rounded-2xl border border-[#1c2432] bg-[#0d1117]/80 px-6 py-5 shadow-xl backdrop-blur", className)}>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <p className="text-xs font-mono uppercase tracking-wide text-slate-500">Stock Profile</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-3">
+                        <h1 className="text-2xl font-semibold text-slate-100">
+                            {header.symbol}
+                            <span className="ml-2 text-base font-normal text-slate-400">{header.name}</span>
+                        </h1>
+                        <span className="rounded-full border border-[#1c2432] bg-[#0b0f14] px-2.5 py-1 text-xs font-mono text-slate-400">
+                            {header.status}
+                        </span>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-4">
+                    <div className="text-right">
+                        <p className="text-2xl font-semibold text-slate-100">{formatPrice(header.price)}</p>
+                        <p className="text-sm text-slate-500">Last trade</p>
+                    </div>
+                    <div className={cn("rounded-xl border px-3 py-2 text-sm font-mono", badgeClasses)}>
+                        <span>
+                            {changePrefix}
+                            {header.change.toFixed(2)}
+                        </span>
+                        <span className="ml-2">
+                            ({changePrefix}
+                            {header.changePct.toFixed(2)}%)
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default StockProfileHeader;

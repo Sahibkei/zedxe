@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 import type { MarketQuote } from '@/lib/market/providers';
 
 const formatCurrency = (value: number) =>
@@ -35,9 +37,10 @@ const MarketList = ({
                     const sign = isPositive ? '+' : '';
 
                     return (
-                        <div
+                        <Link
                             key={stock.symbol}
-                            className="flex items-center justify-between gap-4 px-4 py-3 transition hover:bg-[#0b0f14]"
+                            href={`/stocks/${stock.symbol}`}
+                            className="flex items-center justify-between gap-4 px-4 py-3 transition hover:border-emerald-500/40 hover:bg-[#0b0f14] hover:shadow-[0_0_0_1px_rgba(16,185,129,0.25)]"
                         >
                             <div className="flex items-center gap-3">
                                 <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#1c2432] bg-[#0b0f14] text-xs font-semibold text-slate-200">
@@ -64,7 +67,7 @@ const MarketList = ({
                                     )}
                                 </p>
                             </div>
-                        </div>
+                        </Link>
                     );
                 })}
             </div>
