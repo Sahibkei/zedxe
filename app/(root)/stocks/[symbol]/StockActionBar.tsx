@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Bell } from "lucide-react";
 import WatchlistButton from "@/components/WatchlistButton";
 import { Button } from "@/components/ui/button";
 import AlertModal from "@/components/AlertModal";
@@ -26,12 +27,17 @@ const StockActionBar = ({ symbol, company, isInWatchlist, initialAlert }: { symb
     };
 
     return (
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
             <WatchlistButton symbol={symbol} company={company} isInWatchlist={isInWatchlist} />
-            <Button asChild variant="outline">
+            <Button asChild variant="outline" className="border-border/70 bg-transparent text-foreground hover:bg-muted/20">
                 <Link href={`/stocks/${symbol}/options`}>Options Analysis</Link>
             </Button>
-            <Button className="bg-yellow-500 text-black hover:bg-yellow-400" onClick={() => setModalOpen(true)}>
+            <Button
+                variant="outline"
+                className="border-border/70 bg-transparent text-foreground hover:bg-muted/20"
+                onClick={() => setModalOpen(true)}
+            >
+                <Bell className="h-4 w-4" />
                 {alert ? 'Edit Alert' : 'Create Alert'}
             </Button>
             {modalOpen && (

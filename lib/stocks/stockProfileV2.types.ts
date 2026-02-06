@@ -86,6 +86,11 @@ export type StockProfileV2Model = {
             income?: StatementGrid;
             balanceSheet?: StatementGrid;
             cashFlow?: StatementGrid;
+            quarterly?: {
+                income?: StatementGrid;
+                balanceSheet?: StatementGrid;
+                cashFlow?: StatementGrid;
+            };
         };
     };
     filings: FilingInfo[];

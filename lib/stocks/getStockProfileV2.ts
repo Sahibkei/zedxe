@@ -503,6 +503,13 @@ const formatStatementDateLabel = (endDate?: string, year?: number) => {
     return year ? `FY ${year}` : '—';
 };
 
+const formatStatementQuarterLabel = (report?: { endDate?: string; year?: number; quarter?: number }) => {
+    const year = report?.year ?? (report?.endDate ? new Date(report.endDate).getUTCFullYear() : undefined);
+    const quarter = report?.quarter ?? deriveQuarter(report?.endDate);
+    if (quarter && year) return `Q${quarter} ${year}`;
+    return formatStatementDateLabel(report?.endDate, year);
+};
+
 const createStatementGrid = ({
     annualReports,
     quarterlyReports,
@@ -510,6 +517,7 @@ const createStatementGrid = ({
     definitions,
     fallbackCurrency,
     defaultAggregation,
+    mode,
 }: {
     annualReports?: { endDate?: string; year?: number; report?: any; currency?: string }[];
     quarterlyReports?: { endDate?: string; report?: any; currency?: string }[];
@@ -517,6 +525,7 @@ const createStatementGrid = ({
     definitions: StatementDefinition[];
     fallbackCurrency?: string;
     defaultAggregation: 'flow' | 'point';
+    mode: 'annual' | 'quarterly';
 }): StatementGrid => {
     const sortedAnnual = sortReports((annualReports as any[]) || []) as any[];
     const sortedQuarterly = sortReports((quarterlyReports as any[]) || []) as any[];
@@ -530,10 +539,19 @@ const createStatementGrid = ({
         source: report,
     }));
 
-    const columnsWithSource = [
-        { key: 'ttm', label: 'TTM', type: 'ttm' as const },
-        ...annualColumns,
-    ];
+    const quarterlyColumns = sortedQuarterly.slice(0, 8).map((report, index) => ({
+        key: `quarterly-${index}`,
+        label: formatStatementQuarterLabel(report),
+        date: report?.endDate,
+        type: 'annual' as const,
+        currency: report?.currency,
+        source: report,
+    }));
+
+    const columnsWithSource =
+        mode === 'quarterly'
+            ? quarterlyColumns
+            : [{ key: 'ttm', label: 'TTM', type: 'ttm' as const }, ...annualColumns];
 
     const columns = columnsWithSource.map(({ source, ...col }) => col);
 
@@ -765,6 +783,7 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
             definitions: INCOME_STATEMENT_DEFINITIONS,
             fallbackCurrency: company.currency,
             defaultAggregation: 'flow',
+            mode: 'annual',
         }),
         balanceSheet: createStatementGrid({
             annualReports: annualRes?.data,
@@ -773,6 +792,7 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
             definitions: BALANCE_SHEET_DEFINITIONS,
             fallbackCurrency: company.currency,
             defaultAggregation: 'point',
+            mode: 'annual',
         }),
         cashFlow: createStatementGrid({
             annualReports: annualRes?.data,
@@ -781,7 +801,37 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
             definitions: CASH_FLOW_DEFINITIONS,
             fallbackCurrency: company.currency,
             defaultAggregation: 'flow',
+            mode: 'annual',
         }),
+        quarterly: {
+            income: createStatementGrid({
+                annualReports: annualRes?.data,
+                quarterlyReports: quarterlyRes?.data,
+                statement: 'ic',
+                definitions: INCOME_STATEMENT_DEFINITIONS,
+                fallbackCurrency: company.currency,
+                defaultAggregation: 'flow',
+                mode: 'quarterly',
+            }),
+            balanceSheet: createStatementGrid({
+                annualReports: annualRes?.data,
+                quarterlyReports: quarterlyRes?.data,
+                statement: 'bs',
+                definitions: BALANCE_SHEET_DEFINITIONS,
+                fallbackCurrency: company.currency,
+                defaultAggregation: 'point',
+                mode: 'quarterly',
+            }),
+            cashFlow: createStatementGrid({
+                annualReports: annualRes?.data,
+                quarterlyReports: quarterlyRes?.data,
+                statement: 'cf',
+                definitions: CASH_FLOW_DEFINITIONS,
+                fallbackCurrency: company.currency,
+                defaultAggregation: 'flow',
+                mode: 'quarterly',
+            }),
+        },
     } satisfies StockProfileV2Model['financials']['statements'];
 
     const providerErrors = status
