@@ -56,7 +56,7 @@ export default function FinancialsTable({
 }: FinancialsTableProps) {
     if (!grid || grid.rows.length === 0) {
         return (
-            <div className="rounded-xl border border-border/70 bg-[#0b111a] px-4 py-10 text-center text-sm text-muted-foreground">
+            <div className="rounded-xl border border-border/80 bg-card px-4 py-10 text-center text-sm text-muted-foreground">
                 Financial statement data unavailable.
             </div>
         );
@@ -83,7 +83,7 @@ export default function FinancialsTable({
                     onClick={() => canSelect && onToggleSelect(row)}
                 >
                     <td
-                        className="sticky left-0 z-10 bg-[#0b111a]/95 px-3 py-2.5 text-left text-sm shadow-[3px_0_8px_rgba(0,0,0,0.35)]"
+                        className="sticky left-0 z-10 bg-card/95 px-3 py-2.5 text-left text-sm shadow-[3px_0_8px_rgba(0,0,0,0.35)]"
                         style={{ paddingLeft: `${depth * 18 + 14}px` }}
                     >
                         <div className="flex items-center gap-2">
@@ -151,12 +151,15 @@ export default function FinancialsTable({
             <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
                 Click numeric rows to add/remove from chart.
             </div>
-            <div className="overflow-hidden rounded-2xl border border-border/70 bg-[#0b111a]">
+            <div className="overflow-hidden rounded-2xl border border-border/80 bg-card">
                 <div className="overflow-x-auto">
-                    <table className="min-w-[980px] text-sm">
-                        <thead className="sticky top-0 z-20 bg-[#0b111a]">
+                    <table
+                        className="text-sm"
+                        style={{ minWidth: `${Math.max(980, 220 + grid.columns.length * 136)}px` }}
+                    >
+                        <thead className="sticky top-0 z-20 bg-card">
                             <tr className="border-b border-border/70 text-xs uppercase tracking-wide text-muted-foreground">
-                                <th className="sticky left-0 z-20 bg-[#0b111a] px-3 py-3 text-left font-semibold shadow-[3px_0_8px_rgba(0,0,0,0.35)]">
+                                <th className="sticky left-0 z-20 bg-card px-3 py-3 text-left font-semibold shadow-[3px_0_8px_rgba(0,0,0,0.35)]">
                                     Breakdown
                                 </th>
                                 {grid.columns.map((column) => (

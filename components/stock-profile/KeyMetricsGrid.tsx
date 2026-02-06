@@ -5,47 +5,78 @@ type MetricItem = {
     value: string;
 };
 
-type MetricGroup = {
+type MetricSection = {
     title: string;
-    items: MetricItem[];
+    rows: MetricItem[];
 };
 
 type KeyMetricsGridProps = {
-    groups: MetricGroup[];
+    sections: MetricSection[];
 };
 
-function MetricGroupCard({ title, items }: MetricGroup) {
-    const validItems = items.filter((item) => item.value && item.value !== DASH_VALUE);
+const toColumns = (sections: MetricSection[], count: number) => {
+    const columns: MetricSection[][] = Array.from({ length: count }, () => []);
+    sections.forEach((section, index) => {
+        columns[index % count].push(section);
+    });
+    return columns;
+};
+
+export default function KeyMetricsGrid({ sections }: KeyMetricsGridProps) {
+    const filteredSections = sections
+        .map((section) => ({
+            ...section,
+            rows: section.rows.filter((row) => row.value && row.value !== DASH_VALUE),
+        }))
+        .filter((section) => section.rows.length > 0);
+
+    if (filteredSections.length === 0) {
+        return (
+            <section className="rounded-xl border border-border/80 bg-card p-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-foreground">Company Statistics</h3>
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Available fundamentals only</p>
+                </div>
+                <p className="mt-3 text-sm text-muted-foreground">Fundamental metrics are unavailable for this symbol.</p>
+            </section>
+        );
+    }
+
+    const columnCount = filteredSections.length >= 3 ? 3 : filteredSections.length;
+    const columns = toColumns(filteredSections, columnCount);
 
     return (
-        <div className="rounded-xl border border-border/70 bg-[#0d151f] p-4">
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{title}</p>
-            {validItems.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Data unavailable</p>
-            ) : (
-                <dl className="grid grid-cols-1 gap-2 text-sm">
-                    {validItems.map((item) => (
-                        <div key={item.label} className="flex items-baseline justify-between gap-3 rounded-md border border-border/40 bg-muted/10 px-2.5 py-2">
-                            <dt className="text-xs text-muted-foreground">{item.label}</dt>
-                            <dd className="text-right font-semibold text-foreground tabular-nums">{item.value}</dd>
-                        </div>
-                    ))}
-                </dl>
-            )}
-        </div>
-    );
-}
-
-export default function KeyMetricsGrid({ groups }: KeyMetricsGridProps) {
-    return (
-        <section className="space-y-3">
-            <div className="flex items-center justify-between">
-                <h3 className="text-base font-semibold text-foreground">Key Metrics</h3>
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Available fundamentals only</p>
+        <section className="rounded-xl border border-border/80 bg-card p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 pb-3">
+                <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-foreground">Company Statistics</h3>
+                <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Available fundamentals only</p>
             </div>
-            <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-                {groups.map((group) => (
-                    <MetricGroupCard key={group.title} {...group} />
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-3 lg:gap-5">
+                {columns.map((column, columnIndex) => (
+                    <div
+                        key={`metrics-column-${columnIndex}`}
+                        className="space-y-4 lg:border-r lg:border-border/70 lg:pr-4 last:border-r-0 last:pr-0"
+                    >
+                        {column.map((section) => (
+                            <div key={section.title} className="space-y-2">
+                                <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                                    {section.title}
+                                </h4>
+                                <div className="rounded-lg border border-border/60 bg-muted/15 px-2.5">
+                                    {section.rows.map((row) => (
+                                        <div
+                                            key={`${section.title}-${row.label}`}
+                                            className="flex items-center justify-between gap-2 py-2 text-sm tabular-nums border-b border-border/40 last:border-b-0"
+                                        >
+                                            <span className="text-muted-foreground">{row.label}</span>
+                                            <span className="font-semibold text-foreground">{row.value}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 ))}
             </div>
         </section>

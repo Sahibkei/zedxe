@@ -100,6 +100,12 @@ export default function FinancialsPanel({ profile }: FinancialsPanelProps) {
             valuesByColumnKey: row.valuesByColumnKey,
         }));
 
+    const activeStatementLabel = statementTabs.find((tab) => tab.key === statement)?.label || "Statement";
+    const annualPeriodCount = (activeGrid?.columns || []).filter((column) => column.type === "annual").length;
+    const periodLabel = effectivePeriodMode === "annual"
+        ? `FY (${annualPeriodCount || 0}Y)`
+        : `FQ (${annualPeriodCount || 0}Q)`;
+
     const toggleRowSelect = (row: StatementRow) => {
         const selectable = hasRowNumbers(row, activeColumnKeys);
         if (!selectable) return;
@@ -129,87 +135,98 @@ export default function FinancialsPanel({ profile }: FinancialsPanelProps) {
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="space-y-2">
-                    <h3 className="text-lg font-semibold text-foreground">Financial Statements</h3>
-                    <p className="text-sm text-muted-foreground">Select numeric rows to add them to Chart Builder.</p>
+            <div className="rounded-xl border border-border/80 bg-card p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-3">
+                    <div>
+                        <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-foreground">Financial Statements</h3>
+                        <p className="mt-1 text-xs text-muted-foreground">Select numeric rows to add them to Chart Builder.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className="rounded-md border border-border/70 bg-muted/20 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                            {periodLabel}
+                        </span>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="h-8 rounded-md border-border/70 bg-muted/15 px-3 text-xs font-semibold"
+                            onClick={() => setChartOpen(true)}
+                        >
+                            Chart ({selectedSeries.length})
+                        </Button>
+                    </div>
                 </div>
-                <Button
-                    type="button"
-                    variant="outline"
-                    className="border-border/70 bg-[#0b111a] text-foreground"
-                    onClick={() => setChartOpen(true)}
-                >
-                    Chart ({selectedSeries.length})
-                </Button>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <div className="inline-flex flex-wrap rounded-lg border border-border/70 bg-muted/15 p-1">
+                        {statementTabs.map((tab) => {
+                            const active = statement === tab.key;
+                            return (
+                                <button
+                                    key={tab.key}
+                                    type="button"
+                                    onClick={() => setStatement(tab.key)}
+                                    className={cn(
+                                        "rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] transition",
+                                        active
+                                            ? "bg-primary/20 text-foreground"
+                                            : "text-muted-foreground hover:bg-muted/20 hover:text-foreground"
+                                    )}
+                                >
+                                    {tab.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <div className="inline-flex rounded-lg border border-border/70 bg-muted/15 p-1 text-xs">
+                        <button
+                            type="button"
+                            onClick={() => setPeriodMode("annual")}
+                            className={cn(
+                                "rounded-md px-2.5 py-1 font-semibold uppercase tracking-[0.12em] transition",
+                                effectivePeriodMode === "annual"
+                                    ? "bg-primary/20 text-foreground"
+                                    : "text-muted-foreground hover:bg-muted/20"
+                            )}
+                        >
+                            FY
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => hasQuarterly && setPeriodMode("quarterly")}
+                            disabled={!hasQuarterly}
+                            className={cn(
+                                "rounded-md px-2.5 py-1 font-semibold uppercase tracking-[0.12em] transition",
+                                effectivePeriodMode === "quarterly"
+                                    ? "bg-primary/20 text-foreground"
+                                    : "text-muted-foreground hover:bg-muted/20",
+                                !hasQuarterly && "cursor-not-allowed opacity-50"
+                            )}
+                        >
+                            FQ
+                        </button>
+                    </div>
+
+                    <span className="text-[11px] text-muted-foreground">Displays up to 10 annual periods when available.</span>
+                </div>
+
+                {selectionMessage ? (
+                    <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+                        {selectionMessage}
+                    </div>
+                ) : null}
+
+                <div className="mt-3">
+                    <FinancialsTable
+                        grid={activeGrid}
+                        fallbackCurrency={profile.company.currency}
+                        selectedIds={new Set(validSelectedIds)}
+                        expandedIds={expandedIds}
+                        onToggleExpand={toggleExpand}
+                        onToggleSelect={toggleRowSelect}
+                    />
+                </div>
             </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex flex-wrap rounded-xl border border-border/70 bg-[#0b111a] p-1">
-                    {statementTabs.map((tab) => {
-                        const active = statement === tab.key;
-                        return (
-                            <button
-                                key={tab.key}
-                                type="button"
-                                onClick={() => setStatement(tab.key)}
-                                className={cn(
-                                    "rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition",
-                                    active
-                                        ? "bg-primary/20 text-foreground"
-                                        : "text-muted-foreground hover:bg-muted/20 hover:text-foreground"
-                                )}
-                            >
-                                {tab.label}
-                            </button>
-                        );
-                    })}
-                </div>
-
-                <div className="inline-flex rounded-xl border border-border/70 bg-[#0b111a] p-1 text-xs">
-                    <button
-                        type="button"
-                        onClick={() => setPeriodMode("annual")}
-                        className={cn(
-                            "rounded-lg px-2.5 py-1 font-semibold uppercase tracking-wide transition",
-                            effectivePeriodMode === "annual"
-                                ? "bg-primary/20 text-foreground"
-                                : "text-muted-foreground hover:bg-muted/20"
-                        )}
-                    >
-                        FY
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => hasQuarterly && setPeriodMode("quarterly")}
-                        disabled={!hasQuarterly}
-                        className={cn(
-                            "rounded-lg px-2.5 py-1 font-semibold uppercase tracking-wide transition",
-                            effectivePeriodMode === "quarterly"
-                                ? "bg-primary/20 text-foreground"
-                                : "text-muted-foreground hover:bg-muted/20",
-                            !hasQuarterly && "cursor-not-allowed opacity-50"
-                        )}
-                    >
-                        FQ
-                    </button>
-                </div>
-            </div>
-
-            {selectionMessage ? (
-                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
-                    {selectionMessage}
-                </div>
-            ) : null}
-
-            <FinancialsTable
-                grid={activeGrid}
-                fallbackCurrency={profile.company.currency}
-                selectedIds={new Set(validSelectedIds)}
-                expandedIds={expandedIds}
-                onToggleExpand={toggleExpand}
-                onToggleSelect={toggleRowSelect}
-            />
 
             <ChartBuilder
                 open={chartOpen}
@@ -217,8 +234,10 @@ export default function FinancialsPanel({ profile }: FinancialsPanelProps) {
                 columns={activeGrid?.columns || []}
                 series={selectedSeries}
                 currency={activeGrid?.currency || profile.company.currency || "USD"}
+                symbol={profile.finnhubSymbol}
+                statementLabel={activeStatementLabel}
+                periodLabel={periodLabel}
             />
         </div>
     );
 }
-

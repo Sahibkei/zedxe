@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { Settings2, Share2, ChevronLeft } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -76,63 +77,72 @@ export default function StockProfileHeader({
     const priceLabel = formatCurrency(price, currency || "USD");
 
     return (
-        <header className="space-y-5 rounded-2xl border border-border/70 bg-[#0b111a] p-5 shadow-[0_20px_50px_-40px_rgba(0,0,0,0.9)]">
+        <header className="space-y-4 rounded-xl border border-border/80 bg-card p-4 shadow-[0_28px_80px_-52px_rgba(0,0,0,0.9)] lg:p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
-                <Link href="/dashboard" className="inline-flex items-center gap-1 text-xs uppercase tracking-wide text-muted-foreground hover:text-foreground">
-                    <ChevronLeft className="h-3.5 w-3.5" />
-                    Back to Markets
-                </Link>
+                <div className="flex flex-wrap items-center gap-3">
+                    <Link href="/app" className="inline-flex items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-2.5 py-1.5">
+                        <Image src="/brand/zedxe-logo.svg" alt="ZedXe" width={96} height={30} className="h-5 w-auto" priority />
+                    </Link>
+                    <Link
+                        href="/dashboard"
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground"
+                    >
+                        <ChevronLeft className="h-3.5 w-3.5" />
+                        Back to Markets
+                    </Link>
+                </div>
+
                 <div className="flex items-center gap-2">
                     <Button
                         variant="outline"
                         size="sm"
                         onClick={onShare}
-                        className="border-border/80 bg-transparent text-muted-foreground hover:bg-muted/30"
+                        className="h-8 rounded-lg border-border/70 bg-transparent px-2.5 text-xs text-muted-foreground hover:bg-muted/30"
                     >
-                        <Share2 className="h-4 w-4" />
+                        <Share2 className="h-3.5 w-3.5" />
                         {copied ? "Copied" : "Share"}
                     </Button>
                     <Button
                         variant="outline"
                         size="icon-sm"
-                        className="border-border/80 bg-transparent text-muted-foreground hover:bg-muted/30"
+                        className="h-8 w-8 rounded-lg border-border/70 bg-transparent text-muted-foreground hover:bg-muted/30"
                         aria-label="Stock profile settings"
                     >
-                        <Settings2 className="h-4 w-4" />
+                        <Settings2 className="h-3.5 w-3.5" />
                     </Button>
                 </div>
             </div>
 
-            <div className="grid gap-5 lg:grid-cols-[1fr_auto]">
-                <div className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <h1 className="text-2xl font-semibold tracking-tight text-foreground lg:text-3xl">{symbol}</h1>
-                        <p className="text-lg text-muted-foreground">{companyName || "Company data unavailable"}</p>
+            <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-start">
+                <div className="space-y-2.5">
+                    <div className="flex flex-wrap items-end gap-2">
+                        <h1 className="text-2xl font-semibold tracking-tight text-foreground lg:text-[2rem]">{symbol}</h1>
+                        <p className="text-base text-muted-foreground lg:text-lg">{companyName || "Company data unavailable"}</p>
                     </div>
-                    <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide">
+                    <div className="flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-[0.12em]">
                         {exchange ? (
-                            <span className="rounded-full border border-border/60 bg-muted/20 px-2.5 py-1 text-muted-foreground">{exchange}</span>
+                            <span className="rounded-md border border-border/70 bg-muted/20 px-2 py-1 text-muted-foreground">{exchange}</span>
                         ) : null}
                         {sector ? (
-                            <span className="rounded-full border border-border/60 bg-muted/20 px-2.5 py-1 text-muted-foreground">{sector}</span>
+                            <span className="rounded-md border border-border/70 bg-muted/20 px-2 py-1 text-muted-foreground">{sector}</span>
                         ) : null}
                         {marketCap ? (
-                            <span className="rounded-full border border-border/60 bg-muted/20 px-2.5 py-1 text-muted-foreground">
+                            <span className="rounded-md border border-border/70 bg-muted/20 px-2 py-1 text-muted-foreground">
                                 Mkt Cap {formatCurrencyShort(marketCap, currency || "USD")}
                             </span>
                         ) : null}
                     </div>
                 </div>
 
-                <div className="rounded-xl border border-border/60 bg-[#0e1723] px-4 py-3 lg:min-w-[220px]">
-                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Last Price</p>
+                <div className="rounded-lg border border-border/70 bg-muted/20 px-4 py-3 lg:min-w-[236px]">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Last Price</p>
                     <p className="mt-1 text-2xl font-semibold text-foreground">{priceLabel}</p>
                     <p className={cn("text-sm font-semibold", changeTone(changePercent))}>{changeLabel}</p>
-                    <p className="mt-2 text-[11px] uppercase tracking-wide text-muted-foreground">Market status unavailable</p>
+                    <p className="mt-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Market status unavailable</p>
                 </div>
             </div>
 
-            <div className="rounded-xl border border-border/60 bg-[#0d141f] p-3">
+            <div className="rounded-lg border border-border/70 bg-muted/15 p-2.5">
                 <StockActionBar
                     symbol={symbol}
                     company={companyName || symbol}
@@ -143,4 +153,3 @@ export default function StockProfileHeader({
         </header>
     );
 }
-

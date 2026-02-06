@@ -497,10 +497,10 @@ const formatStatementDateLabel = (endDate?: string, year?: number) => {
     if (endDate) {
         const parsed = new Date(endDate);
         if (!Number.isNaN(parsed.getTime())) {
-            return parsed.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+            return `FY ${parsed.getUTCFullYear()}`;
         }
     }
-    return year ? `FY ${year}` : '—';
+    return year ? `FY ${year}` : '--';
 };
 
 const formatStatementQuarterLabel = (report?: { endDate?: string; year?: number; quarter?: number }) => {
@@ -530,7 +530,7 @@ const createStatementGrid = ({
     const sortedAnnual = sortReports((annualReports as any[]) || []) as any[];
     const sortedQuarterly = sortReports((quarterlyReports as any[]) || []) as any[];
 
-    const annualColumns = sortedAnnual.slice(0, 4).map((report, index) => ({
+    const annualColumns = sortedAnnual.slice(0, 10).reverse().map((report, index) => ({
         key: `annual-${index}`,
         label: formatStatementDateLabel(report?.endDate, report?.year),
         date: report?.endDate,
@@ -539,7 +539,7 @@ const createStatementGrid = ({
         source: report,
     }));
 
-    const quarterlyColumns = sortedQuarterly.slice(0, 8).map((report, index) => ({
+    const quarterlyColumns = sortedQuarterly.slice(0, 10).reverse().map((report, index) => ({
         key: `quarterly-${index}`,
         label: formatStatementQuarterLabel(report),
         date: report?.endDate,
@@ -551,7 +551,7 @@ const createStatementGrid = ({
     const columnsWithSource =
         mode === 'quarterly'
             ? quarterlyColumns
-            : [{ key: 'ttm', label: 'TTM', type: 'ttm' as const }, ...annualColumns];
+            : [...annualColumns, { key: 'ttm', label: 'TTM', type: 'ttm' as const }];
 
     const columns = columnsWithSource.map(({ source, ...col }) => col);
 
@@ -641,6 +641,8 @@ const mapProfile: ProfileMapperFn = (profile) => ({
     industry: profile?.finnhubIndustry,
     exchange: profile?.exchange,
     marketCap: profile?.marketCapitalization ? profile.marketCapitalization * 1_000_000 : undefined,
+    shareOutstanding: profile?.shareOutstanding,
+    employees: profile?.employeeTotal,
     ipo: profile?.ipo,
     currency: profile?.currency,
     description: profile?.description,
@@ -703,9 +705,9 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
 
     const profilePromise = finnhubAvailable ? getFinnhubProfile(finnhubSymbol) : Promise.resolve(undefined);
     const metricsPromise = finnhubAvailable ? getFinnhubMetrics(finnhubSymbol) : Promise.resolve(undefined);
-    const annualPromise = finnhubAvailable ? getFinnhubFinancials(finnhubSymbol, 'annual') : Promise.resolve(undefined);
+    const annualPromise = finnhubAvailable ? getFinnhubFinancials(finnhubSymbol, 'annual', 10) : Promise.resolve(undefined);
     const quarterlyPromise = finnhubAvailable
-        ? getFinnhubFinancials(finnhubSymbol, 'quarterly')
+        ? getFinnhubFinancials(finnhubSymbol, 'quarterly', 10)
         : Promise.resolve(undefined);
     const quotePromise = finnhubAvailable ? getFinnhubQuote(finnhubSymbol) : Promise.resolve(undefined);
     const secPromise = secAvailable
@@ -768,12 +770,12 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
 
     const company = mapProfile(profileRes);
     const metrics = mapRatios(metricsRes?.metric ?? undefined);
-    const annualPrimary = mapFinancials({ financials: annualRes, limit: 5, frequency: 'annual' });
-    const quarterlyPrimary = mapFinancials({ financials: quarterlyRes, limit: 8, frequency: 'quarterly' });
-    const secAnnual = mapSecFinancials(secFacts || {}, 'annual', 5);
-    const secQuarterly = mapSecFinancials(secFacts || {}, 'quarterly', 8);
-    const annual = mergeFinancialRows(annualPrimary, secAnnual, 5);
-    const quarterly = mergeFinancialRows(quarterlyPrimary, secQuarterly, 8);
+    const annualPrimary = mapFinancials({ financials: annualRes, limit: 10, frequency: 'annual' });
+    const quarterlyPrimary = mapFinancials({ financials: quarterlyRes, limit: 10, frequency: 'quarterly' });
+    const secAnnual = mapSecFinancials(secFacts || {}, 'annual', 10);
+    const secQuarterly = mapSecFinancials(secFacts || {}, 'quarterly', 10);
+    const annual = mergeFinancialRows(annualPrimary, secAnnual, 10);
+    const quarterly = mergeFinancialRows(quarterlyPrimary, secQuarterly, 10);
     const filings = mapFilings(filingsRes);
     const statements = {
         income: createStatementGrid({

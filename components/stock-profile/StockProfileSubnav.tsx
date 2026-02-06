@@ -20,7 +20,7 @@ type StockProfileSubnavProps = {
 
 export default function StockProfileSubnav({ activeTab, onTabChange }: StockProfileSubnavProps) {
     return (
-        <div className="sticky top-16 z-30 rounded-2xl border border-border/70 bg-[#0b111a]/95 px-2 py-2 backdrop-blur">
+        <div className="sticky top-16 z-30 rounded-xl border border-border/80 bg-card/95 px-2 py-2 backdrop-blur">
             <nav className="flex gap-2 overflow-x-auto scrollbar-hide-default" aria-label="Stock profile sections">
                 {STOCK_PROFILE_TABS.map((tab) => {
                     const isActive = tab.key === activeTab;
@@ -30,10 +30,10 @@ export default function StockProfileSubnav({ activeTab, onTabChange }: StockProf
                             type="button"
                             onClick={() => onTabChange(tab.key)}
                             className={cn(
-                                "whitespace-nowrap rounded-xl px-4 py-2 text-xs font-semibold uppercase tracking-wide transition",
+                                "whitespace-nowrap rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] transition",
                                 isActive
                                     ? "bg-primary/20 text-foreground ring-1 ring-primary/50"
-                                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                                    : "text-muted-foreground hover:bg-muted/20 hover:text-foreground"
                             )}
                             aria-current={isActive ? "page" : undefined}
                         >

@@ -70,6 +70,8 @@ export type StockProfileV2Model = {
         industry?: string;
         exchange?: string;
         marketCap?: number;
+        shareOutstanding?: number;
+        employees?: number;
         ipo?: string;
         currency?: string;
         description?: string;
