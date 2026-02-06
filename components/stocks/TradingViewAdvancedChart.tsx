@@ -9,6 +9,7 @@ declare global {
 }
 
 let tvScriptPromise: Promise<void> | null = null;
+let tvScriptElement: HTMLScriptElement | null = null;
 
 const loadTradingViewScript = () => {
     if (tvScriptPromise) return tvScriptPromise;
@@ -25,7 +26,10 @@ const loadTradingViewScript = () => {
 
         if (existing) {
             existing.addEventListener("load", () => resolve());
-            existing.addEventListener("error", () => reject(new Error("Failed to load TradingView script")));
+            existing.addEventListener("error", () => {
+                tvScriptPromise = null;
+                reject(new Error("Failed to load TradingView script"));
+            });
             return;
         }
 
@@ -33,14 +37,22 @@ const loadTradingViewScript = () => {
         script.src = "https://s3.tradingview.com/tv.js";
         script.async = true;
         script.onload = () => resolve();
-        script.onerror = () => reject(new Error("Failed to load TradingView script"));
+        script.onerror = () => {
+            tvScriptPromise = null;
+            if (tvScriptElement) {
+                tvScriptElement.remove();
+                tvScriptElement = null;
+            }
+            reject(new Error("Failed to load TradingView script"));
+        };
         document.head.appendChild(script);
+        tvScriptElement = script;
     });
 
     return tvScriptPromise;
 };
 
-const normalizeSymbol = (rawSymbol: string) => {
+const normalizeSymbol = (rawSymbol: string, exchange?: string) => {
     const symbol = rawSymbol.trim().toUpperCase();
     if (!symbol) return "NASDAQ:AAPL";
     if (symbol.includes(":")) return symbol;
@@ -48,15 +60,29 @@ const normalizeSymbol = (rawSymbol: string) => {
     const indexSymbols = new Set(["SPX", "NDX", "DJI", "VIX"]);
     if (indexSymbols.has(symbol)) return symbol;
 
-    return `NASDAQ:${symbol}`;
+    const exchangeMap: Record<string, string> = {
+        NASDAQ: "NASDAQ",
+        NYSE: "NYSE",
+        AMEX: "AMEX",
+    };
+    const normalizedExchange = exchange ? exchangeMap[exchange.toUpperCase()] : undefined;
+    return `${normalizedExchange ?? "NASDAQ"}:${symbol}`;
 };
 
 const makeContainerId = (symbol: string) =>
     `tv_chart_${symbol.replaceAll(/[^a-zA-Z0-9_-]/g, "_")}`;
 
-const TradingViewAdvancedChart = ({ symbol, className }: { symbol: string; className?: string }) => {
+const TradingViewAdvancedChart = ({
+    symbol,
+    exchange,
+    className,
+}: {
+    symbol: string;
+    exchange?: string;
+    className?: string;
+}) => {
     const containerRef = useRef<HTMLDivElement | null>(null);
-    const tvSymbol = useMemo(() => normalizeSymbol(symbol), [symbol]);
+    const tvSymbol = useMemo(() => normalizeSymbol(symbol, exchange), [symbol, exchange]);
     const containerId = useMemo(() => makeContainerId(tvSymbol), [tvSymbol]);
 
     useEffect(() => {

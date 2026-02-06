@@ -11,6 +11,7 @@ export type StockProfileOverview = {
     description: string;
     sector: string;
     industry: string;
+    highlights: string[];
 };
 
 export type IncomeStatementRow = {

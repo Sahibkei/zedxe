@@ -28,15 +28,7 @@ const formatCurrency = (value: number) =>
 const StockProfileTabs = ({ profile }: { profile: StockProfileV2 }) => {
     const [activeTab, setActiveTab] = useState<TabKey>("overview");
 
-    const keyHighlights = useMemo(
-        () => [
-            `Sector focus: ${profile.overview.sector}`,
-            `Industry leadership in ${profile.overview.industry}`,
-            "Subscription-led recurring revenue model",
-            "Global enterprise customer base",
-        ],
-        [profile.overview.industry, profile.overview.sector],
-    );
+    const keyHighlights = useMemo(() => profile.overview.highlights ?? [], [profile.overview.highlights]);
 
     return (
         <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-6 shadow-xl">
@@ -65,7 +57,8 @@ const StockProfileTabs = ({ profile }: { profile: StockProfileV2 }) => {
                             <p className="text-sm font-semibold text-slate-200">Business Summary</p>
                             <p className="mt-2 text-sm leading-relaxed text-slate-400">{profile.overview.description}</p>
                         </div>
-                        <div>
+                        {keyHighlights.length > 0 && (
+                            <div>
                             <p className="text-sm font-semibold text-slate-200">Key Highlights</p>
                             <ul className="mt-3 grid gap-3 md:grid-cols-2">
                                 {keyHighlights.map((highlight) => (
@@ -77,7 +70,8 @@ const StockProfileTabs = ({ profile }: { profile: StockProfileV2 }) => {
                                     </li>
                                 ))}
                             </ul>
-                        </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -190,9 +184,9 @@ const StockProfileTabs = ({ profile }: { profile: StockProfileV2 }) => {
 
                 {activeTab === "filings" && (
                     <div className="space-y-3">
-                        {profile.filings.map((filing) => (
+                        {profile.filings.map((filing, index) => (
                             <a
-                                key={`${filing.type}-${filing.date}`}
+                                key={`${filing.type}-${filing.date}-${filing.url}-${index}`}
                                 href={filing.url}
                                 target="_blank"
                                 rel="noreferrer"

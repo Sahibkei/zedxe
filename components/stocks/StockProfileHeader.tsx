@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { StockProfileHeader } from "@/src/features/stock-profile-v2/contract/types";
+import type { StockProfileHeader as StockProfileHeaderModel } from "@/src/features/stock-profile-v2/contract/types";
 
 const formatPrice = (value: number) =>
     value.toLocaleString("en-US", {
@@ -9,12 +9,14 @@ const formatPrice = (value: number) =>
         maximumFractionDigits: 2,
     });
 
-const StockProfileHeader = ({ header, className }: { header: StockProfileHeader; className?: string }) => {
-    const isPositive = header.change >= 0;
+const StockProfileHeader = ({ header, className }: { header: StockProfileHeaderModel; className?: string }) => {
+    const hasChange = typeof header.change === "number" && typeof header.changePct === "number";
+    const isPositive = hasChange ? header.change >= 0 : true;
     const badgeClasses = isPositive
         ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
         : "bg-rose-500/15 text-rose-300 border-rose-500/40";
     const changePrefix = isPositive ? "+" : "";
+    const priceDisplay = typeof header.price === "number" ? formatPrice(header.price) : "—";
 
     return (
         <div className={cn("rounded-2xl border border-[#1c2432] bg-[#0d1117]/80 px-6 py-5 shadow-xl backdrop-blur", className)}>
@@ -34,18 +36,29 @@ const StockProfileHeader = ({ header, className }: { header: StockProfileHeader;
 
                 <div className="flex items-center gap-4">
                     <div className="text-right">
-                        <p className="text-2xl font-semibold text-slate-100">{formatPrice(header.price)}</p>
+                        <p className="text-2xl font-semibold text-slate-100">{priceDisplay}</p>
                         <p className="text-sm text-slate-500">Last trade</p>
                     </div>
-                    <div className={cn("rounded-xl border px-3 py-2 text-sm font-mono", badgeClasses)}>
-                        <span>
-                            {changePrefix}
-                            {header.change.toFixed(2)}
-                        </span>
-                        <span className="ml-2">
-                            ({changePrefix}
-                            {header.changePct.toFixed(2)}%)
-                        </span>
+                    <div
+                        className={cn(
+                            "rounded-xl border px-3 py-2 text-sm font-mono",
+                            hasChange ? badgeClasses : "border-[#1c2432] text-slate-400",
+                        )}
+                    >
+                        {hasChange ? (
+                            <>
+                                <span>
+                                    {changePrefix}
+                                    {header.change.toFixed(2)}
+                                </span>
+                                <span className="ml-2">
+                                    ({changePrefix}
+                                    {header.changePct.toFixed(2)}%)
+                                </span>
+                            </>
+                        ) : (
+                            <span>—</span>
+                        )}
                     </div>
                 </div>
             </div>

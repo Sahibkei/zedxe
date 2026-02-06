@@ -103,6 +103,12 @@ export const getMockStockProfile = (symbol: string): StockProfileV2 => {
             description: `${safeSymbol} delivers cloud-native financial infrastructure and digital commerce tooling for enterprise clients across global markets. The company focuses on subscription software, data analytics, and embedded payments.`,
             sector: pick(sectors, seed),
             industry: pick(industries, seed + 4),
+            highlights: [
+                `${safeSymbol} platform supports ${20 + (seed % 15)}M+ daily transactions.`,
+                `Recurring revenue mix at ${(62 + (seed % 12)).toFixed(0)}%.`,
+                `Global footprint across ${18 + (seed % 10)} countries.`,
+                `Top ${(seed % 5) + 3} customer verticals by revenue.`,
+            ],
         },
         financials: {
             incomeStatement,
