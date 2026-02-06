@@ -1,51 +1,43 @@
 import { cache } from "react";
 
-import { getQuote } from "@/lib/market/providers";
-import { getMockStockProfile } from "@/src/features/stock-profile-v2/contract/mock";
+import { canonicalizeSymbol } from "@/src/lib/symbol";
+import { finnhubProvider } from "@/src/server/market-data/finnhub-provider";
+import type { QuoteData, StockProfileData } from "@/src/server/market-data/provider";
 
-const resolveSymbol = (rawSymbol: string | undefined) => {
-    const cleaned = (rawSymbol ?? "").trim();
-    return cleaned ? cleaned.toUpperCase() : "UNKNOWN";
+export const getCanonicalSymbol = (rawSymbol: string | undefined) => canonicalizeSymbol(rawSymbol ?? "");
+
+type StockProfileViewData = {
+    symbol: string;
+    profile: StockProfileData;
+    quote: QuoteData | null;
+    error?: string;
 };
 
-export const getCanonicalSymbol = (rawSymbol: string | undefined) => resolveSymbol(rawSymbol);
-
-export const getStockProfileData = cache(async (rawSymbol: string | undefined) => {
-    const symbol = resolveSymbol(rawSymbol);
-    let profile = getMockStockProfile(symbol);
-    let hasLiveQuote = false;
-
+export const getStockProfileData = cache(async (rawSymbol: string | undefined): Promise<StockProfileViewData> => {
+    let symbol = "UNKNOWN";
     try {
-        const quote = await getQuote(symbol);
-        if (quote && typeof quote.c === "number") {
-            profile = {
-                ...profile,
-                header: {
-                    ...profile.header,
-                    price: quote.c,
-                    change: typeof quote.d === "number" ? quote.d : profile.header.change,
-                    changePct: typeof quote.dp === "number" ? quote.dp : profile.header.changePct,
-                    status: "Live",
-                },
-            };
-            hasLiveQuote = true;
-        }
+        symbol = canonicalizeSymbol(rawSymbol ?? "");
     } catch {
-        // Fall back to mock pricing silently
-    }
-
-    if (!hasLiveQuote) {
-        profile = {
-            ...profile,
-            header: {
-                ...profile.header,
-                price: null,
-                change: null,
-                changePct: null,
-                status: "Unavailable",
-            },
+        return {
+            symbol,
+            profile: { symbol, name: "Data unavailable" },
+            quote: null,
+            error: "Invalid symbol",
         };
     }
 
-    return { symbol, profile, hasLiveQuote };
+    try {
+        const [profile, quote] = await Promise.all([
+            finnhubProvider.getProfile(symbol),
+            finnhubProvider.getQuote(symbol).catch(() => null),
+        ]);
+        return { symbol, profile, quote };
+    } catch (error) {
+        return {
+            symbol,
+            profile: { symbol, name: "Data unavailable" },
+            quote: null,
+            error: error instanceof Error ? error.message : "Data unavailable",
+        };
+    }
 });

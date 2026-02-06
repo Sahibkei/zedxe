@@ -1,7 +1,8 @@
 import TradingViewAdvancedChart from "@/components/stocks/TradingViewAdvancedChart";
-
-import { getCanonicalSymbol, getStockProfileData } from "../data";
 import { redirect } from "next/navigation";
+
+import { formatMarketCapValue } from "@/lib/utils";
+import { getCanonicalSymbol, getStockProfileData } from "../data";
 
 const StockOverviewPage = async ({ params }: { params: Promise<{ symbol: string }> }) => {
     const { symbol } = await params;
@@ -9,8 +10,7 @@ const StockOverviewPage = async ({ params }: { params: Promise<{ symbol: string 
     if (symbol !== canonicalSymbol) {
         redirect(`/stocks/${canonicalSymbol}/overview`);
     }
-    const { profile, hasLiveQuote } = await getStockProfileData(canonicalSymbol);
-    const highlights = profile.overview.highlights ?? [];
+    const { profile, quote, error } = await getStockProfileData(canonicalSymbol);
 
     return (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]" role="tabpanel" id="overview-panel">
@@ -19,16 +19,16 @@ const StockOverviewPage = async ({ params }: { params: Promise<{ symbol: string 
                     <div className="mb-4 flex items-center justify-between">
                         <div>
                             <p className="text-xs font-mono uppercase tracking-wide text-slate-500">Advanced Chart</p>
-                            <p className="text-lg font-semibold text-slate-100">{profile.header.symbol} Price Action</p>
+                            <p className="text-lg font-semibold text-slate-100">{profile.symbol} Price Action</p>
                         </div>
                         <span className="rounded-full border border-[#1c2432] bg-[#0b0f14] px-3 py-1 text-xs font-mono text-slate-400">
-                            {profile.header.symbol}
+                            {profile.symbol}
                         </span>
                     </div>
                     <div className="h-[520px] rounded-xl border border-[#1c2432] bg-[#0b0f14]">
                         <TradingViewAdvancedChart
-                            symbol={profile.header.symbol}
-                            exchange={profile.header.exchange}
+                            symbol={profile.symbol}
+                            exchange={profile.exchange}
                             className="h-full"
                         />
                     </div>
@@ -36,29 +36,17 @@ const StockOverviewPage = async ({ params }: { params: Promise<{ symbol: string 
 
                 <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-6 shadow-xl">
                     <p className="text-sm font-semibold text-slate-200">Business Overview</p>
-                    <p className="mt-3 text-sm leading-relaxed text-slate-400">{profile.overview.description}</p>
+                    <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                        {profile.description || "Company description unavailable at the moment."}
+                    </p>
 
                     <div className="mt-4 rounded-xl border border-[#1c2432] bg-[#0b0f14]/70 px-4 py-3 text-xs text-slate-400">
-                        {hasLiveQuote
-                            ? "Live pricing available."
-                            : "Live pricing unavailable; values reflect delayed or estimated data."}
+                        {error
+                            ? `Data unavailable: ${error}`
+                            : quote
+                              ? "Live pricing available."
+                              : "Live pricing unavailable; try again later."}
                     </div>
-
-                    {highlights.length > 0 && (
-                        <div className="mt-6">
-                            <p className="text-sm font-semibold text-slate-200">Key Highlights</p>
-                            <ul className="mt-3 grid gap-3 md:grid-cols-2">
-                                {highlights.map((highlight) => (
-                                    <li
-                                        key={highlight}
-                                        className="rounded-xl border border-[#1c2432] bg-[#0b0f14]/70 px-4 py-3 text-sm text-slate-300"
-                                    >
-                                        {highlight}
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
                 </div>
             </div>
 
@@ -66,12 +54,38 @@ const StockOverviewPage = async ({ params }: { params: Promise<{ symbol: string 
                 <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-5 shadow-xl">
                     <p className="text-sm font-semibold text-slate-100">Key Stats</p>
                     <dl className="mt-4 space-y-3 text-sm">
-                        {profile.keyStats.map((stat) => (
-                            <div key={stat.label} className="flex items-center justify-between text-slate-300">
-                                <dt className="text-slate-500">{stat.label}</dt>
-                                <dd className="font-medium text-slate-100">{stat.value}</dd>
-                            </div>
-                        ))}
+                        <div className="flex items-center justify-between text-slate-300">
+                            <dt className="text-slate-500">Market Cap</dt>
+                            <dd className="font-medium text-slate-100">
+                                {profile.marketCap ? formatMarketCapValue(profile.marketCap) : "—"}
+                            </dd>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-300">
+                            <dt className="text-slate-500">52W Range</dt>
+                            <dd className="font-medium text-slate-100">
+                                {profile.range52wLow && profile.range52wHigh
+                                    ? `${profile.range52wLow.toFixed(2)} - ${profile.range52wHigh.toFixed(2)}`
+                                    : "—"}
+                            </dd>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-300">
+                            <dt className="text-slate-500">Avg Volume</dt>
+                            <dd className="font-medium text-slate-100">
+                                {profile.avgVolume ? profile.avgVolume.toLocaleString("en-US") : "—"}
+                            </dd>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-300">
+                            <dt className="text-slate-500">Beta</dt>
+                            <dd className="font-medium text-slate-100">
+                                {profile.beta !== undefined ? profile.beta.toFixed(2) : "—"}
+                            </dd>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-300">
+                            <dt className="text-slate-500">Dividend Yield</dt>
+                            <dd className="font-medium text-slate-100">
+                                {profile.dividendYield !== undefined ? `${profile.dividendYield.toFixed(2)}%` : "—"}
+                            </dd>
+                        </div>
                     </dl>
                 </div>
 
@@ -79,38 +93,33 @@ const StockOverviewPage = async ({ params }: { params: Promise<{ symbol: string 
                     <p className="text-sm font-semibold text-slate-100">Company Snapshot</p>
                     <div className="mt-4 space-y-3 text-sm text-slate-400">
                         <p>
-                            <span className="text-slate-500">Sector:</span> {profile.overview.sector}
+                            <span className="text-slate-500">Sector:</span> {profile.sector || "—"}
                         </p>
                         <p>
-                            <span className="text-slate-500">Industry:</span> {profile.overview.industry}
+                            <span className="text-slate-500">Industry:</span> {profile.industry || "—"}
                         </p>
                         <p>
-                            <span className="text-slate-500">HQ:</span> {profile.about.headquarters}
+                            <span className="text-slate-500">HQ:</span>{" "}
+                            {profile.hqCity || profile.hqState || profile.hqCountry
+                                ? `${profile.hqCity ?? ""} ${profile.hqState ?? ""} ${profile.hqCountry ?? ""}`.trim()
+                                : "—"}
                         </p>
                         <p>
-                            <span className="text-slate-500">Employees:</span> {profile.about.employees}
+                            <span className="text-slate-500">Employees:</span>{" "}
+                            {profile.employees ? profile.employees.toLocaleString("en-US") : "—"}
                         </p>
-                        <a
-                            href={profile.about.website}
-                            className="inline-flex items-center gap-2 text-sm font-medium text-emerald-300 hover:text-emerald-200"
-                            target="_blank"
-                            rel="noreferrer"
-                        >
-                            {profile.about.website}
-                        </a>
-                    </div>
-                </div>
-                <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-5 shadow-xl">
-                    <p className="text-sm font-semibold text-slate-100">Business Detail</p>
-                    <div className="mt-4 space-y-4 text-sm text-slate-400">
-                        {profile.overview.sections.map((section) => (
-                            <div key={section.title}>
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    {section.title}
-                                </p>
-                                <p className="mt-2 text-sm text-slate-300">{section.description}</p>
-                            </div>
-                        ))}
+                        {profile.website ? (
+                            <a
+                                href={profile.website}
+                                className="inline-flex items-center gap-2 text-sm font-medium text-emerald-300 hover:text-emerald-200"
+                                target="_blank"
+                                rel="noreferrer"
+                            >
+                                {profile.website}
+                            </a>
+                        ) : (
+                            <span className="text-sm text-slate-500">Website unavailable</span>
+                        )}
                     </div>
                 </div>
             </aside>

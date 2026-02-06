@@ -3,10 +3,10 @@ import { NextResponse } from "next/server";
 import { canonicalizeSymbol } from "@/src/lib/symbol";
 import { finnhubProvider } from "@/src/server/market-data/finnhub-provider";
 
-export const revalidate = 300;
+export const revalidate = 5;
 
 export async function GET(
-    request: Request,
+    _request: Request,
     { params }: { params: Promise<{ symbol: string }> },
 ) {
     const { symbol: rawSymbol } = await params;
@@ -19,20 +19,17 @@ export async function GET(
             { status: 400 },
         );
     }
-    const { searchParams } = new URL(request.url);
-    const statement = (searchParams.get("statement") ?? "income") as "income" | "balance" | "cashflow";
-    const period = (searchParams.get("period") ?? "annual") as "annual" | "quarter";
 
     try {
-        const data = await finnhubProvider.getFinancialStatement(symbol, statement, period, 10);
-        return NextResponse.json(data, {
+        const quote = await finnhubProvider.getQuote(symbol);
+        return NextResponse.json(quote, {
             headers: {
-                "Cache-Control": "public, s-maxage=21600, stale-while-revalidate=86400",
+                "Cache-Control": "public, s-maxage=5, stale-while-revalidate=15",
             },
         });
     } catch (error) {
         return NextResponse.json(
-            { error: error instanceof Error ? error.message : "Statement not available" },
+            { error: error instanceof Error ? error.message : "Quote unavailable" },
             { status: 503 },
         );
     }

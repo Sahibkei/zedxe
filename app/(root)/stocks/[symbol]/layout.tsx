@@ -12,17 +12,17 @@ const StockProfileLayout = async ({
 }) => {
     const { symbol } = await params;
     const canonicalSymbol = getCanonicalSymbol(symbol);
-    const { profile } = await getStockProfileData(canonicalSymbol);
+    const { profile, quote } = await getStockProfileData(canonicalSymbol);
 
     return (
         <div className="min-h-screen bg-[#010409] text-slate-100">
             <div className="mx-auto w-full max-w-[1800px] px-6 pb-12 pt-24">
                 <div className="space-y-6">
                     <div className="sticky top-20 z-20 bg-[#010409] pb-4">
-                        <StockProfileHeader header={profile.header} />
+                        <StockProfileHeader profile={profile} initialQuote={quote} />
                     </div>
                     <div className="sticky top-[148px] z-10 bg-[#010409] pb-4">
-                        <StockProfileSubnav symbol={profile.header.symbol} />
+                        <StockProfileSubnav symbol={profile.symbol} />
                     </div>
                     <main>{children}</main>
                 </div>

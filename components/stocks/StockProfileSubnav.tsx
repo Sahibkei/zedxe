@@ -32,6 +32,7 @@ const StockProfileSubnav = ({ symbol }: { symbol: string }) => {
                             role="tab"
                             aria-selected={isActive}
                             aria-controls={`${item.key}-panel`}
+                            aria-current={isActive ? "page" : undefined}
                             className={cn(
                                 "border-b-2 px-1 py-2 text-xs font-semibold transition",
                                 isActive

@@ -25,6 +25,10 @@ const loadTradingViewScript = () => {
         );
 
         if (existing) {
+            if ((existing as HTMLScriptElement).dataset.loaded === "true") {
+                resolve();
+                return;
+            }
             existing.addEventListener("load", () => resolve());
             existing.addEventListener("error", () => {
                 tvScriptPromise = null;
@@ -36,7 +40,10 @@ const loadTradingViewScript = () => {
         const script = document.createElement("script");
         script.src = "https://s3.tradingview.com/tv.js";
         script.async = true;
-        script.onload = () => resolve();
+        script.onload = () => {
+            script.dataset.loaded = "true";
+            resolve();
+        };
         script.onerror = () => {
             tvScriptPromise = null;
             if (tvScriptElement) {
@@ -54,7 +61,7 @@ const loadTradingViewScript = () => {
 
 const normalizeSymbol = (rawSymbol: string, exchange?: string) => {
     const symbol = rawSymbol.trim().toUpperCase();
-    if (!symbol) return "NASDAQ:AAPL";
+    if (!symbol) return "AAPL";
     if (symbol.includes(":")) return symbol;
 
     const indexSymbols = new Set(["SPX", "NDX", "DJI", "VIX"]);
@@ -66,7 +73,8 @@ const normalizeSymbol = (rawSymbol: string, exchange?: string) => {
         AMEX: "AMEX",
     };
     const normalizedExchange = exchange ? exchangeMap[exchange.toUpperCase()] : undefined;
-    return `${normalizedExchange ?? "NASDAQ"}:${symbol}`;
+    if (!normalizedExchange) return symbol;
+    return `${normalizedExchange}:${symbol}`;
 };
 
 const makeContainerId = (symbol: string) =>
