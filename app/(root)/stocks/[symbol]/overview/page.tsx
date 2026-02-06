@@ -37,7 +37,7 @@ const StockOverviewPage = async ({ params }: { params: Promise<{ symbol: string 
                 <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-6 shadow-xl">
                     <p className="text-sm font-semibold text-slate-200">Business Overview</p>
                     <p className="mt-3 text-sm leading-relaxed text-slate-400">
-                        {profile.description || "Company description unavailable at the moment."}
+                        {profile.description || "No company description available yet."}
                     </p>
 
                     <div className="mt-4 rounded-xl border border-[#1c2432] bg-[#0b0f14]/70 px-4 py-3 text-xs text-slate-400">
@@ -92,12 +92,16 @@ const StockOverviewPage = async ({ params }: { params: Promise<{ symbol: string 
                 <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-5 shadow-xl">
                     <p className="text-sm font-semibold text-slate-100">Company Snapshot</p>
                     <div className="mt-4 space-y-3 text-sm text-slate-400">
-                        <p>
-                            <span className="text-slate-500">Sector:</span> {profile.sector || "—"}
-                        </p>
-                        <p>
-                            <span className="text-slate-500">Industry:</span> {profile.industry || "—"}
-                        </p>
+                        {profile.sector && (
+                            <p>
+                                <span className="text-slate-500">Sector:</span> {profile.sector}
+                            </p>
+                        )}
+                        {profile.industry && (
+                            <p>
+                                <span className="text-slate-500">Industry:</span> {profile.industry}
+                            </p>
+                        )}
                         <p>
                             <span className="text-slate-500">HQ:</span>{" "}
                             {profile.hqCity || profile.hqState || profile.hqCountry

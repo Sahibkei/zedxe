@@ -1,4 +1,4 @@
-\"use client\";
+'use client';
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -6,10 +6,10 @@ import { useQuery } from "@tanstack/react-query";
 import { cn, formatMarketCapValue } from "@/lib/utils";
 import type { QuoteData, StockProfileData } from "@/src/server/market-data/provider";
 
-const formatPrice = (value: number) =>
+const formatPrice = (value: number, currency: string) =>
     value.toLocaleString("en-US", {
         style: "currency",
-        currency: "USD",
+        currency,
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     });
@@ -36,6 +36,8 @@ const StockProfileHeader = ({
         queryKey: ["stock-quote", symbol],
         queryFn: () => fetchQuote(symbol),
         refetchInterval: 5000,
+        refetchOnWindowFocus: true,
+        staleTime: 0,
         initialData: initialQuote ?? undefined,
         retry: false,
     });
@@ -47,7 +49,7 @@ const StockProfileHeader = ({
         ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
         : "bg-rose-500/15 text-rose-300 border-rose-500/40";
     const changePrefix = isPositive ? "+" : "";
-    const priceDisplay = hasQuote ? formatPrice(quote.price) : "—";
+    const priceDisplay = hasQuote ? formatPrice(quote.price, profile.currency ?? "USD") : "—";
 
     const statusClass = hasQuote ? "border-emerald-500/40 text-emerald-300" : "border-slate-500/40 text-slate-300";
     const [now, setNow] = useState(Date.now());
@@ -59,7 +61,9 @@ const StockProfileHeader = ({
 
     const lastTradeLabel = useMemo(() => {
         if (!quote?.lastTradeAt) return "Data unavailable";
-        const diff = Math.max(0, Math.round((now - new Date(quote.lastTradeAt).getTime()) / 1000));
+        const parsed = new Date(quote.lastTradeAt).getTime();
+        if (Number.isNaN(parsed)) return "Data unavailable";
+        const diff = Math.max(0, Math.round((now - parsed) / 1000));
         return `Updated ${diff}s ago`;
     }, [quote?.lastTradeAt, now]);
 

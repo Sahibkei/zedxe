@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { canonicalizeSymbol } from "@/src/lib/symbol";
 import { finnhubProvider } from "@/src/server/market-data/finnhub-provider";
 
-export const revalidate = 300;
+export const revalidate = 21600;
 
 export async function GET(
     request: Request,
@@ -20,8 +20,21 @@ export async function GET(
         );
     }
     const { searchParams } = new URL(request.url);
-    const statement = (searchParams.get("statement") ?? "income") as "income" | "balance" | "cashflow";
-    const period = (searchParams.get("period") ?? "annual") as "annual" | "quarter";
+    const statementParam = searchParams.get("statement") ?? "income";
+    const periodParam = searchParams.get("period") ?? "annual";
+    const statement = ["income", "balance", "cashflow"].includes(statementParam)
+        ? (statementParam as "income" | "balance" | "cashflow")
+        : null;
+    const period = ["annual", "quarter"].includes(periodParam)
+        ? (periodParam as "annual" | "quarter")
+        : null;
+
+    if (!statement || !period) {
+        return NextResponse.json(
+            { error: "Invalid statement or period." },
+            { status: 400 },
+        );
+    }
 
     try {
         const data = await finnhubProvider.getFinancialStatement(symbol, statement, period, 10);

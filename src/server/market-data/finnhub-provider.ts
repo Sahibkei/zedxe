@@ -29,9 +29,9 @@ const groupLabelForRow = (label: string, statement: FinancialStatement["statemen
     if (statement === "income") {
         if (normalized.includes("revenue") || normalized.includes("sales")) return "Revenue";
         if (normalized.includes("cost")) return "Cost of Revenue";
+        if (normalized.includes("tax")) return "Taxes";
         if (normalized.includes("expense") || normalized.includes("marketing") || normalized.includes("research")) return "Operating Expenses";
         if (normalized.includes("income") || normalized.includes("profit")) return "Profitability";
-        if (normalized.includes("tax")) return "Taxes";
         return "Other";
     }
     if (statement === "balance") {
@@ -63,6 +63,16 @@ const buildStatementRows = (
     const labelOrder: string[] = [];
     const valuesByLabel: Record<string, (number | null)[]> = {};
 
+    const scaleValue = (value: number, unit?: string) => {
+        if (!unit) return value;
+        const normalized = unit.toLowerCase();
+        if (normalized.includes("billion") || normalized.endsWith("b")) return value * 1_000_000_000;
+        if (normalized.includes("million") || normalized.endsWith("m")) return value * 1_000_000;
+        if (normalized.includes("thousand") || normalized.endsWith("k")) return value * 1_000;
+        if (normalized === "usd" && value < 1_000_000_000 && value > 1_000) return value * 1_000_000;
+        return value;
+    };
+
     reportItems.forEach((items, reportIndex) => {
         items.forEach((item) => {
             const label = item.label ?? item.concept ?? "Unknown";
@@ -71,13 +81,13 @@ const buildStatementRows = (
                 labelOrder.push(label);
             }
             if (typeof item.value === "number") {
-                valuesByLabel[label][reportIndex] = item.value;
+                valuesByLabel[label][reportIndex] = scaleValue(item.value, item.unit);
             }
         });
     });
 
-    return labelOrder.map((label) => ({
-        key: label.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+    return labelOrder.map((label, index) => ({
+        key: `${label.toLowerCase().replace(/[^a-z0-9]+/g, "_")}_${index}`,
         label,
         values: valuesByLabel[label] ?? Array(columns.length).fill(null),
         group: groupLabelForRow(label, statement),
@@ -97,10 +107,10 @@ export const finnhubProvider: MarketDataProvider = {
             name: profile?.name || profile?.ticker || symbol,
             exchange: profile?.exchange,
             sector: profile?.finnhubIndustry,
-            industry: profile?.finnhubIndustry,
             website: profile?.weburl,
             description: profile?.description,
             currency: profile?.currency,
+            hqCountry: profile?.country,
             marketCap: profile?.marketCapitalization ? profile.marketCapitalization * 1_000_000 : undefined,
             beta: typeof metrics?.metric?.beta === "number" ? metrics.metric.beta : undefined,
             avgVolume:

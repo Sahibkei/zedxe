@@ -203,33 +203,11 @@ export const getMockStockProfile = (symbol: string): StockProfileV2 => {
             status: seed % 2 === 0 ? 'Live' : 'Delayed',
         },
         overview: {
-            description: `${safeSymbol} delivers cloud-native financial infrastructure and digital commerce tooling for enterprise clients across global markets. The company focuses on subscription software, data analytics, and embedded payments.`,
+            description: "No company description available yet.",
             sector: pick(sectors, seed),
             industry: pick(industries, seed + 4),
-            highlights: [
-                `${safeSymbol} platform supports ${20 + (seed % 15)}M+ daily transactions.`,
-                `Recurring revenue mix at ${(62 + (seed % 12)).toFixed(0)}%.`,
-                `Global footprint across ${18 + (seed % 10)} countries.`,
-                `Top ${(seed % 5) + 3} customer verticals by revenue.`,
-            ],
-            sections: [
-                {
-                    title: "Business model",
-                    description: `${safeSymbol} earns subscription and usage-based revenue from its ${pick(industries, seed).toLowerCase()} platform, combining software licenses with transaction fees.`,
-                },
-                {
-                    title: "Key products & segments",
-                    description: `Core segments include payments orchestration, risk analytics, and developer tooling tailored to ${pick(sectors, seed).toLowerCase()} clients.`,
-                },
-                {
-                    title: "Geographic exposure",
-                    description: `North America remains the largest region, with growing demand in EMEA and APAC for cloud-native finance stacks.`,
-                },
-                {
-                    title: "Key risks",
-                    description: "Execution risk includes competitive pricing, regulatory changes, and macro-driven IT spending cycles.",
-                },
-            ],
+            highlights: [],
+            sections: [],
         },
         financials: {
             incomeStatement,
@@ -276,7 +254,7 @@ export const getMockStockProfile = (symbol: string): StockProfileV2 => {
         about: {
             headquarters: pick(headquarters, seed),
             employees: `${(3800 + (seed % 4000)).toLocaleString('en-US')}`,
-            website: `https://www.${safeSymbol.toLowerCase()}.com`,
+            website: "",
         },
     };
 };

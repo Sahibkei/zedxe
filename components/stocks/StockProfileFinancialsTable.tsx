@@ -10,6 +10,8 @@ import {
     Line,
     LineChart,
     ResponsiveContainer,
+    Scatter,
+    ScatterChart,
     Tooltip,
     XAxis,
     YAxis,
@@ -25,7 +27,7 @@ const statementOptions = [
     { key: "cashflow", label: "Cash Flow" },
 ] as const;
 
-type ChartType = "line" | "bar" | "area";
+type ChartType = "line" | "bar" | "area" | "scatter";
 
 const formatCompact = (value: number) =>
     value.toLocaleString("en-US", {
@@ -122,6 +124,20 @@ const StockProfileFinancialsTable = ({
         () => (data ? buildChartData(data, selectedKeys) : []),
         [data, selectedKeys],
     );
+
+    const scatterSeries = useMemo(() => {
+        if (!data) return [];
+        return selectedRows.map((row) => ({
+            key: row.key,
+            label: row.label,
+            points: row.values
+                .map((value, index) => ({
+                    label: data.columns[index],
+                    value,
+                }))
+                .filter((point) => typeof point.value === "number"),
+        }));
+    }, [data, selectedRows]);
 
     const toggleRow = (row: FinancialStatement["rows"][number]) => {
         if (!row.values.some((value) => typeof value === "number")) return;
@@ -276,19 +292,26 @@ const StockProfileFinancialsTable = ({
                                 </h3>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                                {(["line", "bar", "area"] as ChartType[]).map((type) => (
+                                {(
+                                    [
+                                        { key: "line", label: "Line" },
+                                        { key: "area", label: "Area" },
+                                        { key: "bar", label: "Bar" },
+                                        { key: "scatter", label: "Scatter" },
+                                    ] as Array<{ key: ChartType; label: string }>
+                                ).map((type) => (
                                     <button
-                                        key={type}
+                                        key={type.key}
                                         type="button"
-                                        onClick={() => setChartType(type)}
+                                        onClick={() => setChartType(type.key)}
                                         className={cn(
                                             "rounded-full border px-3 py-1 text-xs",
-                                            chartType === type
+                                            chartType === type.key
                                                 ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
                                                 : "border-[#1c2432] text-slate-400",
                                         )}
                                     >
-                                        {type.toUpperCase()}
+                                        {type.label}
                                     </button>
                                 ))}
                                 <button
@@ -360,6 +383,29 @@ const StockProfileFinancialsTable = ({
                                                     />
                                                 ))}
                                             </AreaChart>
+                                        ) : chartType === "scatter" ? (
+                                            <ScatterChart>
+                                                <CartesianGrid stroke="#1c2432" strokeDasharray="3 3" />
+                                                <XAxis dataKey="label" type="category" stroke="#94a3b8" />
+                                                <YAxis dataKey="value" stroke="#94a3b8" tickFormatter={(value) => formatCompact(Number(value))} />
+                                                <Tooltip
+                                                    formatter={(value) => formatCompact(Number(value))}
+                                                    labelStyle={{ color: "#e2e8f0" }}
+                                                    contentStyle={{ background: "#0b0f14", borderColor: "#1c2432" }}
+                                                />
+                                                {scatterSeries.map((series, index) => (
+                                                    <Scatter
+                                                        key={series.key}
+                                                        name={series.label}
+                                                        data={series.points}
+                                                        fill={
+                                                            ["#22d3ee", "#34d399", "#f97316", "#818cf8", "#facc15", "#f472b6"][
+                                                                index
+                                                            ]
+                                                        }
+                                                    />
+                                                ))}
+                                            </ScatterChart>
                                         ) : (
                                             <LineChart data={chartData}>
                                                 <CartesianGrid stroke="#1c2432" strokeDasharray="3 3" />
@@ -389,7 +435,7 @@ const StockProfileFinancialsTable = ({
                                     </ResponsiveContainer>
                                 </div>
                             )}
-                            <span className="pointer-events-none absolute bottom-4 right-4 text-xs font-semibold text-slate-500/60">
+                            <span className="pointer-events-none absolute bottom-4 right-4 text-xs font-semibold text-slate-100 opacity-10">
                                 ZedXe
                             </span>
                         </div>

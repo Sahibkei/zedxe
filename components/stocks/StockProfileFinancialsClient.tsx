@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -29,14 +29,31 @@ const StockProfileFinancialsClient = ({
 }) => {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const initialPeriod = (searchParams.get("period") as FinancialStatement["period"]) || "annual";
-    const urlStatement = searchParams.get("statement");
-    const initialStatementKey = (["income", "balance", "cashflow"].includes(urlStatement ?? "")
-        ? (urlStatement as FinancialStatement["statement"])
-        : initialStatement?.statement) || "income";
+    const parsePeriod = (value: string | null): FinancialStatement["period"] =>
+        value === "annual" || value === "quarter" ? value : "annual";
+    const parseStatement = (
+        value: string | null,
+        fallback: FinancialStatement["statement"],
+    ): FinancialStatement["statement"] =>
+        value === "income" || value === "balance" || value === "cashflow" ? value : fallback;
 
-    const [period, setPeriod] = useState<FinancialStatement["period"]>(initialPeriod);
-    const [statement, setStatement] = useState<FinancialStatement["statement"]>(initialStatementKey);
+    const initialStatementKey = initialStatement?.statement ?? "income";
+    const urlPeriod = useMemo(() => parsePeriod(searchParams.get("period")), [searchParams]);
+    const urlStatement = useMemo(
+        () => parseStatement(searchParams.get("statement"), initialStatementKey),
+        [searchParams, initialStatementKey],
+    );
+
+    const [period, setPeriod] = useState<FinancialStatement["period"]>(urlPeriod);
+    const [statement, setStatement] = useState<FinancialStatement["statement"]>(urlStatement);
+
+    useEffect(() => {
+        setPeriod(urlPeriod);
+    }, [urlPeriod]);
+
+    useEffect(() => {
+        setStatement(urlStatement);
+    }, [urlStatement]);
 
     const { data, isLoading, error } = useQuery({
         queryKey: ["financial-statement", symbol, statement, period],
@@ -48,7 +65,7 @@ const StockProfileFinancialsClient = ({
         const params = new URLSearchParams(searchParams.toString());
         params.set("statement", nextStatement);
         params.set("period", nextPeriod);
-        router.replace(`?${params.toString()}`);
+        router.push(`?${params.toString()}`);
     };
 
     const handlePeriodChange = (nextPeriod: FinancialStatement["period"]) => {
@@ -81,25 +98,25 @@ const StockProfileFinancialsClient = ({
                 <p className="mt-2 text-sm text-slate-400">
                     Review the latest filings across income, balance sheet, and cash flow.
                 </p>
-                <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-semibold">
+                <div className="mt-4 inline-flex items-center rounded-full border border-[#1c2432] bg-[#0b0f14] p-1 text-xs font-semibold">
                     <button
                         type="button"
                         onClick={() => handlePeriodChange("annual")}
-                        className={`rounded-full border px-3 py-1 ${
+                        className={`rounded-full px-3 py-1 ${
                             period === "annual"
-                                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-                                : "border-[#1c2432] text-slate-400"
+                                ? "bg-emerald-500/10 text-emerald-200"
+                                : "text-slate-400"
                         }`}
                     >
-                        FY
+                        Annual
                     </button>
                     <button
                         type="button"
                         onClick={() => handlePeriodChange("quarter")}
-                        className={`rounded-full border px-3 py-1 ${
+                        className={`rounded-full px-3 py-1 ${
                             period === "quarter"
-                                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-                                : "border-[#1c2432] text-slate-400"
+                                ? "bg-emerald-500/10 text-emerald-200"
+                                : "text-slate-400"
                         }`}
                     >
                         Quarterly
