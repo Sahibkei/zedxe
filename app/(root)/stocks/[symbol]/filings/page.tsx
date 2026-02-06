@@ -1,13 +1,18 @@
 import { ExternalLink } from "lucide-react";
+import { redirect } from "next/navigation";
 
-import { getStockProfileData } from "../data";
+import { getCanonicalSymbol, getStockProfileData } from "../data";
 
 const StockFilingsPage = async ({ params }: { params: Promise<{ symbol: string }> }) => {
     const { symbol } = await params;
-    const { profile } = await getStockProfileData(symbol);
+    const canonicalSymbol = getCanonicalSymbol(symbol);
+    if (symbol !== canonicalSymbol) {
+        redirect(`/stocks/${canonicalSymbol}/filings`);
+    }
+    const { profile } = await getStockProfileData(canonicalSymbol);
 
     return (
-        <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-6 shadow-xl">
+        <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-6 shadow-xl" role="tabpanel" id="filings-panel">
             <p className="text-xs font-mono uppercase tracking-wide text-slate-500">Recent Filings</p>
             <h2 className="mt-2 text-lg font-semibold text-slate-100">Regulatory Updates</h2>
             <div className="mt-6 space-y-3">

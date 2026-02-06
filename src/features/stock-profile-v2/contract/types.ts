@@ -1,10 +1,11 @@
 export type StockProfileHeader = {
     symbol: string;
     name: string;
-    price: number;
-    change: number;
-    changePct: number;
-    status: 'Live' | 'Delayed';
+    exchange?: string;
+    price: number | null;
+    change: number | null;
+    changePct: number | null;
+    status: 'Live' | 'Delayed' | 'Unavailable';
 };
 
 export type StockProfileOverview = {
@@ -12,6 +13,7 @@ export type StockProfileOverview = {
     sector: string;
     industry: string;
     highlights: string[];
+    sections: { title: string; description: string }[];
 };
 
 export type IncomeStatementRow = {
@@ -43,6 +45,22 @@ export type StockProfileFinancials = {
     incomeStatement: IncomeStatementRow[];
     balanceSheet: BalanceSheetRow[];
     cashFlow: CashFlowRow[];
+};
+
+export type FinancialStatement = {
+    statement: "income" | "balance" | "cashflow";
+    period: "annual" | "quarterly";
+    currency: string;
+    columns: { label: string; date: string }[];
+    rows: {
+        key: string;
+        label: string;
+        section?: string;
+        indent?: number;
+        format: "number" | "percent" | "ratio";
+        values: (number | null)[];
+        selectable?: boolean;
+    }[];
 };
 
 export type StockProfileRatio = {
@@ -79,6 +97,7 @@ export type StockProfileV2 = {
     header: StockProfileHeader;
     overview: StockProfileOverview;
     financials: StockProfileFinancials;
+    financialStatements: FinancialStatement[];
     ratios: StockProfileRatio[];
     earnings: StockProfileEarnings;
     filings: StockProfileFiling[];

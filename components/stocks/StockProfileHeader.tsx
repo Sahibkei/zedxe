@@ -18,6 +18,13 @@ const StockProfileHeader = ({ header, className }: { header: StockProfileHeaderM
     const changePrefix = isPositive ? "+" : "";
     const priceDisplay = typeof header.price === "number" ? formatPrice(header.price) : "—";
 
+    const statusClass =
+        header.status === "Live"
+            ? "border-emerald-500/40 text-emerald-300"
+            : header.status === "Delayed"
+              ? "border-amber-500/40 text-amber-300"
+              : "border-slate-500/40 text-slate-300";
+
     return (
         <div className={cn("rounded-2xl border border-[#1c2432] bg-[#0d1117]/80 px-6 py-5 shadow-xl backdrop-blur", className)}>
             <div className="flex flex-wrap items-center justify-between gap-4">
@@ -28,7 +35,12 @@ const StockProfileHeader = ({ header, className }: { header: StockProfileHeaderM
                             {header.symbol}
                             <span className="ml-2 text-base font-normal text-slate-400">{header.name}</span>
                         </h1>
-                        <span className="rounded-full border border-[#1c2432] bg-[#0b0f14] px-2.5 py-1 text-xs font-mono text-slate-400">
+                        <span
+                            className={cn(
+                                "rounded-full border bg-[#0b0f14] px-2.5 py-1 text-xs font-mono",
+                                statusClass,
+                            )}
+                        >
                             {header.status}
                         </span>
                     </div>

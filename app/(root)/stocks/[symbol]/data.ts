@@ -8,9 +8,12 @@ const resolveSymbol = (rawSymbol: string | undefined) => {
     return cleaned ? cleaned.toUpperCase() : "UNKNOWN";
 };
 
+export const getCanonicalSymbol = (rawSymbol: string | undefined) => resolveSymbol(rawSymbol);
+
 export const getStockProfileData = cache(async (rawSymbol: string | undefined) => {
     const symbol = resolveSymbol(rawSymbol);
     let profile = getMockStockProfile(symbol);
+    let hasLiveQuote = false;
 
     try {
         const quote = await getQuote(symbol);
@@ -25,10 +28,24 @@ export const getStockProfileData = cache(async (rawSymbol: string | undefined) =
                     status: "Live",
                 },
             };
+            hasLiveQuote = true;
         }
     } catch {
         // Fall back to mock pricing silently
     }
 
-    return { symbol, profile };
+    if (!hasLiveQuote) {
+        profile = {
+            ...profile,
+            header: {
+                ...profile.header,
+                price: null,
+                change: null,
+                changePct: null,
+                status: "Unavailable",
+            },
+        };
+    }
+
+    return { symbol, profile, hasLiveQuote };
 });

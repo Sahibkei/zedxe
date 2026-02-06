@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
-import { getStockProfileData } from "./data";
+import { getCanonicalSymbol, getStockProfileData } from "./data";
 
 export async function generateMetadata({
     params,
@@ -9,7 +9,8 @@ export async function generateMetadata({
     params: Promise<{ symbol: string }>;
 }): Promise<Metadata> {
     const { symbol } = await params;
-    const { profile } = await getStockProfileData(symbol);
+    const canonicalSymbol = getCanonicalSymbol(symbol);
+    const { profile } = await getStockProfileData(canonicalSymbol);
     return {
         title: `${profile.header.symbol} · Stock Profile · ZedXe`,
     };
@@ -17,7 +18,11 @@ export async function generateMetadata({
 
 const StockProfilePage = async ({ params }: { params: Promise<{ symbol: string }> }) => {
     const { symbol } = await params;
-    redirect(`/stocks/${symbol}/overview`);
+    const canonicalSymbol = getCanonicalSymbol(symbol);
+    if (symbol !== canonicalSymbol) {
+        redirect(`/stocks/${canonicalSymbol}/overview`);
+    }
+    redirect(`/stocks/${canonicalSymbol}/overview`);
 };
 
 export default StockProfilePage;

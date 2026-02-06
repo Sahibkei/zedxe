@@ -1,6 +1,7 @@
 import type {
     BalanceSheetRow,
     CashFlowRow,
+    FinancialStatement,
     IncomeStatementRow,
     StockProfileV2,
 } from './types';
@@ -79,6 +80,107 @@ const buildCashFlowRows = (seed: number): CashFlowRow[] => {
     }).reverse();
 };
 
+const buildStatementColumns = (years: string[]) =>
+    years.map((year) => ({
+        label: `FY${year}`,
+        date: `${year}-12-31`,
+    }));
+
+const buildIncomeStatement = (seed: number): FinancialStatement => {
+    const rows = buildIncomeRows(seed);
+    const years = rows.map((row) => row.year);
+    return {
+        statement: "income",
+        period: "annual",
+        currency: "USD",
+        columns: buildStatementColumns(years),
+        rows: [
+            { key: "revenue", label: "Revenue", section: "Revenue", format: "number", selectable: true, values: rows.map((row) => row.revenue) },
+            { key: "subscription_revenue", label: "Subscription Revenue", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue * 0.68)) },
+            { key: "services_revenue", label: "Services Revenue", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue * 0.32)) },
+            { key: "cost_of_revenue", label: "Cost of Revenue", section: "Cost of Revenue", format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue * 0.42)) },
+            { key: "gross_profit", label: "Gross Profit", format: "number", selectable: true, values: rows.map((row) => row.grossProfit) },
+            { key: "research_dev", label: "Research & Development", section: "Operating Expenses", format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue * 0.12)) },
+            { key: "sales_marketing", label: "Sales & Marketing", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue * 0.09)) },
+            { key: "general_admin", label: "General & Administrative", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue * 0.08)) },
+            { key: "total_opex", label: "Total Operating Expenses", format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue * 0.3)) },
+            { key: "operating_income", label: "Operating Income", format: "number", selectable: true, values: rows.map((row) => row.operatingIncome) },
+            { key: "interest_income", label: "Interest Income", section: "Other", format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue * 0.015)) },
+            { key: "interest_expense", label: "Interest Expense", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue * 0.01)) },
+            { key: "other_income", label: "Other Income (Expense)", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue * 0.005)) },
+            { key: "pre_tax_income", label: "Pre-Tax Income", format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue * 0.26)) },
+            { key: "income_tax", label: "Income Tax", section: "Taxes", format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue * 0.04)) },
+            { key: "net_income", label: "Net Income", format: "number", selectable: true, values: rows.map((row) => row.netIncome) },
+            { key: "ebitda", label: "EBITDA", section: "Per Share", format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue * 0.3)) },
+            { key: "eps_basic", label: "EPS (Basic)", format: "ratio", selectable: true, values: rows.map((row) => row.eps) },
+            { key: "eps_diluted", label: "EPS (Diluted)", indent: 1, format: "ratio", selectable: true, values: rows.map((row) => Number((row.eps * 0.98).toFixed(2))) },
+            { key: "shares_outstanding", label: "Weighted Avg Shares", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.revenue / 6)) },
+        ],
+    };
+};
+
+const buildBalanceStatement = (seed: number): FinancialStatement => {
+    const rows = buildBalanceRows(seed);
+    const years = rows.map((row) => row.year);
+    return {
+        statement: "balance",
+        period: "annual",
+        currency: "USD",
+        columns: buildStatementColumns(years),
+        rows: [
+            { key: "cash", label: "Cash & Equivalents", section: "Assets", format: "number", selectable: true, values: rows.map((row) => row.cash) },
+            { key: "short_term_investments", label: "Short-Term Investments", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.assets * 0.08)) },
+            { key: "receivables", label: "Accounts Receivable", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.assets * 0.1)) },
+            { key: "inventory", label: "Inventory", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.assets * 0.05)) },
+            { key: "other_current_assets", label: "Other Current Assets", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.assets * 0.04)) },
+            { key: "total_current_assets", label: "Total Current Assets", format: "number", selectable: true, values: rows.map((row) => Math.round(row.assets * 0.47)) },
+            { key: "property_equipment", label: "Property, Plant & Equipment", section: "Non-Current Assets", format: "number", selectable: true, values: rows.map((row) => Math.round(row.assets * 0.2)) },
+            { key: "goodwill", label: "Goodwill", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.assets * 0.08)) },
+            { key: "intangibles", label: "Intangible Assets", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.assets * 0.06)) },
+            { key: "other_non_current_assets", label: "Other Non-Current Assets", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.assets * 0.05)) },
+            { key: "total_assets", label: "Total Assets", format: "number", selectable: true, values: rows.map((row) => row.assets) },
+            { key: "accounts_payable", label: "Accounts Payable", section: "Liabilities", format: "number", selectable: true, values: rows.map((row) => Math.round(row.liabilities * 0.2)) },
+            { key: "accrued_expenses", label: "Accrued Expenses", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.liabilities * 0.12)) },
+            { key: "short_term_debt", label: "Short-Term Debt", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.debt * 0.35)) },
+            { key: "total_current_liabilities", label: "Total Current Liabilities", format: "number", selectable: true, values: rows.map((row) => Math.round(row.liabilities * 0.55)) },
+            { key: "long_term_debt", label: "Long-Term Debt", section: "Long-Term Liabilities", format: "number", selectable: true, values: rows.map((row) => row.debt) },
+            { key: "other_liabilities", label: "Other Long-Term Liabilities", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.liabilities * 0.18)) },
+            { key: "total_liabilities", label: "Total Liabilities", format: "number", selectable: true, values: rows.map((row) => row.liabilities) },
+            { key: "common_stock", label: "Common Stock", section: "Equity", format: "number", selectable: true, values: rows.map((row) => Math.round((row.assets - row.liabilities) * 0.25)) },
+            { key: "retained_earnings", label: "Retained Earnings", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round((row.assets - row.liabilities) * 0.6)) },
+            { key: "accumulated_oci", label: "Accumulated OCI", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round((row.assets - row.liabilities) * 0.1)) },
+            { key: "shareholder_equity", label: "Total Equity", format: "number", selectable: true, values: rows.map((row) => row.assets - row.liabilities) },
+        ],
+    };
+};
+
+const buildCashFlowStatement = (seed: number): FinancialStatement => {
+    const rows = buildCashFlowRows(seed);
+    const years = rows.map((row) => row.year);
+    return {
+        statement: "cashflow",
+        period: "annual",
+        currency: "USD",
+        columns: buildStatementColumns(years),
+        rows: [
+            { key: "net_income", label: "Net Income", section: "Operating", format: "number", selectable: true, values: rows.map((row) => Math.round(row.operatingCashFlow * 0.75)) },
+            { key: "depreciation", label: "Depreciation & Amortization", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.operatingCashFlow * 0.18)) },
+            { key: "stock_comp", label: "Stock-Based Compensation", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.operatingCashFlow * 0.1)) },
+            { key: "change_working_capital", label: "Change in Working Capital", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.operatingCashFlow * -0.05)) },
+            { key: "operating_cash_flow", label: "Operating Cash Flow", format: "number", selectable: true, values: rows.map((row) => row.operatingCashFlow) },
+            { key: "capex", label: "Capital Expenditures", section: "Investing", format: "number", selectable: true, values: rows.map((row) => Math.round(row.operatingCashFlow * -0.25)) },
+            { key: "acquisitions", label: "Acquisitions", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.operatingCashFlow * -0.07)) },
+            { key: "investing_cash_flow", label: "Investing Cash Flow", format: "number", selectable: true, values: rows.map((row) => row.investingCashFlow) },
+            { key: "debt_issuance", label: "Debt Issuance (Repayment)", section: "Financing", format: "number", selectable: true, values: rows.map((row) => Math.round(row.operatingCashFlow * 0.04)) },
+            { key: "share_buybacks", label: "Share Repurchases", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.operatingCashFlow * -0.08)) },
+            { key: "dividends", label: "Dividends Paid", indent: 1, format: "number", selectable: true, values: rows.map((row) => Math.round(row.operatingCashFlow * -0.03)) },
+            { key: "financing_cash_flow", label: "Financing Cash Flow", format: "number", selectable: true, values: rows.map((row) => row.financingCashFlow) },
+            { key: "net_change_cash", label: "Net Change in Cash", section: "Summary", format: "number", selectable: true, values: rows.map((row) => Math.round(row.operatingCashFlow + row.investingCashFlow + row.financingCashFlow)) },
+            { key: "free_cash_flow", label: "Free Cash Flow", format: "number", selectable: true, values: rows.map((row) => row.freeCashFlow) },
+        ],
+    };
+};
+
 export const getMockStockProfile = (symbol: string): StockProfileV2 => {
     const safeSymbol = symbol.toUpperCase();
     const seed = hashSymbol(safeSymbol);
@@ -94,6 +196,7 @@ export const getMockStockProfile = (symbol: string): StockProfileV2 => {
         header: {
             symbol: safeSymbol,
             name: `${safeSymbol} Holdings`,
+            exchange: "NASDAQ",
             price,
             change,
             changePct,
@@ -109,12 +212,35 @@ export const getMockStockProfile = (symbol: string): StockProfileV2 => {
                 `Global footprint across ${18 + (seed % 10)} countries.`,
                 `Top ${(seed % 5) + 3} customer verticals by revenue.`,
             ],
+            sections: [
+                {
+                    title: "Business model",
+                    description: `${safeSymbol} earns subscription and usage-based revenue from its ${pick(industries, seed).toLowerCase()} platform, combining software licenses with transaction fees.`,
+                },
+                {
+                    title: "Key products & segments",
+                    description: `Core segments include payments orchestration, risk analytics, and developer tooling tailored to ${pick(sectors, seed).toLowerCase()} clients.`,
+                },
+                {
+                    title: "Geographic exposure",
+                    description: `North America remains the largest region, with growing demand in EMEA and APAC for cloud-native finance stacks.`,
+                },
+                {
+                    title: "Key risks",
+                    description: "Execution risk includes competitive pricing, regulatory changes, and macro-driven IT spending cycles.",
+                },
+            ],
         },
         financials: {
             incomeStatement,
             balanceSheet,
             cashFlow,
         },
+        financialStatements: [
+            buildIncomeStatement(seed),
+            buildBalanceStatement(seed + 3),
+            buildCashFlowStatement(seed + 7),
+        ],
         ratios: [
             { label: 'P/E', value: `${(14 + (seed % 12)).toFixed(1)}x` },
             { label: 'P/S', value: `${(4 + (seed % 6) * 0.5).toFixed(1)}x` },
