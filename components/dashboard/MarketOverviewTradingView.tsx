@@ -8,15 +8,14 @@ const SCRIPT_URL = 'https://s3.tradingview.com/external-embedding/embed-widget-s
 type MarketOverviewTradingViewProps = {
     symbol: string;
     range: string;
-    height?: number;
 };
 
-const MarketOverviewTradingView = ({ symbol, range, height = 160 }: MarketOverviewTradingViewProps) => {
+const MarketOverviewTradingView = ({ symbol, range }: MarketOverviewTradingViewProps) => {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         setIsLoading(true);
-        const timer = setTimeout(() => setIsLoading(false), 800);
+        const timer = setTimeout(() => setIsLoading(false), 450);
         return () => clearTimeout(timer);
     }, [symbol, range]);
 
@@ -50,17 +49,19 @@ const MarketOverviewTradingView = ({ symbol, range, height = 160 }: MarketOvervi
     return (
         <div className="relative h-full w-full">
             {isLoading ? (
-                <div className="absolute inset-0 flex items-center justify-center rounded-md border border-[#1c2432] bg-[#0d1117] text-xs font-mono text-slate-500">
-                    <span className="animate-pulse">Loading market data...</span>
+                <div className="absolute inset-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+                    <div className="h-full w-full animate-pulse bg-gradient-to-br from-white/5 via-white/10 to-white/5" />
                 </div>
             ) : null}
-            <div className={isLoading ? 'opacity-0' : 'opacity-100 transition-opacity duration-300'}>
+            <div
+                className={`h-full w-full ${isLoading ? 'opacity-0' : 'opacity-100 transition-opacity duration-300'}`}
+            >
                 <TradingViewWidget
                     key={`${symbol}-${range}`}
                     scripUrl={SCRIPT_URL}
                     config={config}
                     className="h-full w-full"
-                    height={height}
+                    height="100%"
                 />
             </div>
         </div>
