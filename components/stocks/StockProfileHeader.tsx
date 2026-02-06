@@ -37,6 +37,7 @@ const StockProfileHeader = ({
         queryFn: () => fetchQuote(symbol),
         refetchInterval: 5000,
         refetchOnWindowFocus: true,
+        refetchIntervalInBackground: true,
         staleTime: 0,
         initialData: initialQuote ?? undefined,
         retry: false,

@@ -122,8 +122,17 @@ const StockOverviewPage = async ({ params }: { params: Promise<{ symbol: string 
                                 {profile.website}
                             </a>
                         ) : (
-                            <span className="text-sm text-slate-500">Website unavailable</span>
+                            <span className="text-sm text-slate-500">—</span>
                         )}
+                        {!profile.sector &&
+                            !profile.industry &&
+                            !profile.hqCity &&
+                            !profile.hqState &&
+                            !profile.hqCountry &&
+                            !profile.employees &&
+                            !profile.website && (
+                                <p className="text-xs text-slate-500">Data unavailable.</p>
+                            )}
                     </div>
                 </div>
             </aside>

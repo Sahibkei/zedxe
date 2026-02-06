@@ -69,7 +69,6 @@ const buildStatementRows = (
         if (normalized.includes("billion") || normalized.endsWith("b")) return value * 1_000_000_000;
         if (normalized.includes("million") || normalized.endsWith("m")) return value * 1_000_000;
         if (normalized.includes("thousand") || normalized.endsWith("k")) return value * 1_000;
-        if (normalized === "usd" && value < 1_000_000_000 && value > 1_000) return value * 1_000_000;
         return value;
     };
 
@@ -175,7 +174,7 @@ export const finnhubProvider: MarketDataProvider = {
             price: quote.c,
             change: quote.d,
             changePercent: quote.dp,
-            lastTradeAt: new Date().toISOString(),
+            lastTradeAt: quote.t ? new Date(quote.t * 1000).toISOString() : undefined,
         };
     },
 };
