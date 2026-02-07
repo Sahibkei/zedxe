@@ -19,16 +19,17 @@ export type PortfolioBenchmarkSeriesPoint = {
     close: number;
 };
 
+export type PortfolioAnalyticsHistoryPoint = AnalyticsSeriesPoint & {
+    costBasis?: number;
+};
+
 export type PortfolioAnalyticsResponse = {
     range: PortfolioAnalyticsRange;
     asOf: string;
-    series: Array<AnalyticsSeriesPoint & { costBasis?: number }>;
-    benchmark: {
-        symbol: string;
-        series: PortfolioBenchmarkSeriesPoint[];
-        totalReturnPct: number | null;
-    };
+    benchmarkSymbol: string;
+    history: PortfolioAnalyticsHistoryPoint[];
     ratios: PortfolioAnalyticsRatios;
+    warnings?: string[];
 };
 
 export type DailyReturnPoint = {

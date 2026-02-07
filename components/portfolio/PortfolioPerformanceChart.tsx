@@ -10,24 +10,31 @@ import type { PortfolioPerformancePoint } from '@/lib/portfolio/portfolio-servic
 import { cn } from '@/lib/utils';
 
 export type PortfolioChartRange = '1M' | '3M' | '6M' | '1Y' | 'ALL';
+export type PortfolioPerformanceChartPoint = PortfolioPerformancePoint & {
+    costBasis?: number;
+};
 
 const RANGE_OPTIONS: PortfolioChartRange[] = ['1M', '3M', '6M', '1Y', 'ALL'];
 const TINY_RANGE_RATIO = 0.005; // 0.5%
 const MIN_PADDING_RATIO = 0.01; // 1%
-const NEAR_FLAT_RATIO = 0.0005; // 0.05%
-
-type PortfolioChartPoint = PortfolioPerformancePoint & {
-    costBasis?: number;
-};
 
 export type PortfolioPerformanceChartProps = {
-    data: PortfolioPerformancePoint[];
+    data: PortfolioPerformanceChartPoint[];
     baseCurrency: string;
     selectedRange: PortfolioChartRange;
     onRangeChange?: (range: PortfolioChartRange) => void;
     loading?: boolean;
     error?: string;
 };
+
+function parseDateOnlyLocal(value: string) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!match) return new Date(value);
+    const year = Number(match[1]);
+    const month = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    return new Date(year, month, day);
+}
 
 const formatCurrency = (value: number, currency: string) => {
     try {
@@ -42,7 +49,7 @@ const formatCurrency = (value: number, currency: string) => {
 };
 
 const formatDateTick = (date: string) => {
-    const parsed = new Date(date);
+    const parsed = parseDateOnlyLocal(date);
     if (Number.isNaN(parsed.getTime())) return date;
     return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
@@ -57,19 +64,14 @@ const PortfolioPerformanceChart = ({
 }: PortfolioPerformanceChartProps) => {
     const chartData = useMemo(
         () =>
-            data.map((point) => {
-                const withOptionalCostBasis = point as PortfolioChartPoint;
-                const normalizedCostBasis =
-                    typeof withOptionalCostBasis.costBasis === 'number' && Number.isFinite(withOptionalCostBasis.costBasis)
-                        ? withOptionalCostBasis.costBasis
-                        : undefined;
-
-                return {
-                    ...point,
-                    value: Number(point.value || 0),
-                    costBasis: normalizedCostBasis,
-                };
-            }),
+            data.map((point) => ({
+                ...point,
+                value: Number.isFinite(point.value) ? point.value : 0,
+                costBasis:
+                    typeof point.costBasis === 'number' && Number.isFinite(point.costBasis)
+                        ? point.costBasis
+                        : undefined,
+            })),
         [data]
     );
 
@@ -78,43 +80,36 @@ const PortfolioPerformanceChart = ({
         [chartData]
     );
 
-    const chartStats = useMemo(() => {
-        const plottedValues = chartData.flatMap((point) => {
-            const values: number[] = [];
-            if (Number.isFinite(point.value)) {
-                values.push(point.value);
-            }
-            if (typeof point.costBasis === 'number' && Number.isFinite(point.costBasis)) {
-                values.push(point.costBasis);
-            }
-            return values;
+    const yDomain = useMemo<[number, number]>(() => {
+        const values = chartData.flatMap((point) => {
+            const bucket: number[] = [];
+            if (Number.isFinite(point.value)) bucket.push(point.value);
+            if (typeof point.costBasis === 'number' && Number.isFinite(point.costBasis)) bucket.push(point.costBasis);
+            return bucket;
         });
 
-        if (chartData.length < 2 || plottedValues.length < 2) {
-            return {
-                isNearFlat: true,
-                yDomain: [0, 1] as [number, number],
-            };
-        }
+        if (values.length === 0) return [0, 1];
 
-        const minValue = Math.min(...plottedValues);
-        const maxValue = Math.max(...plottedValues);
+        const minValue = Math.min(...values);
+        const maxValue = Math.max(...values);
         const span = maxValue - minValue;
         const absMax = Math.max(Math.abs(maxValue), Math.abs(minValue), 1);
 
-        const isNearFlat = span <= Math.max(absMax * NEAR_FLAT_RATIO, 1e-8);
-        const isTinyRange = span <= absMax * TINY_RANGE_RATIO;
-        const padding = isTinyRange
-            ? Math.max(absMax * MIN_PADDING_RATIO, span * 0.2, 1e-3)
-            : Math.max(span * 0.12, absMax * 0.002);
+        const tinyRangePadding = Math.max(absMax * MIN_PADDING_RATIO, 1e-3);
+        const dynamicPadding = Math.max(span * 0.12, absMax * 0.002);
+        const padding = span <= absMax * TINY_RANGE_RATIO ? Math.max(tinyRangePadding, dynamicPadding) : dynamicPadding;
 
-        return {
-            isNearFlat,
-            yDomain: [minValue - padding, maxValue + padding] as [number, number],
-        };
+        const lower = minValue - padding;
+        const upper = maxValue + padding;
+
+        if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower === upper) {
+            return [minValue - tinyRangePadding, maxValue + tinyRangePadding];
+        }
+
+        return [lower, upper];
     }, [chartData]);
 
-    const showHistoryFallback = chartData.length < 2 || chartStats.isNearFlat;
+    const showNotEnoughHistory = !loading && !error && chartData.length < 2;
 
     return (
         <div className="rounded-xl border border-border/80 bg-card p-5">
@@ -150,7 +145,7 @@ const PortfolioPerformanceChart = ({
             <div className="mt-4 h-[300px] overflow-hidden rounded-xl border border-border/70 bg-[#0b121d] p-3">
                 {loading ? (
                     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading performance...</div>
-                ) : showHistoryFallback ? (
+                ) : showNotEnoughHistory ? (
                     <div className="flex h-full items-center justify-center">
                         <div className="rounded-lg border border-dashed border-border/60 bg-muted/15 px-6 py-5 text-center">
                             <p className="text-sm font-semibold text-foreground">Not enough history yet</p>
@@ -176,15 +171,17 @@ const PortfolioPerformanceChart = ({
                                 tickLine={false}
                                 axisLine={{ stroke: '#1f2a3a' }}
                                 width={84}
-                                domain={chartStats.yDomain}
+                                domain={yDomain}
                                 tickFormatter={(value: number) => formatCurrency(value, baseCurrency)}
                             />
                             <Tooltip
                                 content={
                                     <DarkTooltip
                                         formatLabel={(label) => {
-                                            const date = new Date(String(label));
-                                            return Number.isNaN(date.getTime()) ? String(label ?? '') : date.toLocaleDateString('en-US');
+                                            const parsed = parseDateOnlyLocal(String(label ?? ''));
+                                            return Number.isNaN(parsed.getTime())
+                                                ? String(label ?? '')
+                                                : parsed.toLocaleDateString('en-US');
                                         }}
                                         formatValue={(value: ValueType) => {
                                             const numericValue = typeof value === 'number' ? value : Number(value);

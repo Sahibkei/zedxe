@@ -7,14 +7,17 @@ import AddPortfolioDialog from '@/components/portfolio/AddPortfolioDialog';
 import AddTransactionDialog from '@/components/portfolio/AddTransactionDialog';
 import PortfolioAllocationPie from '@/components/portfolio/PortfolioAllocationPie';
 import PortfolioHoldingsTable from '@/components/portfolio/PortfolioHoldingsTable';
-import PortfolioPerformanceChart, { type PortfolioChartRange } from '@/components/portfolio/PortfolioPerformanceChart';
+import PortfolioPerformanceChart, {
+    type PortfolioChartRange,
+    type PortfolioPerformanceChartPoint,
+} from '@/components/portfolio/PortfolioPerformanceChart';
 import PortfolioRatiosCard from '@/components/portfolio/PortfolioRatiosCard';
 import PortfolioSettingsDialog from '@/components/portfolio/PortfolioSettingsDialog';
 import CryptoPortfolioPanel from '@/components/portfolio/CryptoPortfolioPanel';
 import { Button } from '@/components/ui/button';
 import type { CryptoPortfolioSnapshotLean } from '@/lib/crypto/portfolio-service';
 import type { PortfolioAnalyticsRange, PortfolioAnalyticsResponse } from '@/lib/portfolio/analytics';
-import { getPortfolioPerformanceAction, getPortfolioSummaryAction, getUserPortfoliosAction } from '@/lib/portfolio/actions';
+import { getPortfolioSummaryAction, getUserPortfoliosAction } from '@/lib/portfolio/actions';
 import type {
     PortfolioLean,
     PortfolioPerformancePoint,
@@ -23,14 +26,6 @@ import type {
 } from '@/lib/portfolio/portfolio-service';
 
 const DEFAULT_CHART_RANGE: PortfolioChartRange = '1M';
-
-const CHART_TO_SERVICE_RANGE: Record<PortfolioChartRange, PortfolioPerformanceRange> = {
-    '1M': '1M',
-    '3M': '3M',
-    '6M': '6M',
-    '1Y': '1Y',
-    ALL: 'MAX',
-};
 
 const CHART_TO_ANALYTICS_RANGE: Record<PortfolioChartRange, PortfolioAnalyticsRange> = {
     '1M': '1m',
@@ -79,16 +74,30 @@ const fetchPortfolioAnalytics = async (portfolioId: string, range: PortfolioAnal
         cache: 'no-store',
     });
 
-    const payload = (await response.json().catch(() => null)) as
-        | (PortfolioAnalyticsResponse & { error?: string })
-        | { error?: string }
-        | null;
+    const rawBody = await response.text();
+    let payload: unknown = null;
 
-    if (!response.ok) {
-        throw new Error(payload && 'error' in payload && payload.error ? payload.error : 'Unable to load analytics');
+    if (rawBody) {
+        try {
+            payload = JSON.parse(rawBody) as unknown;
+        } catch {
+            throw new Error('Invalid analytics response payload.');
+        }
     }
 
-    return payload as PortfolioAnalyticsResponse;
+    const payloadObject = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
+
+    if (!response.ok) {
+        const serverError =
+            payloadObject && typeof payloadObject.error === 'string' ? payloadObject.error : response.statusText || 'Unable to load analytics';
+        throw new Error(serverError);
+    }
+
+    if (!payloadObject || !Array.isArray(payloadObject.history) || typeof payloadObject.benchmarkSymbol !== 'string') {
+        throw new Error('Unexpected analytics response structure.');
+    }
+
+    return payloadObject as unknown as PortfolioAnalyticsResponse;
 };
 
 const PortfolioPageClient = ({
@@ -117,9 +126,10 @@ const PortfolioPageClient = ({
     const [loadingSummary, startTransition] = useTransition();
     const [error, setError] = useState('');
     const [performanceRange, setPerformanceRange] = useState<PortfolioChartRange>(initialChartRange);
-    const [performancePoints, setPerformancePoints] = useState<PortfolioPerformancePoint[]>(initialPerformancePoints);
+    const [performancePoints, setPerformancePoints] = useState<PortfolioPerformanceChartPoint[]>(
+        initialPerformancePoints as PortfolioPerformanceChartPoint[]
+    );
     const [performanceLoading, setPerformanceLoading] = useState(false);
-    const [performanceError, setPerformanceError] = useState('');
     const [analytics, setAnalytics] = useState<PortfolioAnalyticsResponse | null>(null);
     const [analyticsLoading, setAnalyticsLoading] = useState(Boolean(selectedPortfolioId));
     const [analyticsError, setAnalyticsError] = useState('');
@@ -154,53 +164,32 @@ const PortfolioPageClient = ({
     const loadRangeData = async (
         portfolioId: string,
         range: PortfolioChartRange,
-        options?: { loadPerformance?: boolean; loadAnalytics?: boolean; resetErrors?: boolean }
+        options?: { resetErrors?: boolean }
     ) => {
-        const loadPerformance = options?.loadPerformance ?? true;
-        const loadAnalytics = options?.loadAnalytics ?? true;
         const resetErrors = options?.resetErrors ?? true;
 
-        if (loadPerformance) {
-            setPerformanceLoading(true);
-        }
-        if (loadAnalytics) {
-            setAnalyticsLoading(true);
-        }
+        setPerformanceLoading(true);
+        setAnalyticsLoading(true);
+
         if (resetErrors) {
-            if (loadPerformance) setPerformanceError('');
-            if (loadAnalytics) setAnalyticsError('');
+            setAnalyticsError('');
         }
 
-        const performancePromise = loadPerformance
-            ? getPortfolioPerformanceAction(portfolioId, CHART_TO_SERVICE_RANGE[range])
-            : Promise.resolve(null);
-        const analyticsPromise = loadAnalytics
-            ? fetchPortfolioAnalytics(portfolioId, CHART_TO_ANALYTICS_RANGE[range])
-            : Promise.resolve(null);
-
-        const [performanceResult, analyticsResult] = await Promise.allSettled([performancePromise, analyticsPromise]);
-
-        if (loadPerformance) {
-            if (performanceResult.status === 'fulfilled' && performanceResult.value?.success) {
-                setPerformancePoints(performanceResult.value.points);
-            } else if (performanceResult.status === 'fulfilled' && performanceResult.value && !performanceResult.value.success) {
-                setPerformanceError(performanceResult.value.error || 'Unable to load performance.');
-            } else {
-                setPerformanceError('Unable to load performance.');
-            }
+        try {
+            const analyticsResponse = await fetchPortfolioAnalytics(portfolioId, CHART_TO_ANALYTICS_RANGE[range]);
+            setAnalytics(analyticsResponse);
+            setPerformancePoints(analyticsResponse.history);
+            setAnalyticsError('');
+        } catch (analyticsRequestError) {
+            const message =
+                analyticsRequestError instanceof Error
+                    ? analyticsRequestError.message
+                    : 'Unable to load portfolio analytics.';
+            setAnalytics(null);
+            setPerformancePoints([]);
+            setAnalyticsError(message);
+        } finally {
             setPerformanceLoading(false);
-        }
-
-        if (loadAnalytics) {
-            if (analyticsResult.status === 'fulfilled' && analyticsResult.value) {
-                setAnalytics(analyticsResult.value);
-            } else if (analyticsResult.status === 'rejected') {
-                setAnalytics(null);
-                setAnalyticsError(analyticsResult.reason instanceof Error ? analyticsResult.reason.message : 'Unable to load ratios.');
-            } else {
-                setAnalytics(null);
-                setAnalyticsError('Unable to load ratios.');
-            }
             setAnalyticsLoading(false);
         }
     };
@@ -222,8 +211,6 @@ const PortfolioPageClient = ({
             }
 
             await loadRangeData(portfolioId, nextRange, {
-                loadPerformance: true,
-                loadAnalytics: true,
                 resetErrors: true,
             });
         });
@@ -312,7 +299,6 @@ const PortfolioPageClient = ({
             setPerformancePoints([]);
             setAnalytics(null);
             setPerformanceRange(DEFAULT_CHART_RANGE);
-            setPerformanceError('');
             setAnalyticsError('');
             setPerformanceLoading(false);
             setAnalyticsLoading(false);
@@ -329,8 +315,6 @@ const PortfolioPageClient = ({
         if (!selectedPortfolioId || range === performanceRange) return;
         setPerformanceRange(range);
         await loadRangeData(selectedPortfolioId, range, {
-            loadPerformance: true,
-            loadAnalytics: true,
             resetErrors: true,
         });
     };
@@ -343,8 +327,6 @@ const PortfolioPageClient = ({
         }
 
         void loadRangeData(selectedPortfolioId, performanceRange, {
-            loadPerformance: false,
-            loadAnalytics: true,
             resetErrors: false,
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -484,22 +466,43 @@ const PortfolioPageClient = ({
                 </div>
 
                 <div className="grid gap-5 md:grid-cols-2">
-                    <PortfolioPerformanceChart
-                        data={performancePoints}
-                        baseCurrency={baseCurrency}
-                        selectedRange={performanceRange}
-                        onRangeChange={handlePerformanceRangeChange}
-                        loading={performanceLoading || loadingSummary}
-                        error={performanceError}
-                    />
+                    {analyticsError && !analyticsLoading ? (
+                        <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-5">
+                            <h3 className="text-sm font-semibold text-foreground">Unable to load portfolio analytics</h3>
+                            <p className="mt-2 text-xs text-muted-foreground">{analyticsError}</p>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="mt-3 h-8 rounded-md border border-border/70 bg-muted/20 px-3 text-xs font-semibold uppercase tracking-[0.12em] text-foreground hover:bg-muted/30"
+                                onClick={() => void loadRangeData(selectedPortfolioId, performanceRange, { resetErrors: true })}
+                                disabled={!selectedPortfolioId || analyticsLoading}
+                            >
+                                Retry
+                            </Button>
+                        </div>
+                    ) : (
+                        <PortfolioPerformanceChart
+                            data={performancePoints}
+                            baseCurrency={baseCurrency}
+                            selectedRange={performanceRange}
+                            onRangeChange={handlePerformanceRangeChange}
+                            loading={performanceLoading || loadingSummary || analyticsLoading}
+                            error=""
+                        />
+                    )}
 
                     <div className="space-y-2">
                         <PortfolioRatiosCard
                             ratios={analytics?.ratios || null}
-                            benchmarkSymbol={analytics?.benchmark.symbol || 'SPY'}
+                            benchmarkSymbol={analytics?.benchmarkSymbol || 'SPY'}
                             loading={analyticsLoading || loadingSummary}
                         />
-                        {analyticsError ? <p className="text-xs text-destructive">{analyticsError}</p> : null}
+                        {analytics?.warnings && analytics.warnings.length > 0 ? (
+                            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                                {analytics.warnings[0]}
+                            </div>
+                        ) : null}
                     </div>
                 </div>
 

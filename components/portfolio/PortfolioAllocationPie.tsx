@@ -67,7 +67,14 @@ const PortfolioAllocationPie = ({ positions, title = 'Allocation' }: PortfolioAl
                                             }}
                                         />
                                     }
-                                    cursor={{ fill: 'rgba(120, 185, 255, 0.08)' }}
+                                    contentStyle={{
+                                        background: 'rgba(10,15,25,0.95)',
+                                        border: '1px solid rgba(255,255,255,0.08)',
+                                        borderRadius: 12,
+                                    }}
+                                    labelStyle={{ color: '#E5E7EB' }}
+                                    itemStyle={{ color: '#E5E7EB' }}
+                                    cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                                     wrapperStyle={{ outline: 'none' }}
                                     allowEscapeViewBox={{ x: true, y: true }}
                                 />

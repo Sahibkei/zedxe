@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { unstable_cache } from 'next/cache';
 
+import { connectToDatabase } from '@/database/mongoose';
+import { Portfolio } from '@/database/models/portfolio.model';
+import { Transaction } from '@/database/models/transaction.model';
 import { auth } from '@/lib/better-auth/auth';
+import { getFxRate } from '@/lib/finnhub/fx';
 import { getDailyHistory } from '@/lib/market/providers';
 import {
     computeBeta,
@@ -9,22 +13,16 @@ import {
     computeReturns,
     computeSharpe,
     computeVolatility,
+    type AnalyticsSeriesPoint,
+    type PortfolioAnalyticsHistoryPoint,
     type PortfolioAnalyticsRange,
     type PortfolioAnalyticsRatios,
+    type PortfolioAnalyticsResponse,
 } from '@/lib/portfolio/analytics';
-import { getPortfolioPerformanceSeries, type PortfolioPerformancePoint, type PortfolioPerformanceRange } from '@/lib/portfolio/portfolio-service';
 
 const BENCHMARK_SYMBOL = 'SPY';
 const DEFAULT_RANGE: PortfolioAnalyticsRange = '1m';
 const RISK_FREE_DAILY = Number(process.env.PORTFOLIO_RISK_FREE_DAILY ?? '0');
-
-const RANGE_MAP: Record<PortfolioAnalyticsRange, PortfolioPerformanceRange> = {
-    '1m': '1M',
-    '3m': '3M',
-    '6m': '6M',
-    '1y': '1Y',
-    all: 'MAX',
-};
 
 const emptyRatios: PortfolioAnalyticsRatios = {
     totalReturnPct: null,
@@ -33,6 +31,13 @@ const emptyRatios: PortfolioAnalyticsRatios = {
     sharpeAnnual: null,
     beta: null,
     maxDrawdownPct: null,
+};
+
+type HoldingAggregate = {
+    symbol: string;
+    quantity: number;
+    totalCost: number;
+    avgCost: number;
 };
 
 const parseRange = (value: string | null): PortfolioAnalyticsRange => {
@@ -44,9 +49,40 @@ const parseRange = (value: string | null): PortfolioAnalyticsRange => {
     return DEFAULT_RANGE;
 };
 
-const toDate = (value: string) => {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+const startOfUtcDay = (value: Date) => {
+    const normalized = new Date(value);
+    normalized.setUTCHours(0, 0, 0, 0);
+    return normalized;
+};
+
+const dateToIso = (value: Date) => value.toISOString().slice(0, 10);
+
+const subtractUtcDays = (value: Date, days: number) => {
+    const normalized = new Date(value);
+    normalized.setUTCDate(normalized.getUTCDate() - days);
+    return normalized;
+};
+
+const getRangeStartDate = (range: PortfolioAnalyticsRange, toDate: Date, firstTradeDate?: Date | null) => {
+    if (range === 'all' && firstTradeDate) {
+        return startOfUtcDay(firstTradeDate);
+    }
+
+    const start = new Date(toDate);
+    switch (range) {
+        case '1m':
+            return subtractUtcDays(start, 30);
+        case '3m':
+            return subtractUtcDays(start, 90);
+        case '6m':
+            return subtractUtcDays(start, 180);
+        case '1y':
+            return subtractUtcDays(start, 365);
+        case 'all':
+            return subtractUtcDays(start, 3650);
+        default:
+            return subtractUtcDays(start, 30);
+    }
 };
 
 const computeTotalReturnPct = (series: Array<{ value: number }>) => {
@@ -58,7 +94,7 @@ const computeTotalReturnPct = (series: Array<{ value: number }>) => {
     return Number.isFinite(pct) ? pct : null;
 };
 
-const getBenchmarkHistoryCached = unstable_cache(
+const getDailyHistoryCached = unstable_cache(
     async (symbol: string, fromDate: string, toDate: string) => {
         return getDailyHistory({
             symbol,
@@ -66,50 +102,114 @@ const getBenchmarkHistoryCached = unstable_cache(
             to: toDate,
         });
     },
-    ['portfolio-benchmark-daily-history'],
+    ['portfolio-daily-history'],
     { revalidate: 300 }
 );
 
-type AlignedReturnPair = {
-    portfolio: number;
-    benchmark: number;
-};
+const aggregateHoldings = async (
+    transactions: Array<{
+        symbol: string;
+        type: 'BUY' | 'SELL';
+        quantity: number;
+        price: number;
+        currency: string;
+        fxRateToBase: number | null;
+    }>,
+    baseCurrency: string
+) => {
+    const bySymbol = new Map<string, { quantity: number; totalCost: number }>();
+    const fxRateCache = new Map<string, number>();
 
-const alignReturns = (
-    portfolioSeries: PortfolioPerformancePoint[],
-    benchmarkMap: Map<string, number>
-): AlignedReturnPair[] => {
-    const alignedPairs: AlignedReturnPair[] = [];
-    for (let i = 1; i < portfolioSeries.length; i += 1) {
-        const previous = portfolioSeries[i - 1];
-        const current = portfolioSeries[i];
-        const benchmarkPrevious = benchmarkMap.get(previous.date);
-        const benchmarkCurrent = benchmarkMap.get(current.date);
+    const resolveFxRate = async (currency: string, fxRateToBase: number | null) => {
+        const normalized = currency.toUpperCase();
+        if (normalized === baseCurrency) return 1;
+        if (typeof fxRateToBase === 'number' && Number.isFinite(fxRateToBase) && fxRateToBase > 0) {
+            return fxRateToBase;
+        }
+        if (fxRateCache.has(normalized)) {
+            return fxRateCache.get(normalized) || 1;
+        }
+        const fetched = await getFxRate(normalized, baseCurrency);
+        const rate = Number.isFinite(fetched) && fetched > 0 ? fetched : 1;
+        fxRateCache.set(normalized, rate);
+        return rate;
+    };
 
-        if (
-            !Number.isFinite(previous.value) ||
-            !Number.isFinite(current.value) ||
-            previous.value <= 0 ||
-            typeof benchmarkPrevious !== 'number' ||
-            typeof benchmarkCurrent !== 'number' ||
-            benchmarkPrevious <= 0
-        ) {
+    for (const tx of transactions) {
+        const symbol = tx.symbol.toUpperCase();
+        const quantity = Math.abs(Number(tx.quantity));
+        const price = Number(tx.price);
+        if (!symbol || !Number.isFinite(quantity) || !Number.isFinite(price) || quantity <= 0 || price <= 0) {
             continue;
         }
 
-        const portfolioReturn = current.value / previous.value - 1;
-        const benchmarkReturn = benchmarkCurrent / benchmarkPrevious - 1;
-        if (!Number.isFinite(portfolioReturn) || !Number.isFinite(benchmarkReturn)) {
-            continue;
-        }
+        const fxRate = await resolveFxRate(tx.currency || baseCurrency, tx.fxRateToBase);
+        const signedQuantity = tx.type === 'SELL' ? -quantity : quantity;
+        const signedCost = tx.type === 'SELL' ? -(quantity * price * fxRate) : quantity * price * fxRate;
 
-        alignedPairs.push({
-            portfolio: portfolioReturn,
-            benchmark: benchmarkReturn,
+        const current = bySymbol.get(symbol) || { quantity: 0, totalCost: 0 };
+        current.quantity += signedQuantity;
+        current.totalCost += signedCost;
+        bySymbol.set(symbol, current);
+    }
+
+    const holdings: HoldingAggregate[] = [];
+    for (const [symbol, state] of bySymbol.entries()) {
+        if (!Number.isFinite(state.quantity) || state.quantity <= 0) continue;
+        const avgCost = state.quantity > 0 ? state.totalCost / state.quantity : 0;
+        holdings.push({
+            symbol,
+            quantity: state.quantity,
+            totalCost: state.totalCost,
+            avgCost: Number.isFinite(avgCost) ? avgCost : 0,
         });
     }
 
-    return alignedPairs;
+    return holdings;
+};
+
+const computeHistoryFromHoldings = (
+    dateGrid: string[],
+    holdings: HoldingAggregate[],
+    historiesBySymbol: Map<string, Map<string, number>>
+): PortfolioAnalyticsHistoryPoint[] => {
+    const history: PortfolioAnalyticsHistoryPoint[] = [];
+    const runningCloseBySymbol = new Map<string, number>();
+    const costBasis = holdings.reduce((acc, holding) => acc + holding.quantity * holding.avgCost, 0);
+    const normalizedCostBasis = Number.isFinite(costBasis) ? costBasis : 0;
+
+    for (const date of dateGrid) {
+        let totalValue = 0;
+        let contributors = 0;
+
+        for (const holding of holdings) {
+            const symbolSeries = historiesBySymbol.get(holding.symbol);
+            if (!symbolSeries) continue;
+
+            const closeOnDate = symbolSeries.get(date);
+            if (typeof closeOnDate === 'number' && Number.isFinite(closeOnDate) && closeOnDate > 0) {
+                runningCloseBySymbol.set(holding.symbol, closeOnDate);
+            }
+
+            const close = runningCloseBySymbol.get(holding.symbol);
+            if (typeof close !== 'number' || !Number.isFinite(close) || close <= 0) continue;
+
+            totalValue += holding.quantity * close;
+            contributors += 1;
+        }
+
+        if (contributors === 0 || !Number.isFinite(totalValue)) {
+            continue;
+        }
+
+        history.push({
+            date,
+            value: totalValue,
+            costBasis: normalizedCostBasis > 0 ? normalizedCostBasis : undefined,
+        });
+    }
+
+    return history;
 };
 
 export async function GET(request: NextRequest) {
@@ -125,85 +225,177 @@ export async function GET(request: NextRequest) {
     }
 
     const range = parseRange(searchParams.get('range'));
-    const mappedRange = RANGE_MAP[range];
+    const warnings: string[] = [];
 
     try {
-        const series = await getPortfolioPerformanceSeries(session.user.id, portfolioId, mappedRange, {
-            allowFallbackFlatSeries: false,
-        });
+        await connectToDatabase();
 
-        if (!series.length) {
-            return NextResponse.json({
+        const portfolio = await Portfolio.findOne({ _id: portfolioId, userId: session.user.id });
+        if (!portfolio) {
+            return NextResponse.json({ error: 'Portfolio not found' }, { status: 404 });
+        }
+
+        const transactions = await Transaction.find({ userId: session.user.id, portfolioId }).sort({ tradeDate: 1 });
+        const firstTradeDate = transactions.length > 0 ? startOfUtcDay(new Date(transactions[0].tradeDate)) : null;
+        const toDate = startOfUtcDay(new Date());
+        const rangeStartDate = getRangeStartDate(range, toDate, firstTradeDate);
+        const fromDate = range === 'all' && firstTradeDate && firstTradeDate > rangeStartDate ? firstTradeDate : rangeStartDate;
+
+        const baseCurrency = (portfolio.baseCurrency || 'USD').toUpperCase();
+        const holdings = await aggregateHoldings(
+            transactions.map((tx) => ({
+                symbol: tx.symbol,
+                type: tx.type,
+                quantity: tx.quantity,
+                price: tx.price,
+                currency: tx.currency || baseCurrency,
+                fxRateToBase: tx.fxRateToBase,
+            })),
+            baseCurrency
+        );
+
+        if (holdings.length === 0) {
+            warnings.push('No open holdings found for this portfolio.');
+            const emptyResponse: PortfolioAnalyticsResponse = {
                 range,
                 asOf: new Date().toISOString(),
-                series: [],
-                benchmark: {
-                    symbol: BENCHMARK_SYMBOL,
-                    series: [],
-                    totalReturnPct: null,
-                },
+                benchmarkSymbol: BENCHMARK_SYMBOL,
+                history: [],
                 ratios: emptyRatios,
-            });
+                warnings,
+            };
+            return NextResponse.json(emptyResponse);
         }
 
-        const startDate = toDate(series[0].date);
-        const endDate = toDate(series[series.length - 1].date);
-        if (!startDate || !endDate || endDate <= startDate) {
-            return NextResponse.json({
+        const fromIso = dateToIso(fromDate);
+        const toIso = dateToIso(toDate);
+
+        let benchmarkSeries = [] as Awaited<ReturnType<typeof getDailyHistory>>;
+        try {
+            benchmarkSeries = await getDailyHistoryCached(BENCHMARK_SYMBOL, fromIso, toIso);
+            if (benchmarkSeries.length === 0) {
+                warnings.push(`Missing benchmark history for ${BENCHMARK_SYMBOL} in selected range.`);
+            }
+        } catch (error) {
+            console.error('portfolio analytics benchmark history error:', error);
+            warnings.push(`Missing benchmark history for ${BENCHMARK_SYMBOL} in selected range.`);
+        }
+
+        const historyResults = await Promise.all(
+            holdings.map(async (holding) => {
+                try {
+                    const series = await getDailyHistoryCached(holding.symbol, fromIso, toIso);
+                    if (!series.length) {
+                        return {
+                            holding,
+                            series: [] as Awaited<ReturnType<typeof getDailyHistory>>,
+                            warning: `Missing history for ${holding.symbol}.`,
+                        };
+                    }
+                    return { holding, series };
+                } catch (error) {
+                    console.error('portfolio analytics symbol history error:', holding.symbol, error);
+                    return {
+                        holding,
+                        series: [] as Awaited<ReturnType<typeof getDailyHistory>>,
+                        warning: `Missing history for ${holding.symbol}.`,
+                    };
+                }
+            })
+        );
+
+        const symbolWarnings = historyResults
+            .flatMap((result) => (result.warning ? [result.warning] : []))
+            .filter(Boolean);
+        warnings.push(...symbolWarnings);
+
+        const validSeries = historyResults.filter((result) => result.series.length > 0);
+        if (validSeries.length === 0) {
+            warnings.push('Unable to compute portfolio NAV because no symbol history was returned.');
+            const emptyResponse: PortfolioAnalyticsResponse = {
                 range,
                 asOf: new Date().toISOString(),
-                series,
-                benchmark: {
-                    symbol: BENCHMARK_SYMBOL,
-                    series: [],
-                    totalReturnPct: null,
-                },
-                ratios: {
-                    ...emptyRatios,
-                    totalReturnPct: computeTotalReturnPct(series),
-                },
-            });
+                benchmarkSymbol: BENCHMARK_SYMBOL,
+                history: [],
+                ratios: emptyRatios,
+                warnings,
+            };
+            return NextResponse.json(emptyResponse);
         }
 
-        const benchmarkSeries = (await getBenchmarkHistoryCached(
-            BENCHMARK_SYMBOL,
-            startDate.toISOString().slice(0, 10),
-            endDate.toISOString().slice(0, 10)
-        )) as Awaited<ReturnType<typeof getDailyHistory>>;
+        const longestSeries = validSeries.reduce((longest, current) =>
+            current.series.length > longest.series.length ? current : longest
+        );
 
-        const benchmarkMap = new Map<string, number>(benchmarkSeries.map((point) => [point.date, point.close]));
-        const portfolioReturnPoints = computeReturns(series);
-        const portfolioReturns = portfolioReturnPoints.map((point) => point.value);
+        const dateGrid = (benchmarkSeries.length > 0 ? benchmarkSeries : longestSeries.series)
+            .map((point) => point.date)
+            .filter(Boolean);
 
-        const alignedPairs = alignReturns(series, benchmarkMap);
-        const alignedPortfolioReturns = alignedPairs.map((pair) => pair.portfolio);
-        const alignedBenchmarkReturns = alignedPairs.map((pair) => pair.benchmark);
+        const historiesBySymbol = new Map<string, Map<string, number>>();
+        for (const item of validSeries) {
+            const symbolMap = new Map<string, number>();
+            for (const point of item.series) {
+                if (!point.date || typeof point.close !== 'number' || !Number.isFinite(point.close)) continue;
+                symbolMap.set(point.date, point.close);
+            }
+            historiesBySymbol.set(item.holding.symbol, symbolMap);
+        }
 
-        const totalReturnPct = computeTotalReturnPct(series);
-        const benchmarkReturnPct = computeTotalReturnPct(benchmarkSeries.map((point) => ({ value: point.close })));
-        const volatility = computeVolatility(portfolioReturns);
-        const sharpe = computeSharpe(portfolioReturns, Number.isFinite(RISK_FREE_DAILY) ? RISK_FREE_DAILY : 0);
-        const beta = computeBeta(alignedPortfolioReturns, alignedBenchmarkReturns);
-        const maxDrawdown = computeMaxDrawdown(series);
+        const includedSymbols = new Set(validSeries.map((item) => item.holding.symbol));
+        const computableHoldings = holdings.filter((holding) => includedSymbols.has(holding.symbol));
+        const history = computeHistoryFromHoldings(dateGrid, computableHoldings, historiesBySymbol);
 
-        return NextResponse.json({
+        if (history.length < 2) {
+            warnings.push('Not enough daily history points to compute full analytics for this range.');
+        }
+
+        const benchmarkAnalyticsSeries: AnalyticsSeriesPoint[] = benchmarkSeries
+            .filter((point) => typeof point.close === 'number' && Number.isFinite(point.close))
+            .map((point) => ({ date: point.date, value: point.close }));
+
+        const portfolioReturns = computeReturns(history);
+        const benchmarkReturns = computeReturns(benchmarkAnalyticsSeries);
+        const benchmarkReturnsByDate = new Map(benchmarkReturns.map((point) => [point.date, point.value]));
+
+        const alignedPortfolioReturns: number[] = [];
+        const alignedBenchmarkReturns: number[] = [];
+        for (const point of portfolioReturns) {
+            const benchmarkReturn = benchmarkReturnsByDate.get(point.date);
+            if (typeof benchmarkReturn !== 'number' || !Number.isFinite(benchmarkReturn)) {
+                continue;
+            }
+            alignedPortfolioReturns.push(point.value);
+            alignedBenchmarkReturns.push(benchmarkReturn);
+        }
+
+        const ratios: PortfolioAnalyticsRatios = {
+            totalReturnPct: computeTotalReturnPct(history),
+            benchmarkReturnPct: computeTotalReturnPct(benchmarkAnalyticsSeries),
+            volAnnual: (() => {
+                const value = computeVolatility(portfolioReturns.map((point) => point.value));
+                return value == null ? null : value * 100;
+            })(),
+            sharpeAnnual: computeSharpe(
+                portfolioReturns.map((point) => point.value),
+                Number.isFinite(RISK_FREE_DAILY) ? RISK_FREE_DAILY : 0
+            ),
+            beta: computeBeta(alignedPortfolioReturns, alignedBenchmarkReturns),
+            maxDrawdownPct: (() => {
+                const value = computeMaxDrawdown(history);
+                return value == null ? null : value * 100;
+            })(),
+        };
+
+        const response: PortfolioAnalyticsResponse = {
             range,
             asOf: new Date().toISOString(),
-            series,
-            benchmark: {
-                symbol: BENCHMARK_SYMBOL,
-                series: benchmarkSeries,
-                totalReturnPct: benchmarkReturnPct,
-            },
-            ratios: {
-                totalReturnPct,
-                benchmarkReturnPct,
-                volAnnual: volatility == null ? null : volatility * 100,
-                sharpeAnnual: sharpe,
-                beta,
-                maxDrawdownPct: maxDrawdown == null ? null : maxDrawdown * 100,
-            },
-        });
+            benchmarkSymbol: BENCHMARK_SYMBOL,
+            history,
+            ratios,
+            warnings: warnings.length ? warnings : undefined,
+        };
+
+        return NextResponse.json(response);
     } catch (error) {
         console.error('GET /api/portfolio/analytics error:', error);
         return NextResponse.json({ error: 'Failed to load portfolio analytics' }, { status: 500 });
