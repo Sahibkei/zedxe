@@ -164,13 +164,35 @@ export default function ChartBuilder({
 
         const tooltipFormatter = (value: number | string, dataKey: string) => {
             const numericValue = typeof value === "number" ? value : Number(value);
+            const metricMeta = seriesMap[dataKey];
+            const metricLabel = metricMeta?.label || dataKey;
+            const valueType = metricMeta?.valueType as StatementValueType | "percent" | undefined;
+
             if (!Number.isFinite(numericValue)) {
-                return ["--", seriesMap[dataKey]?.label || dataKey];
+                return ["--", metricLabel];
             }
             if (normalize) {
-                return [`${numericValue.toFixed(2)}%`, seriesMap[dataKey]?.label || dataKey];
+                return [`${numericValue.toFixed(2)}%`, metricLabel];
             }
-            return [formatCurrencyShort(numericValue, currency), seriesMap[dataKey]?.label || dataKey];
+
+            if (valueType === "currency") {
+                return [formatCurrencyShort(numericValue, currency), metricLabel];
+            }
+
+            if (valueType === "percent") {
+                const asPercent = Math.abs(numericValue) <= 1 ? numericValue * 100 : numericValue;
+                return [`${asPercent.toFixed(2)}%`, metricLabel];
+            }
+
+            if (valueType === "count") {
+                return [formatNumberShort(numericValue), metricLabel];
+            }
+
+            if (valueType === "perShare") {
+                return [`${formatCurrencyShort(numericValue, currency)} /sh`, metricLabel];
+            }
+
+            return [formatNumberShort(numericValue), metricLabel];
         };
 
         const chartCommonProps = {

@@ -79,6 +79,7 @@ export default function StockProfileHeader({
 
     const priceLabel = formatCurrency(price, currency || "USD");
     const resolvedLogo = companyLogoUrl && failedLogoSrc !== companyLogoUrl ? companyLogoUrl : undefined;
+    const placeholderInitial = (symbol || companyName || "Z").trim().charAt(0).toUpperCase() || "Z";
 
     return (
         <header className="space-y-4 rounded-xl border border-border/80 bg-card p-4 shadow-[0_28px_80px_-52px_rgba(0,0,0,0.9)] lg:p-5">
@@ -139,7 +140,7 @@ export default function StockProfileHeader({
                                 />
                             ) : (
                                 <span className="text-sm font-semibold uppercase text-muted-foreground">
-                                    {(companyName || symbol).charAt(0)}
+                                    {placeholderInitial}
                                 </span>
                             )}
                         </div>

@@ -510,25 +510,15 @@ const formatStatementQuarterLabel = (report?: { endDate?: string; year?: number;
     return formatStatementDateLabel(report?.endDate, year);
 };
 
-const extractDomainFromWebsite = (website?: string) => {
-    if (!website) return undefined;
+const resolveCompanyLogoUrl = (logoUrl?: string) => {
+    if (!logoUrl || !/^https:\/\//i.test(logoUrl)) return undefined;
 
     try {
-        const parsed = new URL(website.startsWith('http') ? website : `https://${website}`);
-        return parsed.hostname.replace(/^www\./i, '');
+        const parsed = new URL(logoUrl);
+        return parsed.protocol === 'https:' ? logoUrl : undefined;
     } catch {
         return undefined;
     }
-};
-
-const resolveCompanyLogoUrl = (logoUrl?: string, website?: string) => {
-    if (logoUrl && /^https?:\/\//i.test(logoUrl)) {
-        return logoUrl;
-    }
-
-    const domain = extractDomainFromWebsite(website);
-    if (!domain) return undefined;
-    return `https://logo.clearbit.com/${domain}`;
 };
 
 const createStatementGrid = ({
@@ -668,7 +658,7 @@ const mapProfile: ProfileMapperFn = (profile) => ({
     currency: profile?.currency,
     description: profile?.description,
     companyDescription: profile?.description,
-    companyLogoUrl: resolveCompanyLogoUrl(profile?.logo, profile?.weburl),
+    companyLogoUrl: resolveCompanyLogoUrl(profile?.logo),
 });
 
 const mapRatios: RatioMapperFn = (metrics) => {
@@ -876,7 +866,7 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
             exchange: (profileRes as any)?.exchange || company.exchange,
             description: (profileRes as any)?.description || company.description,
             companyDescription: (profileRes as any)?.description || company.companyDescription || company.description,
-            companyLogoUrl: resolveCompanyLogoUrl((profileRes as any)?.logo, (profileRes as any)?.weburl || company.website),
+            companyLogoUrl: resolveCompanyLogoUrl((profileRes as any)?.logo),
         },
         price: {
             current: quoteRes?.c,

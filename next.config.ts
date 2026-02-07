@@ -14,10 +14,6 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "**.finnhub.io",
       },
-      {
-        protocol: "https",
-        hostname: "logo.clearbit.com",
-      },
     ],
   },
 };
