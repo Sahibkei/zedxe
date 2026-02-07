@@ -126,6 +126,14 @@ const getSeedCloseForRangeStart = (symbolSeries: Map<string, number>, firstDate:
         if (date > firstDate) break;
         seed = close;
     }
+
+    if (seed == null) {
+        const firstKnownClose = symbolSeries.values().next().value;
+        if (typeof firstKnownClose === 'number' && Number.isFinite(firstKnownClose) && firstKnownClose > 0) {
+            return firstKnownClose;
+        }
+    }
+
     return seed;
 };
 
