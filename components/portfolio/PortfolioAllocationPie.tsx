@@ -1,6 +1,9 @@
 "use client";
 
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
+import type { ValueType } from 'recharts/types/component/DefaultTooltipContent';
+
+import DarkTooltip from '@/components/portfolio/RechartsTooltip';
 
 export type PortfolioAllocationPieProps = {
     positions: {
@@ -8,79 +11,94 @@ export type PortfolioAllocationPieProps = {
         companyName?: string;
         weightPct: number;
     }[];
+    title?: string;
 };
 
-const COLORS = ['#60a5fa', '#3b82f6', '#2563eb', '#1d4ed8', '#1e40af'];
+const COLORS = ['#78b9ff', '#10b981', '#f59e0b', '#f97316', '#a78bfa', '#f43f5e', '#22d3ee'];
 
-const PortfolioAllocationPie = ({ positions }: PortfolioAllocationPieProps) => {
-    if (!positions || positions.length === 0) {
-        return (
-            <div className="rounded-lg border border-gray-800 bg-gray-900/60 p-4 text-sm text-gray-400">
-                No holdings yet
-            </div>
-        );
-    }
-
+const PortfolioAllocationPie = ({ positions, title = 'Allocation' }: PortfolioAllocationPieProps) => {
     const data = positions
-        .filter((p) => p.weightPct > 0)
-        .map((p) => ({
-            name: p.companyName ? `${p.symbol} – ${p.companyName}` : p.symbol,
-            symbol: p.symbol,
-            companyName: p.companyName,
-            weight: p.weightPct,
+        .filter((position) => Number.isFinite(position.weightPct) && position.weightPct > 0)
+        .sort((a, b) => b.weightPct - a.weightPct)
+        .map((position) => ({
+            symbol: position.symbol,
+            companyName: position.companyName,
+            weight: position.weightPct,
         }));
 
-    if (data.length === 0) {
-        return (
-            <div className="rounded-lg border border-gray-800 bg-gray-900/60 p-4 text-sm text-gray-400">No holdings yet</div>
-        );
-    }
-
     return (
-        <div className="rounded-lg border border-gray-800 bg-gray-900/60 p-4">
-            <h3 className="text-lg font-semibold text-gray-100">Allocation</h3>
-            <div className="mt-4 h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                        <Pie
-                            data={data}
-                            dataKey="weight"
-                            nameKey="symbol"
-                            cx="50%"
-                            cy="50%"
-                            outerRadius={90}
-                            label={({ symbol, weight }) => `${symbol}: ${weight.toFixed(1)}%`}
-                        >
-                            {data.map((entry, index) => (
-                                <Cell key={entry.symbol} fill={COLORS[index % COLORS.length]} />
-                            ))}
-                        </Pie>
-                        <Tooltip
-                            formatter={(value, _name, entry: any) => {
-                                const symbol = entry?.payload?.symbol ?? '';
-                                const company = entry?.payload?.companyName ?? '';
-                                const weight = typeof value === 'number' ? value : Number(value);
-                                const label = company ? `${symbol} – ${company}` : symbol;
-                                return [`${weight.toFixed(2)}%`, label];
-                            }}
-                            contentStyle={{
-                                backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                                borderRadius: 9999,
-                                border: '1px solid #1f2937',
-                                padding: '4px 8px',
-                            }}
-                            itemStyle={{ color: '#ffffff' }}
-                            cursor={{ fill: 'rgba(148, 163, 184, 0.15)' }}
-                        />
-                        <Legend
-                            layout="horizontal"
-                            verticalAlign="bottom"
-                            align="center"
-                            wrapperStyle={{ color: '#e5e7eb', fontSize: 12 }}
-                        />
-                    </PieChart>
-                </ResponsiveContainer>
+        <div className="rounded-xl border border-border/80 bg-card p-5">
+            <div className="border-b border-border/60 pb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</h3>
             </div>
+
+            {data.length === 0 ? (
+                <div className="flex h-[250px] items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/15 text-sm text-muted-foreground">
+                    Allocation will appear after you add holdings.
+                </div>
+            ) : (
+                <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_180px]">
+                    <div className="h-[220px] min-w-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie
+                                    data={data}
+                                    dataKey="weight"
+                                    nameKey="symbol"
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={54}
+                                    outerRadius={86}
+                                    stroke="#0b111a"
+                                    strokeWidth={2}
+                                    paddingAngle={1}
+                                >
+                                    {data.map((entry, index) => (
+                                        <Cell key={`${entry.symbol}-${index}`} fill={COLORS[index % COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                <Tooltip
+                                    content={
+                                        <DarkTooltip
+                                            formatLabel={(label) => String(label ?? '')}
+                                            formatValue={(value: ValueType) => {
+                                                const numericValue = typeof value === 'number' ? value : Number(value);
+                                                return Number.isFinite(numericValue) ? `${numericValue.toFixed(2)}%` : 'N/A';
+                                            }}
+                                        />
+                                    }
+                                    contentStyle={{
+                                        background: 'rgba(10,15,25,0.95)',
+                                        border: '1px solid rgba(255,255,255,0.08)',
+                                        borderRadius: 12,
+                                    }}
+                                    labelStyle={{ color: '#E5E7EB' }}
+                                    itemStyle={{ color: '#E5E7EB' }}
+                                    cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                                    wrapperStyle={{ outline: 'none' }}
+                                    allowEscapeViewBox={{ x: true, y: true }}
+                                />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    </div>
+
+                    <div className="space-y-2">
+                        {data.slice(0, 6).map((entry, index) => (
+                            <div
+                                key={`allocation-legend-${entry.symbol}`}
+                                className="grid grid-cols-[10px_1fr_auto] items-center gap-2 text-xs"
+                            >
+                                <span
+                                    className="h-2.5 w-2.5 rounded-full"
+                                    style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                                />
+                                <span className="truncate text-muted-foreground">{entry.symbol}</span>
+                                <span className="font-semibold tabular-nums text-foreground">{entry.weight.toFixed(1)}%</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

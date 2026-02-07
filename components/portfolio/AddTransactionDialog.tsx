@@ -18,6 +18,7 @@ import { addTransaction } from '@/lib/portfolio/actions';
 import { CURRENCIES } from '@/lib/constants';
 import type { PortfolioLean } from '@/lib/portfolio/portfolio-service';
 import type { TransactionType } from '@/database/models/transaction.model';
+import { cn } from '@/lib/utils';
 
 const AddTransactionDialog = ({
     portfolios,
@@ -28,6 +29,7 @@ const AddTransactionDialog = ({
     onOpenChange,
     onAdded,
     triggerLabel = '+ Add Transaction',
+    triggerClassName,
 }: {
     portfolios: PortfolioLean[];
     defaultPortfolioId?: string;
@@ -37,6 +39,7 @@ const AddTransactionDialog = ({
     onOpenChange?: (open: boolean) => void;
     onAdded?: () => void;
     triggerLabel?: string;
+    triggerClassName?: string;
 }) => {
     const [internalOpen, setInternalOpen] = useState(false);
     const isOpen = controlledOpen ?? internalOpen;
@@ -109,7 +112,10 @@ const AddTransactionDialog = ({
                 <Button
                     size="icon"
                     variant="ghost"
-                    className="h-8 w-8 border border-gray-800 bg-gray-900 text-gray-100 hover:bg-gray-800"
+                    className={cn(
+                        "h-8 w-8 rounded-lg border border-border/70 bg-muted/20 text-foreground hover:bg-muted/30",
+                        triggerClassName
+                    )}
                 >
                     +
                 </Button>
@@ -118,14 +124,20 @@ const AddTransactionDialog = ({
 
         if (triggerVariant === 'link') {
             return (
-                <Button variant="link" className="h-8 px-0 text-yellow-400">
+                <Button variant="link" className={cn("h-8 px-0 text-primary", triggerClassName)}>
                     {triggerLabel}
                 </Button>
             );
         }
 
         return (
-            <Button variant="outline" className="border-gray-700 bg-gray-800 text-gray-100">
+            <Button
+                variant="ghost"
+                className={cn(
+                    "h-9 rounded-lg border border-border/70 bg-primary/20 px-3 text-xs font-semibold uppercase tracking-[0.12em] text-foreground hover:bg-primary/25",
+                    triggerClassName
+                )}
+            >
                 {triggerLabel}
             </Button>
         );
