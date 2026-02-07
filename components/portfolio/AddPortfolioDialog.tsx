@@ -21,9 +21,11 @@ import type { PortfolioLean } from '@/lib/portfolio/portfolio-service';
 const AddPortfolioDialog = ({
     triggerLabel = '+ New Portfolio',
     onCreated,
+    triggerClassName,
 }: {
     triggerLabel?: string;
     onCreated?: (portfolio: PortfolioLean) => void;
+    triggerClassName?: string;
 }) => {
     const [open, setOpen] = useState(false);
     const [name, setName] = useState('');
@@ -52,7 +54,15 @@ const AddPortfolioDialog = ({
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button className="bg-yellow-500 text-black hover:bg-yellow-400">{triggerLabel}</Button>
+                <Button
+                    variant="ghost"
+                    className={
+                        triggerClassName ||
+                        'h-8 rounded-lg border border-border/70 bg-muted/20 px-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground hover:bg-muted/30 hover:text-foreground'
+                    }
+                >
+                    {triggerLabel}
+                </Button>
             </DialogTrigger>
             <DialogContent className="bg-gray-950 text-gray-100">
                 <DialogHeader>

@@ -2,8 +2,8 @@ import { connectToDatabase } from '@/database/mongoose';
 import { Portfolio, type PortfolioDocument } from '@/database/models/portfolio.model';
 import { Transaction, type TransactionDocument } from '@/database/models/transaction.model';
 import { getSnapshotsForSymbols } from '@/lib/actions/finnhub.actions';
-import { fetchJSON } from '@/lib/actions/finnhub.actions';
 import { getFxRate } from '@/lib/finnhub/fx';
+import { getDailyHistory } from '@/lib/market/providers';
 import {
     computeBenchmarkSeries,
     computePortfolioRatios,
@@ -273,8 +273,6 @@ export async function getPortfolioSummary(userId: string, portfolioId: string): 
     return summary;
 }
 
-const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1';
-
 const normalizeDateString = (value: Date) => value.toISOString().slice(0, 10);
 
 const startOfDay = (value: Date) => {
@@ -316,33 +314,19 @@ const getRangeStartDate = (range: PortfolioPerformanceRange, today: Date): Date 
 };
 
 const fetchDailyCloses = async (symbol: string, from: Date, to: Date): Promise<Record<string, number>> => {
-    const token = process.env.FINNHUB_API_KEY ?? '';
-    if (!token) {
-        console.error('getPortfolioPerformanceSeries: FINNHUB API key missing');
-        return {};
-    }
-
-    type FinnhubCandleResponse = { c?: number[]; t?: number[]; s?: 'ok' | 'no_data' | string };
-
-    const fromTs = Math.floor(from.getTime() / 1000);
-    const toTs = Math.floor(to.getTime() / 1000);
-    const url = `${FINNHUB_BASE_URL}/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=D&from=${fromTs}&to=${toTs}&token=${token}`;
-
     try {
-        const data = await fetchJSON<FinnhubCandleResponse>(url, 3600);
-        if (!data || data.s !== 'ok' || !Array.isArray(data.c) || !Array.isArray(data.t)) {
-            return {};
+        const closes: Record<string, number> = {};
+        const history = await getDailyHistory({
+            symbol,
+            from,
+            to,
+        });
+
+        for (const point of history) {
+            if (!point.date || typeof point.close !== 'number' || !Number.isFinite(point.close)) continue;
+            closes[normalizeDateString(startOfDay(new Date(point.date)))] = point.close;
         }
 
-        const closes: Record<string, number> = {};
-        const len = Math.min(data.c.length, data.t.length);
-        for (let i = 0; i < len; i++) {
-            const ts = data.t[i];
-            const close = data.c[i];
-            if (typeof ts !== 'number' || typeof close !== 'number') continue;
-            const date = new Date(ts * 1000);
-            closes[normalizeDateString(startOfDay(date))] = close;
-        }
         return closes;
     } catch (error) {
         console.error('getPortfolioPerformanceSeries candle fetch error for', symbol, error);
