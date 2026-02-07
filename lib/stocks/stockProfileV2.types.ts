@@ -70,9 +70,13 @@ export type StockProfileV2Model = {
         industry?: string;
         exchange?: string;
         marketCap?: number;
+        shareOutstanding?: number;
+        employees?: number;
         ipo?: string;
         currency?: string;
         description?: string;
+        companyDescription?: string;
+        companyLogoUrl?: string;
     };
     price?: {
         current?: number;
@@ -86,6 +90,11 @@ export type StockProfileV2Model = {
             income?: StatementGrid;
             balanceSheet?: StatementGrid;
             cashFlow?: StatementGrid;
+            quarterly?: {
+                income?: StatementGrid;
+                balanceSheet?: StatementGrid;
+                cashFlow?: StatementGrid;
+            };
         };
     };
     filings: FilingInfo[];

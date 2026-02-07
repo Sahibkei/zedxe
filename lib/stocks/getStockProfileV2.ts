@@ -497,10 +497,28 @@ const formatStatementDateLabel = (endDate?: string, year?: number) => {
     if (endDate) {
         const parsed = new Date(endDate);
         if (!Number.isNaN(parsed.getTime())) {
-            return parsed.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+            return `FY ${parsed.getUTCFullYear()}`;
         }
     }
-    return year ? `FY ${year}` : '—';
+    return year ? `FY ${year}` : '--';
+};
+
+const formatStatementQuarterLabel = (report?: { endDate?: string; year?: number; quarter?: number }) => {
+    const year = report?.year ?? (report?.endDate ? new Date(report.endDate).getUTCFullYear() : undefined);
+    const quarter = report?.quarter ?? deriveQuarter(report?.endDate);
+    if (quarter && year) return `Q${quarter} ${year}`;
+    return formatStatementDateLabel(report?.endDate, year);
+};
+
+const resolveCompanyLogoUrl = (logoUrl?: string) => {
+    if (!logoUrl || !/^https:\/\//i.test(logoUrl)) return undefined;
+
+    try {
+        const parsed = new URL(logoUrl);
+        return parsed.protocol === 'https:' ? logoUrl : undefined;
+    } catch {
+        return undefined;
+    }
 };
 
 const createStatementGrid = ({
@@ -510,6 +528,7 @@ const createStatementGrid = ({
     definitions,
     fallbackCurrency,
     defaultAggregation,
+    mode,
 }: {
     annualReports?: { endDate?: string; year?: number; report?: any; currency?: string }[];
     quarterlyReports?: { endDate?: string; report?: any; currency?: string }[];
@@ -517,11 +536,12 @@ const createStatementGrid = ({
     definitions: StatementDefinition[];
     fallbackCurrency?: string;
     defaultAggregation: 'flow' | 'point';
+    mode: 'annual' | 'quarterly';
 }): StatementGrid => {
     const sortedAnnual = sortReports((annualReports as any[]) || []) as any[];
     const sortedQuarterly = sortReports((quarterlyReports as any[]) || []) as any[];
 
-    const annualColumns = sortedAnnual.slice(0, 4).map((report, index) => ({
+    const annualColumns = sortedAnnual.slice(0, 10).reverse().map((report, index) => ({
         key: `annual-${index}`,
         label: formatStatementDateLabel(report?.endDate, report?.year),
         date: report?.endDate,
@@ -530,10 +550,19 @@ const createStatementGrid = ({
         source: report,
     }));
 
-    const columnsWithSource = [
-        { key: 'ttm', label: 'TTM', type: 'ttm' as const },
-        ...annualColumns,
-    ];
+    const quarterlyColumns = sortedQuarterly.slice(0, 10).reverse().map((report, index) => ({
+        key: `quarterly-${index}`,
+        label: formatStatementQuarterLabel(report),
+        date: report?.endDate,
+        type: 'annual' as const,
+        currency: report?.currency,
+        source: report,
+    }));
+
+    const columnsWithSource =
+        mode === 'quarterly'
+            ? quarterlyColumns
+            : [...annualColumns, { key: 'ttm', label: 'TTM', type: 'ttm' as const }];
 
     const columns = columnsWithSource.map(({ source, ...col }) => col);
 
@@ -623,9 +652,13 @@ const mapProfile: ProfileMapperFn = (profile) => ({
     industry: profile?.finnhubIndustry,
     exchange: profile?.exchange,
     marketCap: profile?.marketCapitalization ? profile.marketCapitalization * 1_000_000 : undefined,
+    shareOutstanding: profile?.shareOutstanding,
+    employees: profile?.employeeTotal,
     ipo: profile?.ipo,
     currency: profile?.currency,
     description: profile?.description,
+    companyDescription: profile?.description,
+    companyLogoUrl: resolveCompanyLogoUrl(profile?.logo),
 });
 
 const mapRatios: RatioMapperFn = (metrics) => {
@@ -685,9 +718,9 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
 
     const profilePromise = finnhubAvailable ? getFinnhubProfile(finnhubSymbol) : Promise.resolve(undefined);
     const metricsPromise = finnhubAvailable ? getFinnhubMetrics(finnhubSymbol) : Promise.resolve(undefined);
-    const annualPromise = finnhubAvailable ? getFinnhubFinancials(finnhubSymbol, 'annual') : Promise.resolve(undefined);
+    const annualPromise = finnhubAvailable ? getFinnhubFinancials(finnhubSymbol, 'annual', 10) : Promise.resolve(undefined);
     const quarterlyPromise = finnhubAvailable
-        ? getFinnhubFinancials(finnhubSymbol, 'quarterly')
+        ? getFinnhubFinancials(finnhubSymbol, 'quarterly', 10)
         : Promise.resolve(undefined);
     const quotePromise = finnhubAvailable ? getFinnhubQuote(finnhubSymbol) : Promise.resolve(undefined);
     const secPromise = secAvailable
@@ -750,12 +783,12 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
 
     const company = mapProfile(profileRes);
     const metrics = mapRatios(metricsRes?.metric ?? undefined);
-    const annualPrimary = mapFinancials({ financials: annualRes, limit: 5, frequency: 'annual' });
-    const quarterlyPrimary = mapFinancials({ financials: quarterlyRes, limit: 8, frequency: 'quarterly' });
-    const secAnnual = mapSecFinancials(secFacts || {}, 'annual', 5);
-    const secQuarterly = mapSecFinancials(secFacts || {}, 'quarterly', 8);
-    const annual = mergeFinancialRows(annualPrimary, secAnnual, 5);
-    const quarterly = mergeFinancialRows(quarterlyPrimary, secQuarterly, 8);
+    const annualPrimary = mapFinancials({ financials: annualRes, limit: 10, frequency: 'annual' });
+    const quarterlyPrimary = mapFinancials({ financials: quarterlyRes, limit: 10, frequency: 'quarterly' });
+    const secAnnual = mapSecFinancials(secFacts || {}, 'annual', 10);
+    const secQuarterly = mapSecFinancials(secFacts || {}, 'quarterly', 10);
+    const annual = mergeFinancialRows(annualPrimary, secAnnual, 10);
+    const quarterly = mergeFinancialRows(quarterlyPrimary, secQuarterly, 10);
     const filings = mapFilings(filingsRes);
     const statements = {
         income: createStatementGrid({
@@ -765,6 +798,7 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
             definitions: INCOME_STATEMENT_DEFINITIONS,
             fallbackCurrency: company.currency,
             defaultAggregation: 'flow',
+            mode: 'annual',
         }),
         balanceSheet: createStatementGrid({
             annualReports: annualRes?.data,
@@ -773,6 +807,7 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
             definitions: BALANCE_SHEET_DEFINITIONS,
             fallbackCurrency: company.currency,
             defaultAggregation: 'point',
+            mode: 'annual',
         }),
         cashFlow: createStatementGrid({
             annualReports: annualRes?.data,
@@ -781,7 +816,37 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
             definitions: CASH_FLOW_DEFINITIONS,
             fallbackCurrency: company.currency,
             defaultAggregation: 'flow',
+            mode: 'annual',
         }),
+        quarterly: {
+            income: createStatementGrid({
+                annualReports: annualRes?.data,
+                quarterlyReports: quarterlyRes?.data,
+                statement: 'ic',
+                definitions: INCOME_STATEMENT_DEFINITIONS,
+                fallbackCurrency: company.currency,
+                defaultAggregation: 'flow',
+                mode: 'quarterly',
+            }),
+            balanceSheet: createStatementGrid({
+                annualReports: annualRes?.data,
+                quarterlyReports: quarterlyRes?.data,
+                statement: 'bs',
+                definitions: BALANCE_SHEET_DEFINITIONS,
+                fallbackCurrency: company.currency,
+                defaultAggregation: 'point',
+                mode: 'quarterly',
+            }),
+            cashFlow: createStatementGrid({
+                annualReports: annualRes?.data,
+                quarterlyReports: quarterlyRes?.data,
+                statement: 'cf',
+                definitions: CASH_FLOW_DEFINITIONS,
+                fallbackCurrency: company.currency,
+                defaultAggregation: 'flow',
+                mode: 'quarterly',
+            }),
+        },
     } satisfies StockProfileV2Model['financials']['statements'];
 
     const providerErrors = status
@@ -799,6 +864,9 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
             website: (profileRes as any)?.weburl || company.website,
             industry: (profileRes as any)?.finnhubIndustry || company.industry,
             exchange: (profileRes as any)?.exchange || company.exchange,
+            description: (profileRes as any)?.description || company.description,
+            companyDescription: (profileRes as any)?.description || company.companyDescription || company.description,
+            companyLogoUrl: resolveCompanyLogoUrl((profileRes as any)?.logo),
         },
         price: {
             current: quoteRes?.c,

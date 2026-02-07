@@ -5,14 +5,27 @@ import {cn} from "@/lib/utils";
 
 interface TradingViewWidgetProps {
     title?: string;
-    scripUrl: string;
+    cspUrl?: string;
+    scripUrl?: string;
     config: Record<string, unknown>;
     height?: number | string;
     className?: string;
 }
 
-const TradingViewWidget = ({ title, scripUrl, config, height, className}: TradingViewWidgetProps) => {
-    const containerRef = useTradingViewWidget(scripUrl, config, height ?? 600);
+const TradingViewWidget = ({ title, cspUrl, scripUrl, config, height, className}: TradingViewWidgetProps) => {
+    const scriptUrl = cspUrl || scripUrl;
+    const containerRef = useTradingViewWidget(scriptUrl, config, height ?? 600);
+
+    if (!scriptUrl) {
+        return (
+            <div className="h-full w-full">
+                {title && <h3 className="mb-5 text-2xl font-semibold text-gray-100">{title}</h3>}
+                <div className="flex h-full min-h-[180px] items-center justify-center rounded-lg border border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground">
+                    Chart source is unavailable.
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="h-full w-full">

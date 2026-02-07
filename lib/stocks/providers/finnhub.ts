@@ -46,6 +46,7 @@ export type FinnhubProfile2Response = {
     logo?: string;
     finnhubIndustry?: string;
     description?: string;
+    employeeTotal?: number;
 };
 
 export type FinnhubMetricResponse = {
@@ -107,8 +108,8 @@ export async function getFinnhubMetrics(symbol: string) {
 }
 
 /** Retrieve Finnhub financial reports for a symbol. */
-export async function getFinnhubFinancials(symbol: string, freq: 'annual' | 'quarterly') {
-    return finnhubFetch<FinnhubFinancialsReportedResponse>('stock/financials-reported', { symbol, freq }, { ttlSeconds: 900 });
+export async function getFinnhubFinancials(symbol: string, freq: 'annual' | 'quarterly', limit = 10) {
+    return finnhubFetch<FinnhubFinancialsReportedResponse>('stock/financials-reported', { symbol, freq, limit }, { ttlSeconds: 900 });
 }
 
 /** Retrieve Finnhub quote data for a symbol. */
