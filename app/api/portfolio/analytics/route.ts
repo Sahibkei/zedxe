@@ -6,7 +6,7 @@ import { Portfolio } from '@/database/models/portfolio.model';
 import { Transaction } from '@/database/models/transaction.model';
 import { auth } from '@/lib/better-auth/auth';
 import { getFxRate } from '@/lib/finnhub/fx';
-import { getDailyHistory } from '@/lib/market/providers';
+import { getDailyHistory, getQuotes } from '@/lib/market/providers';
 import {
     computeBeta,
     computeMaxDrawdown,
@@ -309,6 +309,50 @@ const computeHistoryFromHoldings = (
     return history;
 };
 
+const computeFallbackFlatValue = async (holdings: HoldingAggregate[]) => {
+    const symbols = holdings.map((holding) => holding.symbol);
+    const costBasisValue = holdings.reduce((sum, holding) => sum + holding.quantity * holding.avgCost, 0);
+
+    if (!symbols.length) {
+        return Number.isFinite(costBasisValue) && costBasisValue > 0 ? costBasisValue : 0;
+    }
+
+    try {
+        const quotes = await getQuotes(symbols);
+        let total = 0;
+
+        for (const holding of holdings) {
+            const quote = quotes[holding.symbol];
+            const livePrice = typeof quote?.c === 'number' && Number.isFinite(quote.c) && quote.c > 0 ? quote.c : null;
+            const fallbackPrice =
+                typeof holding.avgCost === 'number' && Number.isFinite(holding.avgCost) && holding.avgCost > 0
+                    ? holding.avgCost
+                    : 0;
+            total += holding.quantity * (livePrice ?? fallbackPrice);
+        }
+
+        if (Number.isFinite(total) && total > 0) {
+            return total;
+        }
+    } catch (error) {
+        console.error('portfolio analytics fallback quote error:', error);
+    }
+
+    return Number.isFinite(costBasisValue) && costBasisValue > 0 ? costBasisValue : 0;
+};
+
+const buildFlatHistory = (dateGrid: string[], holdings: HoldingAggregate[], value: number): PortfolioAnalyticsHistoryPoint[] => {
+    const costBasis = holdings.reduce((sum, holding) => sum + holding.quantity * holding.avgCost, 0);
+    const normalizedCostBasis = Number.isFinite(costBasis) && costBasis > 0 ? costBasis : undefined;
+    const normalizedValue = Number.isFinite(value) && value > 0 ? value : (normalizedCostBasis ?? 0);
+
+    return dateGrid.map((date) => ({
+        date,
+        value: normalizedValue,
+        costBasis: normalizedCostBasis,
+    }));
+};
+
 export async function GET(request: NextRequest) {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session?.user) {
@@ -406,19 +450,6 @@ export async function GET(request: NextRequest) {
         warnings.push(...symbolWarnings);
 
         const validSeries = historyResults.filter((result) => result.series.length > 0);
-        if (validSeries.length === 0) {
-            warnings.push('Unable to compute portfolio NAV because no symbol history was returned.');
-            const emptyResponse: PortfolioAnalyticsResponse = {
-                range,
-                asOf: new Date().toISOString(),
-                benchmarkSymbol: DEFAULT_BENCHMARK_SYMBOL,
-                history: [],
-                ratios: emptyRatios,
-                warnings,
-            };
-            return NextResponse.json(emptyResponse);
-        }
-
         const historiesBySymbol = new Map<string, Map<string, number>>();
         for (const item of validSeries) {
             const symbolMap = new Map<string, number>();
@@ -431,7 +462,16 @@ export async function GET(request: NextRequest) {
 
         const includedSymbols = new Set(validSeries.map((item) => item.holding.symbol));
         const computableHoldings = holdings.filter((holding) => includedSymbols.has(holding.symbol));
-        const history = computeHistoryFromHoldings(dateGrid, computableHoldings, historiesBySymbol);
+        let history = computeHistoryFromHoldings(dateGrid, computableHoldings, historiesBySymbol);
+
+        if (history.length < MIN_SERIES_POINTS) {
+            const fallbackValue = await computeFallbackFlatValue(holdings);
+            const flatHistory = buildFlatHistory(dateGrid, holdings, fallbackValue);
+            if (flatHistory.length >= MIN_SERIES_POINTS) {
+                history = flatHistory;
+                warnings.push('Using flat portfolio history fallback because market history is unavailable for this range.');
+            }
+        }
 
         if (history.length < 2) {
             warnings.push('Not enough daily history points to compute full analytics for this range.');
