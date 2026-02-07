@@ -75,6 +75,8 @@ export type StockProfileV2Model = {
         ipo?: string;
         currency?: string;
         description?: string;
+        companyDescription?: string;
+        companyLogoUrl?: string;
     };
     price?: {
         current?: number;

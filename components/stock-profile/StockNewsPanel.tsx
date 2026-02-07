@@ -5,7 +5,7 @@ type StockNewsPanelProps = {
 };
 
 const relativeTime = (unixSeconds?: number) => {
-    if (!unixSeconds) return "Just now";
+    if (unixSeconds == null) return "Just now";
     const diff = Math.max(0, Date.now() - unixSeconds * 1000);
     const minutes = Math.floor(diff / 60000);
     if (minutes < 60) return `${minutes}m ago`;

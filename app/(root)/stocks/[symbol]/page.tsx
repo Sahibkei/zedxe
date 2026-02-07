@@ -88,6 +88,7 @@ export default async function StockDetailsPage({ params }: StockPageProps) {
             <StockProfileHeader
                 symbol={symbolUpper}
                 companyName={companyName}
+                companyLogoUrl={stockProfile.company.companyLogoUrl}
                 exchange={stockProfile.company.exchange}
                 sector={stockProfile.company.industry}
                 currency={stockProfile.company.currency}

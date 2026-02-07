@@ -41,7 +41,7 @@ type OverviewPanelProps = {
 };
 
 const getRelativeTime = (unixSeconds?: number) => {
-    if (!unixSeconds) return "Just now";
+    if (unixSeconds == null) return "Just now";
     const diff = Math.max(0, Date.now() - unixSeconds * 1000);
     const minutes = Math.floor(diff / 60000);
     if (minutes < 60) return `${minutes}m ago`;
@@ -212,12 +212,14 @@ export default function OverviewPanel({ profile, symbol, marketCap, newsItems }:
         ];
     }, [marketCap, profile]);
 
-    const longDescription = profile.company.description || "Company overview is unavailable for this symbol.";
-    const shouldClampDescription = longDescription.length > 360;
-    const descriptionText =
-        shouldClampDescription && !expandedDescription
-            ? `${longDescription.slice(0, 360).trimEnd()}...`
-            : longDescription;
+    const companyDescription = profile.company.companyDescription || profile.company.description;
+    const hasBusinessDescription = Boolean(companyDescription?.trim());
+    const shouldClampDescription = Boolean(companyDescription && companyDescription.length > 420);
+    const descriptionText = hasBusinessDescription
+        ? shouldClampDescription && !expandedDescription
+            ? `${companyDescription!.slice(0, 420).trimEnd()}...`
+            : companyDescription!
+        : undefined;
 
     return (
         <div className="space-y-4">
@@ -256,17 +258,51 @@ export default function OverviewPanel({ profile, symbol, marketCap, newsItems }:
                                 <dd className="mt-1 font-medium text-foreground">{profile.company.currency || "Unavailable"}</dd>
                             </div>
                         </dl>
+                    </section>
 
-                        <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{descriptionText}</p>
-                        {shouldClampDescription ? (
-                            <button
-                                type="button"
-                                className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary hover:underline"
-                                onClick={() => setExpandedDescription((prev) => !prev)}
-                            >
-                                {expandedDescription ? "Read less" : "Read more"}
-                            </button>
-                        ) : null}
+                    <section className="rounded-xl border border-border/80 bg-card p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-3">
+                            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-foreground">Business details / About</h3>
+                            <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Provider sourced</span>
+                        </div>
+                        {hasBusinessDescription ? (
+                            <>
+                                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{descriptionText}</p>
+                                {shouldClampDescription ? (
+                                    <button
+                                        type="button"
+                                        className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary hover:underline"
+                                        onClick={() => setExpandedDescription((prev) => !prev)}
+                                    >
+                                        {expandedDescription ? "Show less" : "Show more"}
+                                    </button>
+                                ) : null}
+                            </>
+                        ) : (
+                            <div className="mt-3 space-y-3">
+                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                    {[
+                                        { label: "Industry", value: profile.company.industry },
+                                        { label: "Exchange", value: profile.company.exchange },
+                                        { label: "Country", value: profile.company.country },
+                                        { label: "Website", value: profile.company.website },
+                                        { label: "IPO date", value: profile.company.ipo },
+                                        { label: "Employees", value: formatInteger(profile.company.employees) },
+                                    ]
+                                        .filter((item) => item.value && item.value !== "--")
+                                        .map((item) => (
+                                            <div
+                                                key={item.label}
+                                                className="rounded-md border border-border/60 bg-muted/15 px-2.5 py-2"
+                                            >
+                                                <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{item.label}</p>
+                                                <p className="mt-1 font-medium text-foreground">{item.value}</p>
+                                            </div>
+                                        ))}
+                                </div>
+                                <p className="text-sm text-muted-foreground">Business description unavailable for this symbol.</p>
+                            </div>
+                        )}
                     </section>
 
                     <KeyMetricsGrid sections={metricSections} />
@@ -299,12 +335,21 @@ export default function OverviewPanel({ profile, symbol, marketCap, newsItems }:
                             })}
                         </div>
                     </div>
-                    <TradingViewWidget
-                        scripUrl="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"
-                        config={chartConfig}
-                        className="custom-chart"
-                        height={660}
-                    />
+                    <div className="h-[460px] overflow-hidden rounded-xl border border-border/70 bg-[#0b121d]">
+                        <TradingViewWidget
+                            cspUrl="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"
+                            config={{
+                                ...chartConfig,
+                                autosize: true,
+                                hide_top_toolbar: true,
+                                hide_side_toolbar: true,
+                                allow_symbol_change: false,
+                                withdateranges: false,
+                            }}
+                            className="h-full w-full"
+                            height="100%"
+                        />
+                    </div>
                 </section>
             </div>
 

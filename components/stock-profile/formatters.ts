@@ -93,13 +93,21 @@ export const calculateCagr = (current?: number, previous?: number, years?: numbe
         typeof current !== "number" ||
         typeof previous !== "number" ||
         typeof years !== "number" ||
+        !Number.isFinite(current) ||
+        !Number.isFinite(previous) ||
+        !Number.isFinite(years) ||
+        current <= 0 ||
         years <= 0 ||
         previous <= 0
     ) {
         return undefined;
     }
 
-    return (Math.pow(current / previous, 1 / years) - 1) * 100;
+    const ratio = current / previous;
+    if (!Number.isFinite(ratio) || ratio <= 0) return undefined;
+
+    const cagr = (Math.pow(ratio, 1 / years) - 1) * 100;
+    return Number.isFinite(cagr) ? cagr : undefined;
 };
 
 export const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);

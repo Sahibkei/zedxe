@@ -1,4 +1,5 @@
 import { DASH_VALUE } from "@/components/stock-profile/formatters";
+import { cn } from "@/lib/utils";
 
 type MetricItem = {
     label: string;
@@ -44,6 +45,8 @@ export default function KeyMetricsGrid({ sections }: KeyMetricsGridProps) {
 
     const columnCount = filteredSections.length >= 3 ? 3 : filteredSections.length;
     const columns = toColumns(filteredSections, columnCount);
+    const gridColumnsClass =
+        columnCount === 1 ? "lg:grid-cols-1" : columnCount === 2 ? "lg:grid-cols-2" : "lg:grid-cols-3";
 
     return (
         <section className="rounded-xl border border-border/80 bg-card p-4">
@@ -52,7 +55,7 @@ export default function KeyMetricsGrid({ sections }: KeyMetricsGridProps) {
                 <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Available fundamentals only</p>
             </div>
 
-            <div className="mt-4 grid gap-4 lg:grid-cols-3 lg:gap-5">
+            <div className={cn("mt-4 grid gap-4 lg:gap-5", gridColumnsClass)}>
                 {columns.map((column, columnIndex) => (
                     <div
                         key={`metrics-column-${columnIndex}`}

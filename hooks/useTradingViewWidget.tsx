@@ -1,11 +1,11 @@
 'use client';
 import { useEffect, useRef } from 'react';
 
-const useTradingViewWidget = (scriptUrl: string, config: Record<string, unknown>, height: number | string = 600) => {
+const useTradingViewWidget = (scriptUrl: string | undefined, config: Record<string, unknown>, height: number | string = 600) => {
     const containerRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
-        if (!containerRef.current) return;
+        if (!containerRef.current || !scriptUrl) return;
         const container = containerRef.current;
         container.innerHTML = '';
 
