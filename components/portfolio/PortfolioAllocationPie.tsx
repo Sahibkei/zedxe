@@ -1,6 +1,9 @@
 "use client";
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
+import type { ValueType } from 'recharts/types/component/DefaultTooltipContent';
+
+import DarkTooltip from '@/components/portfolio/RechartsTooltip';
 
 export type PortfolioAllocationPieProps = {
     positions: {
@@ -55,17 +58,18 @@ const PortfolioAllocationPie = ({ positions, title = 'Allocation' }: PortfolioAl
                                     ))}
                                 </Pie>
                                 <Tooltip
-                                    formatter={(value: number, _name, payload: { payload?: { symbol?: string; companyName?: string } }) => {
-                                        const symbol = payload?.payload?.symbol || '--';
-                                        const company = payload?.payload?.companyName;
-                                        return [`${Number(value).toFixed(2)}%`, company ? `${symbol} (${company})` : symbol];
-                                    }}
-                                    contentStyle={{
-                                        backgroundColor: '#0b111a',
-                                        borderColor: '#1f2a3a',
-                                        borderRadius: '0.5rem',
-                                        color: '#d5dee9',
-                                    }}
+                                    content={
+                                        <DarkTooltip
+                                            formatLabel={(label) => String(label ?? '')}
+                                            formatValue={(value: ValueType) => {
+                                                const numericValue = typeof value === 'number' ? value : Number(value);
+                                                return Number.isFinite(numericValue) ? `${numericValue.toFixed(2)}%` : 'N/A';
+                                            }}
+                                        />
+                                    }
+                                    cursor={{ fill: 'rgba(120, 185, 255, 0.08)' }}
+                                    wrapperStyle={{ outline: 'none' }}
+                                    allowEscapeViewBox={{ x: true, y: true }}
                                 />
                             </PieChart>
                         </ResponsiveContainer>
