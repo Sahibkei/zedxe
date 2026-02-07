@@ -20,9 +20,12 @@ import {
     type PortfolioAnalyticsResponse,
 } from '@/lib/portfolio/analytics';
 
-const BENCHMARK_SYMBOL = 'SPY';
+const BENCHMARK_SYMBOL_CANDIDATES = ['SPY', '^GSPC'] as const;
+const DEFAULT_BENCHMARK_SYMBOL = BENCHMARK_SYMBOL_CANDIDATES[0];
 const DEFAULT_RANGE: PortfolioAnalyticsRange = '1m';
 const RISK_FREE_DAILY = Number(process.env.PORTFOLIO_RISK_FREE_DAILY ?? '0');
+const HISTORY_FALLBACK_DAYS = 400;
+const MIN_SERIES_POINTS = 2;
 
 const emptyRatios: PortfolioAnalyticsRatios = {
     totalReturnPct: null,
@@ -94,6 +97,65 @@ const computeTotalReturnPct = (series: Array<{ value: number }>) => {
     return Number.isFinite(pct) ? pct : null;
 };
 
+const normalizeSeries = (series: Awaited<ReturnType<typeof getDailyHistory>>) => {
+    const normalized = series
+        .filter((point) => point?.date && typeof point.close === 'number' && Number.isFinite(point.close) && point.close > 0)
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+    const deduped = new Map<string, number>();
+    for (const point of normalized) {
+        deduped.set(point.date, point.close);
+    }
+
+    return Array.from(deduped.entries()).map(([date, close]) => ({ date, close }));
+};
+
+const buildCalendarDateGrid = (fromDate: Date, toDate: Date) => {
+    const dateGrid: string[] = [];
+    const cursor = new Date(fromDate);
+    while (cursor <= toDate) {
+        dateGrid.push(dateToIso(cursor));
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return dateGrid;
+};
+
+const getSeedCloseForRangeStart = (symbolSeries: Map<string, number>, firstDate: string) => {
+    let seed: number | null = null;
+    for (const [date, close] of symbolSeries.entries()) {
+        if (date > firstDate) break;
+        seed = close;
+    }
+    return seed;
+};
+
+const buildBenchmarkSeriesForGrid = (
+    dateGrid: string[],
+    benchmarkSeriesMap: Map<string, number>
+): AnalyticsSeriesPoint[] => {
+    if (!dateGrid.length) return [];
+    const benchmarkSeries: AnalyticsSeriesPoint[] = [];
+    let runningClose = getSeedCloseForRangeStart(benchmarkSeriesMap, dateGrid[0]);
+
+    for (const date of dateGrid) {
+        const closeOnDate = benchmarkSeriesMap.get(date);
+        if (typeof closeOnDate === 'number' && Number.isFinite(closeOnDate) && closeOnDate > 0) {
+            runningClose = closeOnDate;
+        }
+
+        if (typeof runningClose !== 'number' || !Number.isFinite(runningClose) || runningClose <= 0) {
+            continue;
+        }
+
+        benchmarkSeries.push({
+            date,
+            value: runningClose,
+        });
+    }
+
+    return benchmarkSeries;
+};
+
 const getDailyHistoryCached = unstable_cache(
     async (symbol: string, fromDate: string, toDate: string) => {
         return getDailyHistory({
@@ -105,6 +167,20 @@ const getDailyHistoryCached = unstable_cache(
     ['portfolio-daily-history'],
     { revalidate: 300 }
 );
+
+const fetchHistoryWithFallback = async (symbol: string, fromIso: string, toIso: string, fallbackFromIso: string) => {
+    const primarySeries = normalizeSeries(await getDailyHistoryCached(symbol, fromIso, toIso));
+    if (primarySeries.length >= MIN_SERIES_POINTS) {
+        return { series: primarySeries, usedFallback: false };
+    }
+
+    const fallbackSeries = normalizeSeries(await getDailyHistoryCached(symbol, fallbackFromIso, toIso));
+    if (fallbackSeries.length > primarySeries.length) {
+        return { series: fallbackSeries, usedFallback: true };
+    }
+
+    return { series: primarySeries, usedFallback: false };
+};
 
 const aggregateHoldings = async (
     transactions: Array<{
@@ -177,6 +253,19 @@ const computeHistoryFromHoldings = (
     const runningCloseBySymbol = new Map<string, number>();
     const costBasis = holdings.reduce((acc, holding) => acc + holding.quantity * holding.avgCost, 0);
     const normalizedCostBasis = Number.isFinite(costBasis) ? costBasis : 0;
+    const firstGridDate = dateGrid[0];
+
+    if (firstGridDate) {
+        for (const holding of holdings) {
+            const symbolSeries = historiesBySymbol.get(holding.symbol);
+            if (!symbolSeries) continue;
+
+            const seedClose = getSeedCloseForRangeStart(symbolSeries, firstGridDate);
+            if (typeof seedClose === 'number' && Number.isFinite(seedClose) && seedClose > 0) {
+                runningCloseBySymbol.set(holding.symbol, seedClose);
+            }
+        }
+    }
 
     for (const date of dateGrid) {
         let totalValue = 0;
@@ -259,7 +348,7 @@ export async function GET(request: NextRequest) {
             const emptyResponse: PortfolioAnalyticsResponse = {
                 range,
                 asOf: new Date().toISOString(),
-                benchmarkSymbol: BENCHMARK_SYMBOL,
+                benchmarkSymbol: DEFAULT_BENCHMARK_SYMBOL,
                 history: [],
                 ratios: emptyRatios,
                 warnings,
@@ -269,35 +358,34 @@ export async function GET(request: NextRequest) {
 
         const fromIso = dateToIso(fromDate);
         const toIso = dateToIso(toDate);
-
-        let benchmarkSeries = [] as Awaited<ReturnType<typeof getDailyHistory>>;
-        try {
-            benchmarkSeries = await getDailyHistoryCached(BENCHMARK_SYMBOL, fromIso, toIso);
-            if (benchmarkSeries.length === 0) {
-                warnings.push(`Missing benchmark history for ${BENCHMARK_SYMBOL} in selected range.`);
-            }
-        } catch (error) {
-            console.error('portfolio analytics benchmark history error:', error);
-            warnings.push(`Missing benchmark history for ${BENCHMARK_SYMBOL} in selected range.`);
-        }
+        const fallbackFromIso = dateToIso(subtractUtcDays(fromDate, HISTORY_FALLBACK_DAYS));
+        const dateGrid = buildCalendarDateGrid(fromDate, toDate);
 
         const historyResults = await Promise.all(
             holdings.map(async (holding) => {
                 try {
-                    const series = await getDailyHistoryCached(holding.symbol, fromIso, toIso);
+                    const { series } = await fetchHistoryWithFallback(
+                        holding.symbol,
+                        fromIso,
+                        toIso,
+                        fallbackFromIso
+                    );
                     if (!series.length) {
                         return {
                             holding,
-                            series: [] as Awaited<ReturnType<typeof getDailyHistory>>,
+                            series: [] as Array<{ date: string; close: number }>,
                             warning: `Missing history for ${holding.symbol}.`,
                         };
                     }
-                    return { holding, series };
+                    return {
+                        holding,
+                        series,
+                    };
                 } catch (error) {
                     console.error('portfolio analytics symbol history error:', holding.symbol, error);
                     return {
                         holding,
-                        series: [] as Awaited<ReturnType<typeof getDailyHistory>>,
+                        series: [] as Array<{ date: string; close: number }>,
                         warning: `Missing history for ${holding.symbol}.`,
                     };
                 }
@@ -315,7 +403,7 @@ export async function GET(request: NextRequest) {
             const emptyResponse: PortfolioAnalyticsResponse = {
                 range,
                 asOf: new Date().toISOString(),
-                benchmarkSymbol: BENCHMARK_SYMBOL,
+                benchmarkSymbol: DEFAULT_BENCHMARK_SYMBOL,
                 history: [],
                 ratios: emptyRatios,
                 warnings,
@@ -323,19 +411,11 @@ export async function GET(request: NextRequest) {
             return NextResponse.json(emptyResponse);
         }
 
-        const longestSeries = validSeries.reduce((longest, current) =>
-            current.series.length > longest.series.length ? current : longest
-        );
-
-        const dateGrid = (benchmarkSeries.length > 0 ? benchmarkSeries : longestSeries.series)
-            .map((point) => point.date)
-            .filter(Boolean);
-
         const historiesBySymbol = new Map<string, Map<string, number>>();
         for (const item of validSeries) {
             const symbolMap = new Map<string, number>();
             for (const point of item.series) {
-                if (!point.date || typeof point.close !== 'number' || !Number.isFinite(point.close)) continue;
+                if (!point.date || typeof point.close !== 'number' || !Number.isFinite(point.close) || point.close <= 0) continue;
                 symbolMap.set(point.date, point.close);
             }
             historiesBySymbol.set(item.holding.symbol, symbolMap);
@@ -349,9 +429,29 @@ export async function GET(request: NextRequest) {
             warnings.push('Not enough daily history points to compute full analytics for this range.');
         }
 
-        const benchmarkAnalyticsSeries: AnalyticsSeriesPoint[] = benchmarkSeries
-            .filter((point) => typeof point.close === 'number' && Number.isFinite(point.close))
-            .map((point) => ({ date: point.date, value: point.close }));
+        let benchmarkSymbol: string = DEFAULT_BENCHMARK_SYMBOL;
+        let benchmarkSeriesMap = new Map<string, number>();
+        let benchmarkFound = false;
+
+        for (const candidate of BENCHMARK_SYMBOL_CANDIDATES) {
+            try {
+                const { series } = await fetchHistoryWithFallback(candidate, fromIso, toIso, fallbackFromIso);
+                if (!series.length) continue;
+
+                benchmarkSymbol = candidate;
+                benchmarkSeriesMap = new Map(series.map((point) => [point.date, point.close]));
+                benchmarkFound = true;
+                break;
+            } catch (error) {
+                console.error('portfolio analytics benchmark history error:', candidate, error);
+            }
+        }
+
+        if (!benchmarkFound) {
+            warnings.push(`Missing benchmark history for ${DEFAULT_BENCHMARK_SYMBOL} in selected range.`);
+        }
+
+        const benchmarkAnalyticsSeries = buildBenchmarkSeriesForGrid(dateGrid, benchmarkSeriesMap);
 
         const portfolioReturns = computeReturns(history);
         const benchmarkReturns = computeReturns(benchmarkAnalyticsSeries);
@@ -389,7 +489,7 @@ export async function GET(request: NextRequest) {
         const response: PortfolioAnalyticsResponse = {
             range,
             asOf: new Date().toISOString(),
-            benchmarkSymbol: BENCHMARK_SYMBOL,
+            benchmarkSymbol,
             history,
             ratios,
             warnings: warnings.length ? warnings : undefined,
