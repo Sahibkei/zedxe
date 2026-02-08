@@ -32,7 +32,7 @@ export default function FootprintPage() {
                 <div className="flex items-start justify-between gap-3">
                     <div>
                         <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Orderflow</p>
-                        <h1 className="text-[30px] leading-tight font-semibold text-white">Orderflow — Footprint</h1>
+                        <h1 className="text-[30px] leading-tight font-semibold text-white">Orderflow - Footprint</h1>
                     </div>
                     <span className="mt-1 text-[11px] uppercase tracking-wide text-slate-500">Mocked PR1</span>
                 </div>

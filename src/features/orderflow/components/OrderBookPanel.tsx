@@ -19,7 +19,7 @@ const TOTAL_LEVELS = 28;
 const MINI_WINDOWS = ["1h", "4h", "1d"] as const;
 
 const formatPrice = (value: number) =>
-    value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    value.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
 const formatSize = (value: number) => {
     if (value >= 10) return value.toFixed(1);
@@ -105,12 +105,12 @@ export default function OrderBookPanel({ className }: OrderBookPanelProps) {
                 </div>
 
                 <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-                    {VENUE_ORDERBOOKS.map((book, venueIndex) => (
+                    {VENUE_ORDERBOOKS.map((book) => (
                         <article key={`mini-${book.venue}`} className="min-w-0 rounded-lg border border-white/10 bg-[#0a0f15] px-2 py-1.5">
                             <p className="mb-1 text-[11px] font-medium text-slate-200">{book.venue}</p>
                             <div className="space-y-1.5">
                                 {MINI_WINDOWS.map((windowLabel, windowIndex) => {
-                                    const bars = buildMiniBars(venueIndex + 1, windowIndex + 1);
+                                    const bars = buildMiniBars(book.seed, windowIndex + 1);
                                     return (
                                         <div key={`${book.venue}-${windowLabel}`} className="grid grid-cols-[20px_minmax(0,1fr)] items-center gap-1.5">
                                             <span className="text-[10px] text-slate-500">{windowLabel}</span>
