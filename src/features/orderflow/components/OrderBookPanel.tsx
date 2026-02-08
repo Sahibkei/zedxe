@@ -67,7 +67,7 @@ export default function OrderBookPanel({ className }: OrderBookPanelProps) {
     return (
         <section
             className={cn(
-                "min-h-0 rounded-xl border border-white/10 bg-[#0d1118] px-3 py-3 shadow-[0_14px_40px_rgba(0,0,0,0.35)]",
+                "min-h-0 rounded-xl border border-white/10 bg-[#0d1118] p-4 shadow-[0_14px_40px_rgba(0,0,0,0.35)]",
                 "flex h-full flex-col",
                 className,
             )}
@@ -83,22 +83,24 @@ export default function OrderBookPanel({ className }: OrderBookPanelProps) {
                 </div>
             </header>
 
-            <div className="min-h-0 flex-1 overflow-x-auto lg:overflow-visible">
-                <div className="grid min-w-[920px] grid-cols-1 gap-3 sm:grid-cols-2 lg:min-w-0 lg:grid-cols-3">
-                    {VENUE_ORDERBOOKS.map((book) => (
-                        <div key={book.venue} className="min-w-0">
-                            <OrderBookLadderMock
-                                venue={book.venue}
-                                pair={book.pair}
-                                levels={buildLevels(book.midPrice, book.seed)}
-                                comingSoon={book.comingSoon}
-                            />
-                        </div>
-                    ))}
+            <div className="min-h-0 flex-1 overflow-hidden">
+                <div className="h-full overflow-y-auto pr-1">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {VENUE_ORDERBOOKS.map((book) => (
+                            <div key={book.venue} className="min-w-0">
+                                <OrderBookLadderMock
+                                    venue={book.venue}
+                                    pair={book.pair}
+                                    levels={buildLevels(book.midPrice, book.seed)}
+                                    comingSoon={book.comingSoon}
+                                />
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
 
-            <div className="mt-3 border-t border-white/10 pt-2.5">
+            <div className="mt-2 border-t border-white/10 pt-2">
                 <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.13em] text-slate-500">
                     <span>Mini charts</span>
                     <span>Mocked only</span>
