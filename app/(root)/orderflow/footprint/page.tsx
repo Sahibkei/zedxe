@@ -27,21 +27,21 @@ export default function FootprintPage() {
     const [hideTinyTrades, setHideTinyTrades] = useState(false);
 
     return (
-        <section className="mx-auto flex h-[calc(100vh-96px)] min-h-0 max-w-[1700px] flex-col gap-3 overflow-hidden px-4 py-3 lg:px-6">
-            <header className="border-b border-white/10 pb-2">
+        <section className="space-y-3 px-4 py-5 md:px-6">
+            <header className="rounded-xl border border-white/10 bg-[#0d1118] px-4 py-3 shadow-[0_14px_40px_rgba(0,0,0,0.35)]">
                 <div className="flex items-start justify-between gap-3">
                     <div>
-                        <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">ORDERFLOW</p>
-                        <h1 className="text-3xl leading-tight font-semibold text-white">Footprint</h1>
-                        <p className="mt-0.5 text-sm text-slate-500">TapeSurf-style mocked layout.</p>
+                        <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Orderflow</p>
+                        <h1 className="text-[30px] leading-tight font-semibold text-white">Orderflow - Footprint</h1>
                     </div>
-                    <span className="rounded border border-white/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
-                        MOCKED PR1
-                    </span>
+                    <span className="mt-1 text-[11px] uppercase tracking-wide text-slate-500">Mocked PR1</span>
                 </div>
+                <p className="mt-0.5 text-sm text-slate-400">
+                    TapeSurf-style layout skeleton for BTC orderflow footprint. Mocked UI only.
+                </p>
             </header>
 
-            <div className="rounded-xl border border-white/10 bg-[#0d1118] p-3 shadow-[0_14px_40px_rgba(0,0,0,0.35)]">
+            <div className="rounded-xl border border-white/10 bg-[#0d1118] px-4 py-3 shadow-[0_14px_40px_rgba(0,0,0,0.35)]">
                 <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:gap-3">
                     <div className="flex items-center gap-2">
                         <span className="text-[11px] uppercase tracking-wide text-slate-500">Symbol</span>
@@ -111,15 +111,14 @@ export default function FootprintPage() {
                 </div>
             </div>
 
-            <div className="grid min-h-0 flex-1 grid-cols-1 items-stretch gap-3 overflow-hidden lg:grid-cols-12">
-                <div className="flex h-full min-h-0 flex-col gap-3 lg:col-span-8">
+            <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
+                <div className="flex min-h-0 flex-col gap-4 lg:col-span-8">
                     <FootprintChartPlaceholder
-                        className="min-h-0 flex-1"
                         symbol={selectedSymbol}
                         windowLabel={selectedWindow}
                         bucketLabel={selectedBucket}
                     />
-                    <TradesFeedMock className="h-[280px] min-h-0 lg:h-[320px]" hideTinyTrades={hideTinyTrades} />
+                    <TradesFeedMock hideTinyTrades={hideTinyTrades} />
                 </div>
 
                 <div className="flex h-full min-h-0 flex-col lg:col-span-4">
