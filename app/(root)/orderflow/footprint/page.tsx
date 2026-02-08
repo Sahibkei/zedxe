@@ -27,21 +27,26 @@ export default function FootprintPage() {
     const [hideTinyTrades, setHideTinyTrades] = useState(false);
 
     return (
-        <section className="space-y-4 px-4 py-6 md:px-6">
-            <header className="rounded-xl border border-white/10 bg-[#0d1118] p-4 shadow-[0_14px_40px_rgba(0,0,0,0.35)]">
-                <p className="text-xs uppercase tracking-[0.15em] text-slate-400">Orderflow</p>
-                <h1 className="text-2xl font-semibold text-white">Orderflow â€” Footprint</h1>
-                <p className="mt-1 text-sm text-slate-400">
+        <section className="space-y-3 px-4 py-5 md:px-6">
+            <header className="rounded-xl border border-white/10 bg-[#0d1118] px-4 py-3 shadow-[0_14px_40px_rgba(0,0,0,0.35)]">
+                <div className="flex items-start justify-between gap-3">
+                    <div>
+                        <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Orderflow</p>
+                        <h1 className="text-[30px] leading-tight font-semibold text-white">Orderflow — Footprint</h1>
+                    </div>
+                    <span className="mt-1 text-[11px] uppercase tracking-wide text-slate-500">Mocked PR1</span>
+                </div>
+                <p className="mt-0.5 text-sm text-slate-400">
                     TapeSurf-style layout skeleton for BTC orderflow footprint. Mocked UI only.
                 </p>
             </header>
 
-            <div className="rounded-xl border border-white/10 bg-[#0d1118] p-4 shadow-[0_14px_40px_rgba(0,0,0,0.35)]">
-                <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:gap-4">
+            <div className="rounded-xl border border-white/10 bg-[#0d1118] px-4 py-3 shadow-[0_14px_40px_rgba(0,0,0,0.35)]">
+                <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:gap-3">
                     <div className="flex items-center gap-2">
-                        <span className="text-xs uppercase tracking-wide text-slate-500">Symbol</span>
+                        <span className="text-[11px] uppercase tracking-wide text-slate-500">Symbol</span>
                         <Select value={selectedSymbol} onValueChange={setSelectedSymbol}>
-                            <SelectTrigger size="sm" className="w-[130px] border-white/15 bg-[#0a0f15] text-white">
+                            <SelectTrigger size="sm" className="h-8 w-[122px] border-white/15 bg-[#0a0f15] text-white">
                                 <SelectValue placeholder="Select symbol" />
                             </SelectTrigger>
                             <SelectContent>
@@ -55,7 +60,7 @@ export default function FootprintPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                        <span className="text-xs uppercase tracking-wide text-slate-500">Window</span>
+                        <span className="text-[11px] uppercase tracking-wide text-slate-500">Window</span>
                         <div className="flex gap-2">
                             {WINDOW_OPTIONS.map((option) => (
                                 <Button
@@ -64,7 +69,7 @@ export default function FootprintPage() {
                                     variant="outline"
                                     onClick={() => setSelectedWindow(option)}
                                     className={cn(
-                                        "border-white/15 bg-[#0a0f15] text-slate-200 hover:bg-[#111722] hover:text-white",
+                                        "h-8 border-white/15 bg-[#0a0f15] px-3 text-slate-200 hover:bg-[#111722] hover:text-white",
                                         selectedWindow === option && "border-emerald-500/80 bg-emerald-500/15 text-emerald-200",
                                     )}
                                 >
@@ -75,7 +80,7 @@ export default function FootprintPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                        <span className="text-xs uppercase tracking-wide text-slate-500">Bucket</span>
+                        <span className="text-[11px] uppercase tracking-wide text-slate-500">Bucket</span>
                         <div className="flex gap-2">
                             {BUCKET_OPTIONS.map((option) => (
                                 <Button
@@ -84,7 +89,7 @@ export default function FootprintPage() {
                                     variant="outline"
                                     onClick={() => setSelectedBucket(option)}
                                     className={cn(
-                                        "border-white/15 bg-[#0a0f15] text-slate-200 hover:bg-[#111722] hover:text-white",
+                                        "h-8 border-white/15 bg-[#0a0f15] px-3 text-slate-200 hover:bg-[#111722] hover:text-white",
                                         selectedBucket === option && "border-cyan-400/80 bg-cyan-500/15 text-cyan-200",
                                     )}
                                 >
@@ -94,20 +99,20 @@ export default function FootprintPage() {
                         </div>
                     </div>
 
-                    <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <label className="flex items-center gap-2 text-sm text-slate-300 lg:ml-1">
                         <input
                             type="checkbox"
                             checked={hideTinyTrades}
                             onChange={(event) => setHideTinyTrades(event.target.checked)}
-                            className="h-4 w-4 rounded border-white/15 bg-[#0a0f15]"
+                            className="h-3.5 w-3.5 rounded border-white/15 bg-[#0a0f15]"
                         />
                         Hide tiny trades (below {TINY_TRADE_THRESHOLD})
                     </label>
                 </div>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                <div className="space-y-4">
+            <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
+                <div className="flex min-h-0 flex-col gap-4 lg:col-span-8">
                     <FootprintChartPlaceholder
                         symbol={selectedSymbol}
                         windowLabel={selectedWindow}
@@ -116,7 +121,9 @@ export default function FootprintPage() {
                     <TradesFeedMock hideTinyTrades={hideTinyTrades} />
                 </div>
 
-                <OrderBookPanel />
+                <div className="flex h-full min-h-0 flex-col lg:col-span-4">
+                    <OrderBookPanel className="h-full" />
+                </div>
             </div>
         </section>
     );

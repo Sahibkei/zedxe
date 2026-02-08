@@ -34,20 +34,20 @@ export default function TradesFeedMock({ hideTinyTrades }: TradesFeedMockProps) 
         : MOCK_TRADES;
 
     return (
-        <section className="rounded-xl border border-white/10 bg-[#0d1118] p-4 shadow-[0_14px_40px_rgba(0,0,0,0.35)]">
-            <header className="mb-3 flex items-center justify-between">
+        <section className="rounded-xl border border-white/10 bg-[#0d1118] px-3 py-3 shadow-[0_14px_40px_rgba(0,0,0,0.35)]">
+            <header className="mb-2.5 flex items-start justify-between gap-2 border-b border-white/10 pb-2">
                 <div>
-                    <p className="text-xs uppercase tracking-[0.15em] text-slate-400">Trades feed</p>
-                    <h2 className="text-base font-semibold text-white">Last 12 prints (mocked)</h2>
+                    <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Trades feed</p>
+                    <h2 className="text-base leading-tight font-semibold text-white">Last 12 prints (mocked)</h2>
                 </div>
-                <span className="rounded-full border border-white/15 px-2 py-0.5 text-[11px] text-slate-300">
+                <span className="rounded border border-white/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
                     {rows.length} rows
                 </span>
             </header>
 
             <div className="overflow-x-auto rounded-lg border border-white/10">
                 <table className="min-w-full text-left text-xs">
-                    <thead className="bg-white/5 text-slate-400">
+                    <thead className="bg-white/5 text-[11px] uppercase tracking-wide text-slate-400">
                         <tr>
                             <th className="px-3 py-2 font-medium">Time</th>
                             <th className="px-3 py-2 font-medium">Side</th>
@@ -56,20 +56,25 @@ export default function TradesFeedMock({ hideTinyTrades }: TradesFeedMockProps) 
                             <th className="px-3 py-2 font-medium">Venue</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="font-mono tabular-nums">
                         {rows.map((trade) => (
                             <tr key={trade.id} className="border-t border-white/10 text-slate-200">
-                                <td className="px-3 py-2">{trade.time}</td>
+                                <td className="px-3 py-1.5">{trade.time}</td>
                                 <td
-                                    className={`px-3 py-2 font-medium ${
+                                    className={`px-3 py-1.5 font-medium ${
                                         trade.side === "Buy" ? "text-emerald-300" : "text-rose-300"
                                     }`}
                                 >
                                     {trade.side}
                                 </td>
-                                <td className="px-3 py-2">{trade.price.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</td>
-                                <td className="px-3 py-2">{trade.size.toFixed(4)}</td>
-                                <td className="px-3 py-2 text-slate-400">{trade.venue}</td>
+                                <td className="px-3 py-1.5">
+                                    {trade.price.toLocaleString(undefined, {
+                                        minimumFractionDigits: 1,
+                                        maximumFractionDigits: 1,
+                                    })}
+                                </td>
+                                <td className="px-3 py-1.5">{trade.size.toFixed(4)}</td>
+                                <td className="px-3 py-1.5 text-slate-400">{trade.venue}</td>
                             </tr>
                         ))}
                     </tbody>
