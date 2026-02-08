@@ -1,3 +1,5 @@
+import { cn } from "@/lib/utils";
+
 const HIDE_THRESHOLD = 0.001;
 
 interface TradeRow {
@@ -25,16 +27,22 @@ const MOCK_TRADES: TradeRow[] = [
 ];
 
 interface TradesFeedMockProps {
+    className?: string;
     hideTinyTrades: boolean;
 }
 
-export default function TradesFeedMock({ hideTinyTrades }: TradesFeedMockProps) {
+export default function TradesFeedMock({ className, hideTinyTrades }: TradesFeedMockProps) {
     const rows = hideTinyTrades
         ? MOCK_TRADES.filter((trade) => trade.size >= HIDE_THRESHOLD)
         : MOCK_TRADES;
 
     return (
-        <section className="rounded-xl border border-white/10 bg-[#0d1118] px-3 py-3 shadow-[0_14px_40px_rgba(0,0,0,0.35)]">
+        <section
+            className={cn(
+                "flex h-full min-h-0 flex-col rounded-xl border border-white/10 bg-[#0d1118] p-3 shadow-[0_14px_40px_rgba(0,0,0,0.35)]",
+                className,
+            )}
+        >
             <header className="mb-2.5 flex items-start justify-between gap-2 border-b border-white/10 pb-2">
                 <div>
                     <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Trades feed</p>
@@ -45,40 +53,42 @@ export default function TradesFeedMock({ hideTinyTrades }: TradesFeedMockProps) 
                 </span>
             </header>
 
-            <div className="overflow-x-auto rounded-lg border border-white/10">
-                <table className="min-w-full text-left text-xs">
-                    <thead className="bg-white/5 text-[11px] uppercase tracking-wide text-slate-400">
-                        <tr>
-                            <th className="px-3 py-2 font-medium">Time</th>
-                            <th className="px-3 py-2 font-medium">Side</th>
-                            <th className="px-3 py-2 font-medium">Price</th>
-                            <th className="px-3 py-2 font-medium">Size</th>
-                            <th className="px-3 py-2 font-medium">Venue</th>
-                        </tr>
-                    </thead>
-                    <tbody className="font-mono tabular-nums">
-                        {rows.map((trade) => (
-                            <tr key={trade.id} className="border-t border-white/10 text-slate-200">
-                                <td className="px-3 py-1.5">{trade.time}</td>
-                                <td
-                                    className={`px-3 py-1.5 font-medium ${
-                                        trade.side === "Buy" ? "text-emerald-300" : "text-rose-300"
-                                    }`}
-                                >
-                                    {trade.side}
-                                </td>
-                                <td className="px-3 py-1.5">
-                                    {trade.price.toLocaleString(undefined, {
-                                        minimumFractionDigits: 1,
-                                        maximumFractionDigits: 1,
-                                    })}
-                                </td>
-                                <td className="px-3 py-1.5">{trade.size.toFixed(4)}</td>
-                                <td className="px-3 py-1.5 text-slate-400">{trade.venue}</td>
+            <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-white/10">
+                <div className="h-full overflow-y-auto overflow-x-auto">
+                    <table className="min-w-full text-left text-xs">
+                        <thead className="sticky top-0 z-10 bg-[#161f2b] text-[11px] uppercase tracking-wide text-slate-400">
+                            <tr>
+                                <th className="px-3 py-2 font-medium">Time</th>
+                                <th className="px-3 py-2 font-medium">Side</th>
+                                <th className="px-3 py-2 font-medium">Price</th>
+                                <th className="px-3 py-2 font-medium">Size</th>
+                                <th className="px-3 py-2 font-medium">Venue</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody className="font-mono tabular-nums">
+                            {rows.map((trade) => (
+                                <tr key={trade.id} className="border-t border-white/10 text-slate-200">
+                                    <td className="px-3 py-1.5">{trade.time}</td>
+                                    <td
+                                        className={`px-3 py-1.5 font-medium ${
+                                            trade.side === "Buy" ? "text-emerald-300" : "text-rose-300"
+                                        }`}
+                                    >
+                                        {trade.side}
+                                    </td>
+                                    <td className="px-3 py-1.5">
+                                        {trade.price.toLocaleString("en-US", {
+                                            minimumFractionDigits: 1,
+                                            maximumFractionDigits: 1,
+                                        })}
+                                    </td>
+                                    <td className="px-3 py-1.5">{trade.size.toFixed(4)}</td>
+                                    <td className="px-3 py-1.5 text-slate-400">{trade.venue}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </section>
     );

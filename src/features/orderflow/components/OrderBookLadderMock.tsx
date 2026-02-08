@@ -21,10 +21,10 @@ export default function OrderBookLadderMock({
     comingSoon = false,
 }: OrderBookLadderMockProps) {
     return (
-        <article className="min-w-0 rounded-lg border border-white/10 bg-[#0a0f15] p-2.5">
+        <article className="min-w-0 rounded-lg border border-white/10 bg-[#0a0f15] p-2">
             <header className="mb-2 flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                    <p className="truncate text-[22px] leading-none font-semibold text-white">{venue}</p>
+                    <p className="truncate text-lg leading-none font-semibold text-white">{venue}</p>
                     <p className="mt-0.5 text-[11px] text-slate-400">{pair}</p>
                 </div>
                 {comingSoon ? (
@@ -45,7 +45,7 @@ export default function OrderBookLadderMock({
                     <div
                         key={`${venue}-${level.price}`}
                         className={cn(
-                            "grid h-5 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-1 text-[11px] text-slate-200",
+                            "grid h-[18px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-1 text-[11px] text-slate-200",
                             level.isMid
                                 ? "border-y border-cyan-400/35 bg-cyan-400/10"
                                 : "border-y border-transparent hover:border-white/10 hover:bg-white/5",
