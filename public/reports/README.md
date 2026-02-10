@@ -1,0 +1,1 @@
+TODO: Drop the source PDF named `Apple Fiscal Q1 2026 Earnings Summary – ZedXE.pdf` into this folder and rename it to `apple-fiscal-q1-2026-earnings-summary-zedxe.pdf` so blog download/open links resolve at `/reports/apple-fiscal-q1-2026-earnings-summary-zedxe.pdf`.
