@@ -1,16 +1,7 @@
 "use client";
 
-// NOTE: Rewritten in Phase 4 stabilisation to avoid client-side crashes.
-// Simplified footprint view (no drag pan/zoom) plus local error boundary.
+import { useState } from "react";
 
-import React, { useEffect, useMemo, useState } from "react";
-
-import Link from "next/link";
-
-import VolumeProfile, { VolumeProfileLevel } from "@/app/(root)/orderflow/_components/volume-profile";
-import { FootprintCandleChart } from "@/app/(root)/orderflow/_components/FootprintCandleChart";
-import { buildFootprintBars, FootprintBar, inferPriceStepFromTrades } from "@/app/(root)/orderflow/_utils/footprint";
-import { useFootprintAggTrades } from "@/app/(root)/orderflow/_components/useFootprintAggTrades";
 import { Button } from "@/components/ui/button";
 import {
     Select,
@@ -19,316 +10,122 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import {
-    ORDERFLOW_BUCKET_PRESETS,
-    ORDERFLOW_DEFAULT_SYMBOL,
-    ORDERFLOW_SYMBOL_OPTIONS,
-    ORDERFLOW_WINDOW_PRESETS,
-} from "@/lib/constants";
-import { NormalizedTrade, useOrderflowStream } from "@/hooks/useOrderflowStream";
+import FootprintChartPlaceholder from "@/src/features/orderflow/components/FootprintChartPlaceholder";
+import OrderBookPanel from "@/src/features/orderflow/components/OrderBookPanel";
+import TradesFeedMock from "@/src/features/orderflow/components/TradesFeedMock";
 import { cn } from "@/lib/utils";
 
-const TIMEFRAME_OPTIONS = ["5s", "15s", "30s", "1m", "5m", "15m"] as const;
-const MODE_OPTIONS = ["Bid x Ask", "Delta", "Volume"] as const;
-type FootprintMode = (typeof MODE_OPTIONS)[number];
-
-type TimeframeOption = (typeof TIMEFRAME_OPTIONS)[number];
-
-const parseTimeframeSeconds = (value: TimeframeOption): number => {
-    const unit = value.slice(-1);
-    const numeric = Number(value.slice(0, -1));
-    if (!Number.isFinite(numeric)) return 15;
-    return unit === "m" ? numeric * 60 : numeric;
-};
-
-class FootprintErrorBoundary extends React.Component<
-    { children: React.ReactNode },
-    { error: Error | null }
-> {
-    constructor(props: { children: React.ReactNode }) {
-        super(props);
-        this.state = { error: null };
-    }
-
-    static getDerivedStateFromError(error: Error) {
-        return { error };
-    }
-
-    componentDidCatch(error: Error, info: React.ErrorInfo) {
-        console.error("FootprintPage error", error, info);
-    }
-
-    render() {
-        if (this.state.error) {
-            return (
-                <div className="flex h-full items-center justify-center text-sm text-red-400">
-                    Footprint chart failed to render. Please reload the page or try again later.
-                </div>
-            );
-        }
-
-        return this.props.children;
-    }
-}
-
-const buildVolumeProfileLevels = (
-    trades: NormalizedTrade[],
-    priceStep: number,
-): { levels: VolumeProfileLevel[]; referencePrice: number | null } => {
-    if (!trades.length) return { levels: [], referencePrice: null };
-
-    const sortedTrades = [...trades].sort((a, b) => a.timestamp - b.timestamp);
-    const referencePrice = sortedTrades[sortedTrades.length - 1]?.price ?? null;
-    if (!referencePrice) return { levels: [], referencePrice: null };
-
-    const step = priceStep > 0 ? priceStep : Math.max(referencePrice * 0.0005, 0.01);
-    const levelsPerSide = 6;
-    const centerIndex = Math.max(Math.round(referencePrice / step), 1);
-    const startIndex = Math.max(centerIndex - levelsPerSide, 1);
-    const endIndex = centerIndex + levelsPerSide;
-
-    const aggregation = new Map<number, { buyVolume: number; sellVolume: number }>();
-
-    sortedTrades.forEach((trade) => {
-        const levelIndex = Math.round(trade.price / step);
-        if (levelIndex < startIndex - 1 || levelIndex > endIndex + 1) return;
-        const levelPrice = levelIndex * step;
-        const existing = aggregation.get(levelPrice) ?? { buyVolume: 0, sellVolume: 0 };
-        if (trade.side === "buy") {
-            existing.buyVolume += trade.quantity;
-        } else {
-            existing.sellVolume += trade.quantity;
-        }
-        aggregation.set(levelPrice, existing);
-    });
-
-    const levels: VolumeProfileLevel[] = [];
-    for (let index = startIndex; index <= endIndex; index += 1) {
-        const price = index * step;
-        const volume = aggregation.get(price) ?? { buyVolume: 0, sellVolume: 0 };
-        const totalVolume = volume.buyVolume + volume.sellVolume;
-        const imbalancePercent = totalVolume > 0 ? (Math.abs(volume.buyVolume - volume.sellVolume) / totalVolume) * 100 : 0;
-        const dominantSide = totalVolume === 0 ? null : volume.buyVolume >= volume.sellVolume ? "buy" : "sell";
-
-        levels.push({
-            price,
-            buyVolume: volume.buyVolume,
-            sellVolume: volume.sellVolume,
-            totalVolume,
-            imbalancePercent,
-            dominantSide,
-        });
-    }
-
-    return { levels, referencePrice };
-};
-
-const FootprintPageInner = () => {
-    const defaultWindowSeconds = ORDERFLOW_WINDOW_PRESETS[1]?.value ?? ORDERFLOW_WINDOW_PRESETS[0].value;
-    const defaultBucketSeconds = ORDERFLOW_BUCKET_PRESETS[1]?.value ?? ORDERFLOW_BUCKET_PRESETS[0].value;
-    const footprintWindowMs = 2 * 60 * 60 * 1000;
-
-    const [selectedSymbol, setSelectedSymbol] = useState<string>(ORDERFLOW_DEFAULT_SYMBOL);
-    const [windowSeconds, setWindowSeconds] = useState<number>(defaultWindowSeconds);
-    const [selectedTimeframe, setSelectedTimeframe] = useState<TimeframeOption>("15s");
-    const [bucketSizeSeconds, setBucketSizeSeconds] = useState<number>(defaultBucketSeconds);
-    const [mode, setMode] = useState<FootprintMode>("Bid x Ask");
-    const [showNumbers, setShowNumbers] = useState(true);
-    const [highlightImbalances, setHighlightImbalances] = useState(true);
-
-    const { windowedTrades } = useOrderflowStream({ symbol: selectedSymbol, windowSeconds });
-
-    const candlestickInterval = useMemo<"1m" | "5m" | "15m">(() => {
-        return selectedTimeframe === "5m" || selectedTimeframe === "15m"
-            ? selectedTimeframe
-            : "1m";
-    }, [selectedTimeframe]);
-
-    const { latestSummary: footprintSummary } = useFootprintAggTrades({
-        symbol: selectedSymbol,
-        interval: candlestickInterval,
-        windowMs: footprintWindowMs,
-    });
-
-    useEffect(() => {
-        setBucketSizeSeconds(parseTimeframeSeconds(selectedTimeframe));
-    }, [selectedTimeframe]);
-
-    const priceStep = useMemo(() => {
-        if (windowedTrades.length === 0) return 0;
-        const inferred = inferPriceStepFromTrades(windowedTrades);
-        const referencePrice = windowedTrades[windowedTrades.length - 1]?.price ?? 0;
-        const fallback = referencePrice > 0 ? Math.max(referencePrice * 0.0005, 0.01) : 0;
-        return inferred > 0 ? inferred : fallback;
-    }, [windowedTrades]);
-
-    const footprintBars = useMemo<FootprintBar[]>(() => {
-        if (windowedTrades.length === 0) return [];
-        const referenceTimestamp = Date.now();
-        return buildFootprintBars(windowedTrades, {
-            windowSeconds,
-            bucketSizeSeconds,
-            referenceTimestamp,
-            priceStep: priceStep || undefined,
-        });
-    }, [windowedTrades, windowSeconds, bucketSizeSeconds, priceStep]);
-
-    const { levels: profileLevels, referencePrice } = useMemo(
-        () => buildVolumeProfileLevels(windowedTrades, priceStep),
-        [windowedTrades, priceStep],
-    );
-
-    const maxVolume = useMemo(
-        () => Math.max(...footprintBars.map((bar) => bar.totalVolume), 0),
-        [footprintBars],
-    );
-    const maxDelta = useMemo(
-        () => Math.max(...footprintBars.map((bar) => Math.abs(bar.totalDelta)), 0),
-        [footprintBars],
-    );
-
-    const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
-
-    return (
-        <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-                <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Orderflow</p>
-                    <h1 className="text-2xl font-semibold text-white">Footprint Heatmap</h1>
-                    <p className="text-sm text-gray-400">Live trades for {selectedSymbol.toUpperCase()} · Last {windowMinutes}m</p>
-                </div>
-                <div className="flex items-center gap-3 text-sm text-gray-400">
-                    <Link href="/orderflow" className="text-emerald-400 hover:text-emerald-300">
-                        Back to Orderflow dashboard
-                    </Link>
-                </div>
-            </div>
-
-            <div className="grid gap-3 rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20 md:grid-cols-2 lg:grid-cols-3">
-                <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Symbol</p>
-                    <Select value={selectedSymbol} onValueChange={(value) => setSelectedSymbol(value)}>
-                        <SelectTrigger className="w-full bg-gray-900 text-white">
-                            <SelectValue placeholder="Select symbol" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {ORDERFLOW_SYMBOL_OPTIONS.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                    {option.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-
-                <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Window</p>
-                    <div className="flex flex-wrap gap-2">
-                        {ORDERFLOW_WINDOW_PRESETS.map((preset) => (
-                            <Button
-                                key={preset.value}
-                                size="sm"
-                                variant={preset.value === windowSeconds ? "default" : "outline"}
-                                className={cn("min-w-[3.5rem]", preset.value === windowSeconds && "bg-emerald-600")}
-                                onClick={() => setWindowSeconds(preset.value)}
-                            >
-                                {preset.label}
-                            </Button>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Bucket size</p>
-                    <div className="flex flex-wrap gap-2">
-                        {TIMEFRAME_OPTIONS.map((option) => (
-                            <Button
-                                key={option}
-                                size="sm"
-                                variant={option === selectedTimeframe ? "default" : "outline"}
-                                className={cn("min-w-[3.5rem]", option === selectedTimeframe && "bg-emerald-600")}
-                                onClick={() => setSelectedTimeframe(option)}
-                            >
-                                {option}
-                            </Button>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="space-y-2 lg:col-span-3">
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Mode</p>
-                    <div className="flex flex-wrap items-center gap-2">
-                        {MODE_OPTIONS.map((option) => (
-                            <Button
-                                key={option}
-                                size="sm"
-                                variant={option === mode ? "default" : "outline"}
-                                className={cn("min-w-[3.5rem]", option === mode && "bg-emerald-600")}
-                                onClick={() => setMode(option)}
-                            >
-                                {option}
-                            </Button>
-                        ))}
-                        <label className="flex items-center gap-2 text-sm text-gray-300">
-                            <input
-                                type="checkbox"
-                                checked={showNumbers}
-                                onChange={(event) => setShowNumbers(event.target.checked)}
-                                className="h-4 w-4 rounded border-gray-700 bg-gray-900"
-                            />
-                            Show numbers
-                        </label>
-                        <label className="flex items-center gap-2 text-sm text-gray-300">
-                            <input
-                                type="checkbox"
-                                checked={highlightImbalances}
-                                onChange={(event) => setHighlightImbalances(event.target.checked)}
-                                className="h-4 w-4 rounded border-gray-700 bg-gray-900"
-                            />
-                            Highlight imbalances
-                        </label>
-                    </div>
-                </div>
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-3">
-                <div className="lg:col-span-2">
-                    <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20">
-                        <div className="flex items-center justify-between pb-3">
-                            <div>
-                                <p className="text-xs uppercase tracking-wide text-gray-500">Footprint Heatmap</p>
-                                <h3 className="text-lg font-semibold text-white">
-                                    {selectedSymbol.toUpperCase()} · {mode}
-                                </h3>
-                                <p className="text-xs text-gray-400">
-                                    Footprint (live): BUY {footprintSummary?.buyTotal.toFixed(2) ?? "0.00"} / SELL
-                                    {" "}
-                                    {footprintSummary?.sellTotal.toFixed(2) ?? "0.00"} · levels
-                                    {" "}
-                                    {footprintSummary?.levelsCount ?? 0}
-                                </p>
-                            </div>
-                            <span className="rounded-full bg-gray-800 px-3 py-1 text-xs text-gray-300">
-                                {footprintBars.length} buckets · {windowSeconds}s window
-                            </span>
-                        </div>
-                        <div className="relative h-[520px] overflow-hidden rounded-lg border border-gray-900 bg-black/20">
-                            <FootprintCandleChart symbol={selectedSymbol} interval={candlestickInterval} />
-                        </div>
-                    </div>
-                </div>
-
-                <VolumeProfile levels={profileLevels} priceStep={priceStep} referencePrice={referencePrice} />
-            </div>
-        </div>
-    );
-};
+const SYMBOL_OPTIONS = [{ label: "BTCUSDT", value: "btcusdt" }] as const;
+const WINDOW_OPTIONS = ["1m", "5m", "15m"] as const;
+const BUCKET_OPTIONS = ["1s", "5s", "15s"] as const;
+const TINY_TRADE_THRESHOLD = 0.001;
 
 export default function FootprintPage() {
+    const [selectedSymbol, setSelectedSymbol] = useState<string>("btcusdt");
+    const [selectedWindow, setSelectedWindow] = useState<(typeof WINDOW_OPTIONS)[number]>("5m");
+    const [selectedBucket, setSelectedBucket] = useState<(typeof BUCKET_OPTIONS)[number]>("5s");
+    const [hideTinyTrades, setHideTinyTrades] = useState(false);
+
     return (
-        <FootprintErrorBoundary>
-            <FootprintPageInner />
-        </FootprintErrorBoundary>
+        <section className="mx-auto flex h-[calc(100vh-86px)] min-h-0 max-w-[1700px] flex-col gap-3 px-4 py-3 lg:px-6">
+            <header className="border-b border-white/10 pb-2">
+                <div className="flex items-start justify-between gap-3">
+                    <div>
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">ORDERFLOW</p>
+                        <h1 className="text-4xl leading-tight font-semibold text-white">Footprint</h1>
+                        <p className="mt-0.5 text-sm text-slate-500">TapeSurf-style mocked layout.</p>
+                    </div>
+                    <span className="rounded border border-white/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
+                        MOCKED PR1
+                    </span>
+                </div>
+            </header>
+
+            <div className="rounded-xl border border-white/10 bg-[#0d1118] p-3 shadow-[0_14px_40px_rgba(0,0,0,0.35)]">
+                <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:gap-3">
+                    <div className="flex items-center gap-2">
+                        <span className="text-[11px] uppercase tracking-wide text-slate-500">Symbol</span>
+                        <Select value={selectedSymbol} onValueChange={setSelectedSymbol}>
+                            <SelectTrigger size="sm" className="h-8 w-[122px] border-white/15 bg-[#0a0f15] text-white">
+                                <SelectValue placeholder="Select symbol" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {SYMBOL_OPTIONS.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <span className="text-[11px] uppercase tracking-wide text-slate-500">Window</span>
+                        <div className="flex gap-2">
+                            {WINDOW_OPTIONS.map((option) => (
+                                <Button
+                                    key={option}
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setSelectedWindow(option)}
+                                    className={cn(
+                                        "h-8 border-white/15 bg-[#0a0f15] px-3 text-slate-200 hover:bg-[#111722] hover:text-white",
+                                        selectedWindow === option && "border-emerald-500/80 bg-emerald-500/15 text-emerald-200",
+                                    )}
+                                >
+                                    {option}
+                                </Button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <span className="text-[11px] uppercase tracking-wide text-slate-500">Bucket</span>
+                        <div className="flex gap-2">
+                            {BUCKET_OPTIONS.map((option) => (
+                                <Button
+                                    key={option}
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setSelectedBucket(option)}
+                                    className={cn(
+                                        "h-8 border-white/15 bg-[#0a0f15] px-3 text-slate-200 hover:bg-[#111722] hover:text-white",
+                                        selectedBucket === option && "border-cyan-400/80 bg-cyan-500/15 text-cyan-200",
+                                    )}
+                                >
+                                    {option}
+                                </Button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <label className="flex items-center gap-2 text-sm text-slate-300 lg:ml-1">
+                        <input
+                            type="checkbox"
+                            checked={hideTinyTrades}
+                            onChange={(event) => setHideTinyTrades(event.target.checked)}
+                            className="h-3.5 w-3.5 rounded border-white/15 bg-[#0a0f15]"
+                        />
+                        Hide tiny trades (below {TINY_TRADE_THRESHOLD})
+                    </label>
+                </div>
+            </div>
+
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden lg:grid-cols-12">
+                <div className="flex h-full min-h-0 flex-col gap-3 lg:col-span-8">
+                    <FootprintChartPlaceholder
+                        className="min-h-0 flex-1"
+                        symbol={selectedSymbol}
+                        windowLabel={selectedWindow}
+                        bucketLabel={selectedBucket}
+                    />
+                    <TradesFeedMock className="h-[320px] min-h-0" hideTinyTrades={hideTinyTrades} />
+                </div>
+
+                <div className="flex h-full min-h-0 flex-col lg:col-span-4">
+                    <OrderBookPanel className="h-full" />
+                </div>
+            </div>
+        </section>
     );
 }
-

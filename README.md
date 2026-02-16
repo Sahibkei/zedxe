@@ -26,6 +26,7 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 - `SEC_USER_AGENT`: Required for the SEC companyfacts proxy (`/api/sec/companyfacts`). Provide a descriptive UA string per SEC guidance.
 - `UPSTASH_REDIS_REST_URL`: Optional. Enables Upstash Redis caching for SEC companyfacts.
 - `UPSTASH_REDIS_REST_TOKEN`: Optional. Enables Upstash Redis caching for SEC companyfacts.
+- `BLOG_ADMIN_EMAILS`: Comma-separated list of emails allowed to publish blogs from `/admin/blogs`.
 
 ## Learn More
 
