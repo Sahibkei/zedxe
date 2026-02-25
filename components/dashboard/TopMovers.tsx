@@ -1,4 +1,5 @@
-import type { MarketQuote } from '@/lib/market/providers';
+import Link from 'next/link';
+import { ArrowUpRight } from 'lucide-react';
 
 const formatCurrency = (value: number) =>
     value.toLocaleString('en-US', {
@@ -11,20 +12,32 @@ const formatCurrency = (value: number) =>
 type Mover = {
     symbol: string;
     name: string;
-    quote: MarketQuote | null;
+    price: number | null;
+    changePercent: number | null;
 };
 
-const TopMovers = ({ title, movers }: { title: string; movers: Mover[] }) => {
+const TopMovers = ({ title, movers, viewAllHref }: { title: string; movers: Mover[]; viewAllHref?: string }) => {
     return (
         <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70">
             <div className="flex items-center justify-between border-b border-[#1c2432] px-4 py-3">
                 <p className="text-sm font-mono text-slate-400">{title}</p>
-                <span className="text-xs font-mono text-slate-500">Today</span>
+                <div className="flex items-center gap-2">
+                    {viewAllHref ? (
+                        <Link
+                            href={viewAllHref}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#1c2432] text-slate-400 transition hover:border-slate-500 hover:text-slate-200"
+                            aria-label={`View all ${title.toLowerCase()}`}
+                        >
+                            <ArrowUpRight className="h-4 w-4" />
+                        </Link>
+                    ) : null}
+                    <span className="text-xs font-mono text-slate-500">Today</span>
+                </div>
             </div>
             <div className="divide-y divide-[#1c2432]">
                 {movers.map((item) => {
-                    const changePercent = item.quote?.dp;
-                    const priceValue = item.quote?.c;
+                    const changePercent = item.changePercent;
+                    const priceValue = item.price;
                     const isPositive = typeof changePercent === 'number' ? changePercent >= 0 : true;
                     const badgeColor =
                         typeof changePercent === 'number'

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const CACHE_TTL_MS = 15000;
 const cache = new Map<string, { expiresAt: number; payload: QuoteResponse }>();
 
@@ -51,7 +54,8 @@ const buildMockResponse = (symbols: string[]): QuoteResponse => {
 
 const fetchFinnhubQuote = async (symbol: string, apiKey: string): Promise<Quote> => {
     const response = await fetch(
-        `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`
+        `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`,
+        { cache: "no-store" }
     );
 
     if (!response.ok) {
@@ -90,7 +94,24 @@ export async function GET(request: Request) {
     }
 
     try {
-        const quotes = await Promise.all(symbols.map((symbol) => fetchFinnhubQuote(symbol, apiKey)));
+        const staleQuoteMap = new Map<string, Quote>((cached?.payload.quotes ?? []).map((quote) => [quote.symbol, quote]));
+
+        const settled = await Promise.allSettled(symbols.map((symbol) => fetchFinnhubQuote(symbol, apiKey)));
+        const quotes: Quote[] = symbols
+            .map((symbol, index) => {
+                const result = settled[index];
+                if (!result) return staleQuoteMap.get(symbol);
+                if (result.status === "fulfilled") return result.value;
+
+                console.error("Quote fetch failed for symbol", symbol, result.reason);
+                return staleQuoteMap.get(symbol);
+            })
+            .filter((quote): quote is Quote => Boolean(quote));
+
+        if (!quotes.length && cached?.payload) {
+            return NextResponse.json(cached.payload);
+        }
+
         const payload: QuoteResponse = {
             updatedAt: new Date().toISOString(),
             source: "finnhub",
@@ -100,8 +121,15 @@ export async function GET(request: Request) {
         return NextResponse.json(payload);
     } catch (error) {
         console.error("Quote fetch failed", error);
-        const payload = buildMockResponse(symbols);
-        cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, payload });
-        return NextResponse.json(payload);
+        if (cached?.payload) {
+            return NextResponse.json(cached.payload);
+        }
+        return NextResponse.json(
+            {
+                updatedAt: new Date().toISOString(),
+                source: "finnhub",
+                quotes: [],
+            } satisfies QuoteResponse
+        );
     }
 }
