@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import type { MarketMover } from '@/lib/market/movers';
 
 type MoversTab = 'gainers' | 'losers';
@@ -22,8 +23,10 @@ type MoversApiResponse = {
 
 const REFRESH_INTERVAL_MS = 160000;
 
+const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+
 const formatPrice = (value: number | null) => {
-    if (typeof value !== 'number') return '--';
+    if (!isFiniteNumber(value)) return '--';
     return value.toLocaleString('en-US', {
         style: 'currency',
         currency: 'USD',
@@ -33,19 +36,19 @@ const formatPrice = (value: number | null) => {
 };
 
 const formatChange = (value: number | null) => {
-    if (typeof value !== 'number') return '--';
+    if (!isFiniteNumber(value)) return '--';
     const sign = value >= 0 ? '+' : '';
     return `${sign}${value.toFixed(2)}`;
 };
 
 const formatPercent = (value: number | null) => {
-    if (typeof value !== 'number') return '--';
+    if (!isFiniteNumber(value)) return '--';
     const sign = value >= 0 ? '+' : '';
     return `${sign}${value.toFixed(2)}%`;
 };
 
 const formatCompact = (value: number | null) => {
-    if (typeof value !== 'number') return '--';
+    if (!isFiniteNumber(value)) return '--';
     return new Intl.NumberFormat('en-US', {
         notation: 'compact',
         maximumFractionDigits: 2,
@@ -67,12 +70,12 @@ const viewButtonClass = (active: boolean) =>
     }`;
 
 const colorClass = (value: number | null) => {
-    if (typeof value !== 'number') return 'text-slate-400';
+    if (!isFiniteNumber(value)) return 'text-slate-400';
     return value >= 0 ? 'text-[#00d395]' : 'text-[#ff6b6b]';
 };
 
 const heatStyle = (value: number | null) => {
-    if (typeof value !== 'number') {
+    if (!isFiniteNumber(value)) {
         return { backgroundColor: 'rgba(148,163,184,0.14)' };
     }
 
@@ -200,7 +203,15 @@ const MarketMoversPageClient = ({ initialTab, initialView, initialGainers, initi
                             <tbody>
                                 {rows.slice(0, 100).map((row) => (
                                     <tr key={row.symbol} className="border-b border-[#1c2432] transition hover:bg-[#111927]">
-                                        <td className="px-3 py-3 text-sm font-semibold text-slate-100">{row.symbol}</td>
+                                        <td className="px-3 py-3 text-sm font-semibold">
+                                            <Link
+                                                href={`/stocks/${encodeURIComponent(row.symbol)}`}
+                                                className="text-slate-100 transition hover:text-[#58a6ff] hover:underline"
+                                                aria-label={`Open ${row.symbol} stock profile`}
+                                            >
+                                                {row.symbol}
+                                            </Link>
+                                        </td>
                                         <td className="px-3 py-3 text-sm text-slate-400">{row.name}</td>
                                         <td className="px-3 py-3 text-right text-sm font-medium text-slate-100">{formatPrice(row.price)}</td>
                                         <td className={`px-3 py-3 text-right text-sm font-medium ${colorClass(row.change)}`}>{formatChange(row.change)}</td>
@@ -231,15 +242,17 @@ const MarketMoversPageClient = ({ initialTab, initialView, initialGainers, initi
                     </div>
                     <div className="grid auto-rows-[88px] grid-cols-2 gap-2 md:grid-cols-6 xl:grid-cols-10">
                         {heatRows.map((row, index) => (
-                            <article
+                            <Link
                                 key={row.symbol}
+                                href={`/stocks/${encodeURIComponent(row.symbol)}`}
                                 className={`rounded-md border border-white/10 p-2 ${tileSpanClass(index, row.marketCap)}`}
                                 style={heatStyle(row.changePercent)}
+                                aria-label={`Open ${row.symbol} stock profile`}
                             >
                                 <p className="text-sm font-semibold text-white">{row.symbol}</p>
                                 <p className="truncate text-xs text-white/80">{row.name}</p>
                                 <p className="mt-1 text-sm font-semibold text-white">{formatPercent(row.changePercent)}</p>
-                            </article>
+                            </Link>
                         ))}
                     </div>
                 </div>
