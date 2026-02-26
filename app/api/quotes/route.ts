@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { fetchJsonWithTimeout } from "@/lib/http/fetchWithTimeout";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const CACHE_TTL_MS = 15000;
+const MAX_SYMBOLS = 60;
 const cache = new Map<string, { expiresAt: number; payload: QuoteResponse }>();
 
 const DEFAULT_SYMBOLS = ["NVDA", "AAPL", "AMZN", "PLTR", "GOOGL", "META"] as const;
@@ -49,31 +54,46 @@ const buildMockResponse = (symbols: string[]): QuoteResponse => {
     };
 };
 
+const toFiniteNumber = (value: unknown, fallback = 0) => {
+    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+};
+
+const parseSymbols = (symbolsParam: string | null): string[] => {
+    const symbols = symbolsParam
+        ? symbolsParam
+              .split(",")
+              .map((symbol) => symbol.trim().toUpperCase())
+              .filter(Boolean)
+        : [...DEFAULT_SYMBOLS];
+
+    return Array.from(new Set(symbols)).slice(0, MAX_SYMBOLS);
+};
+
 const fetchFinnhubQuote = async (symbol: string, apiKey: string): Promise<Quote> => {
-    const response = await fetch(
-        `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`
+    const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`;
+    const result = await fetchJsonWithTimeout<{ c?: number; d?: number; dp?: number }>(
+        url,
+        { cache: "no-store" },
+        { timeoutMs: 8000, retries: 1, backoffBaseMs: 250 }
     );
 
-    if (!response.ok) {
-        throw new Error(`Finnhub error: ${response.status}`);
+    if (!result.ok) {
+        throw new Error(`Finnhub error for ${symbol}: ${result.status ?? result.error}`);
     }
-
-    const data = (await response.json()) as { c: number; d: number; dp: number };
+    const data = result.data;
 
     return {
         symbol,
-        price: data.c ?? 0,
-        change: data.d ?? 0,
-        changePercent: data.dp ?? 0,
+        price: toFiniteNumber(data.c),
+        change: toFiniteNumber(data.d),
+        changePercent: toFiniteNumber(data.dp),
     };
 };
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const symbolsParam = searchParams.get("symbols");
-    const symbols = symbolsParam
-        ? symbolsParam.split(",").map((symbol) => symbol.trim().toUpperCase()).filter(Boolean)
-        : [...DEFAULT_SYMBOLS];
+    const symbols = parseSymbols(symbolsParam);
 
     const cacheKey = symbols.join(",");
     const cached = cache.get(cacheKey);
@@ -90,7 +110,24 @@ export async function GET(request: Request) {
     }
 
     try {
-        const quotes = await Promise.all(symbols.map((symbol) => fetchFinnhubQuote(symbol, apiKey)));
+        const staleQuoteMap = new Map<string, Quote>((cached?.payload.quotes ?? []).map((quote) => [quote.symbol, quote]));
+
+        const settled = await Promise.allSettled(symbols.map((symbol) => fetchFinnhubQuote(symbol, apiKey)));
+        const quotes: Quote[] = symbols
+            .map((symbol, index) => {
+                const result = settled[index];
+                if (!result) return staleQuoteMap.get(symbol);
+                if (result.status === "fulfilled") return result.value;
+
+                console.error("Quote fetch failed for symbol", symbol, result.reason);
+                return staleQuoteMap.get(symbol);
+            })
+            .filter((quote): quote is Quote => Boolean(quote));
+
+        if (!quotes.length && cached?.payload) {
+            return NextResponse.json(cached.payload);
+        }
+
         const payload: QuoteResponse = {
             updatedAt: new Date().toISOString(),
             source: "finnhub",
@@ -100,8 +137,15 @@ export async function GET(request: Request) {
         return NextResponse.json(payload);
     } catch (error) {
         console.error("Quote fetch failed", error);
-        const payload = buildMockResponse(symbols);
-        cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, payload });
-        return NextResponse.json(payload);
+        if (cached?.payload) {
+            return NextResponse.json(cached.payload);
+        }
+        return NextResponse.json(
+            {
+                updatedAt: new Date().toISOString(),
+                source: "finnhub",
+                quotes: [],
+            } satisfies QuoteResponse
+        );
     }
 }
