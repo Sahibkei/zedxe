@@ -3,6 +3,7 @@ import NewsGrid from "@/app/(root)/news/_components/NewsGrid";
 import Pagination from "@/app/(root)/news/_components/Pagination";
 import { DEFAULT_LIMIT, fetchNews, RESULTS_CAP } from "@/app/(root)/news/data";
 import type { MarketauxArticle, MarketauxMeta } from "@/types/marketaux";
+import Link from "next/link";
 
 const parsePage = (pageParam?: string): number => {
     const parsed = Number(pageParam ?? "1");
@@ -75,10 +76,18 @@ const NewsPage = async ({ searchParams }: NewsPageProps) => {
 
     return (
         <section className="max-w-6xl mx-auto px-4 py-8 space-y-10">
-            <div className="space-y-3">
-                <p className="text-sm uppercase tracking-wide text-emerald-400">News</p>
-                <h1 className="text-3xl font-bold text-white">Financial News Center</h1>
-                <p className="text-gray-400">Stay on top of market-moving headlines and deep-dive analyses.</p>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="space-y-3">
+                    <p className="text-sm uppercase tracking-wide text-emerald-400">News</p>
+                    <h1 className="text-3xl font-bold text-white">Financial News Center</h1>
+                    <p className="text-gray-400">Stay on top of market-moving headlines and deep-dive analyses.</p>
+                </div>
+                <Link
+                    href="/news/terminal"
+                    className="rounded-lg border border-[#2b3b52] bg-[#101c2f] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-[#4a6ea5] hover:text-white"
+                >
+                    Open News Terminal
+                </Link>
             </div>
 
             <FeaturedArticle article={featured} />
