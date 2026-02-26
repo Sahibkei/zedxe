@@ -916,8 +916,9 @@ export default function WorldVesselMap() {
             </div>
 
             {macroDialogCountry ? (
-                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#020611]/85 p-4 backdrop-blur-sm">
-                    <div className="w-full max-w-6xl overflow-hidden rounded-2xl border border-[#2b3d5a] bg-[#071323] shadow-2xl">
+                <div className="fixed inset-0 z-[80] overflow-y-auto bg-[#020611]/85 p-4 backdrop-blur-sm">
+                    <div className="mx-auto flex min-h-[calc(100vh-2rem)] w-full max-w-6xl items-center">
+                    <div className="w-full max-h-[92vh] overflow-hidden rounded-2xl border border-[#2b3d5a] bg-[#071323] shadow-2xl">
                         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#243145] px-5 py-4">
                             <div>
                                 <p className="text-xs uppercase tracking-[0.2em] text-blue-300">Macro Drilldown</p>
@@ -972,7 +973,8 @@ export default function WorldVesselMap() {
                             </div>
                         </div>
 
-                        <div className="grid gap-4 p-4 lg:grid-cols-12">
+                        <div className="max-h-[calc(92vh-86px)] overflow-y-auto">
+                        <div className="grid gap-4 p-4 lg:grid-cols-12 lg:items-stretch">
                             <div className="lg:col-span-9">
                                 <div ref={exportRef} className="relative overflow-hidden rounded-xl border border-[#243145] bg-[#08111f] p-4">
                                     <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
@@ -1012,7 +1014,7 @@ export default function WorldVesselMap() {
                                         ) : null}
                                     </div>
 
-                                    <div className="h-[380px]">
+                                    <div className="h-[340px] xl:h-[360px]">
                                         {historySeries.length ? (
                                             <ResponsiveContainer width="100%" height="100%">
                                                 {macroChartType === "line" ? (
@@ -1167,8 +1169,8 @@ export default function WorldVesselMap() {
                                 {macroHistoryError ? <p className="mt-2 text-xs text-amber-300">{macroHistoryError}</p> : null}
                             </div>
 
-                            <div className="space-y-3 lg:col-span-3">
-                                <div className="rounded-xl border border-[#243145] bg-[#0d1729] p-3">
+                            <div className="grid gap-3 lg:col-span-3 lg:grid-rows-3">
+                                <div className="h-full rounded-xl border border-[#243145] bg-[#0d1729] p-3">
                                     <p className="text-[11px] uppercase tracking-wider text-slate-400">Latest</p>
                                     <p className="mt-1 text-xl font-semibold text-slate-100">
                                         {historyLatest ? formatMacroValue(selectedMacro, historyLatest.value) : "--"}
@@ -1176,7 +1178,7 @@ export default function WorldVesselMap() {
                                     <p className="text-xs text-slate-500">{historyLatest ? historyLatest.year : "n/a"}</p>
                                 </div>
 
-                                <div className="rounded-xl border border-[#243145] bg-[#0d1729] p-3">
+                                <div className="h-full rounded-xl border border-[#243145] bg-[#0d1729] p-3">
                                     <p className="text-[11px] uppercase tracking-wider text-slate-400">10Y Change</p>
                                     <p
                                         className={`mt-1 text-xl font-semibold ${
@@ -1192,7 +1194,7 @@ export default function WorldVesselMap() {
                                     </p>
                                 </div>
 
-                                <div className="rounded-xl border border-[#243145] bg-[#0d1729] p-3">
+                                <div className="h-full rounded-xl border border-[#243145] bg-[#0d1729] p-3">
                                     <p className="text-[11px] uppercase tracking-wider text-slate-400">Range</p>
                                     <p className="mt-1 text-sm text-slate-200">
                                         Min: {historyMin !== null ? formatMacroValue(selectedMacro, historyMin) : "--"}
@@ -1204,6 +1206,8 @@ export default function WorldVesselMap() {
                                 </div>
                             </div>
                         </div>
+                        </div>
+                    </div>
                     </div>
                 </div>
             ) : null}
