@@ -396,7 +396,13 @@ export default function BinanceTvChart({
             }
 
             const hudCandle = hover.active && hoverIndex >= 0 ? d.candles[hoverIndex] : d.candles[d.candles.length - 1];
-            const hudPrev = hudCandle && hoverIndex > 0 ? d.candles[hoverIndex - 1] : d.candles[d.candles.length - 2];
+            const hudPrev = hudCandle
+                ? hover.active
+                    ? hoverIndex > 0
+                        ? d.candles[hoverIndex - 1]
+                        : undefined
+                    : d.candles[d.candles.length - 2]
+                : undefined;
 
             overlayCtx.font = "12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
             overlayCtx.textBaseline = "middle";
@@ -761,7 +767,7 @@ export default function BinanceTvChart({
             clearReconnect();
             abortRef.current?.abort();
         };
-    }, [emitLast, markDirty, retryToken, setConnStatus]);
+    }, [emitLast, interval, markDirty, retryToken, setConnStatus, symbol]);
 
     useEffect(() => {
         markDirty({ grid: true, overlay: true });
