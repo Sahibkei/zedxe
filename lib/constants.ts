@@ -2,6 +2,7 @@ export const NAV_ITEMS = [
     { href: '/app', label: 'Dashboard' },
     { href: '/search', label: 'Search' },
     { href: '/news', label: 'News' },
+    { href: '/blogs', label: 'Blogs' },
     { href: '/portfolio', label: 'Portfolio' },
     { href: '/crypto', label: 'Crypto' },
     { href: '/orderflow', label: 'Orderflow' },
