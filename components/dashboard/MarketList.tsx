@@ -18,12 +18,12 @@ const MarketList = ({
     const rows = stocks.slice(0, 6);
 
     return (
-        <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70">
-            <div className="flex items-center justify-between border-b border-[#1c2432] px-4 py-3">
+        <div className="bento-card overflow-hidden">
+            <div className="flex items-center justify-between border-b border-[#273042] px-4 py-3">
                 <p className="text-sm font-mono text-slate-400">Trending Stocks</p>
                 <span className="text-xs font-mono text-slate-500">Live snapshot</span>
             </div>
-            <div className="divide-y divide-[#1c2432]">
+            <div className="divide-y divide-[#273042]">
                 {rows.map((stock) => {
                     const quote = quotes[stock.symbol.toUpperCase()];
                     const changePercent = quote?.dp;
@@ -37,10 +37,10 @@ const MarketList = ({
                     return (
                         <div
                             key={stock.symbol}
-                            className="flex items-center justify-between gap-4 px-4 py-3 transition hover:bg-[#0b0f14]"
+                            className="flex items-center justify-between gap-4 px-4 py-3 transition hover:bg-[#111927]"
                         >
                             <div className="flex items-center gap-3">
-                                <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#1c2432] bg-[#0b0f14] text-xs font-semibold text-slate-200">
+                                <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#273042] bg-[#0f1624] text-xs font-semibold text-slate-200">
                                     {stock.symbol.slice(0, 2)}
                                 </div>
                                 <div>

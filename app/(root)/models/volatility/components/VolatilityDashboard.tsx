@@ -261,7 +261,7 @@ export default function VolatilityDashboard() {
                 onRefresh={fetchSurface}
             />
 
-            <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#0b0f14] p-4 text-sm text-slate-200 shadow-xl shadow-black/30">
+            <div className="bento-card flex flex-col gap-4 p-4 text-sm text-slate-200">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
                         <span className="text-xs uppercase tracking-wide text-emerald-200/70">
@@ -338,7 +338,7 @@ export default function VolatilityDashboard() {
             {activeTab === "vol-momo" ? <VolMomoDashboard /> : null}
 
             {debug ? (
-                <details className="rounded-2xl border border-white/10 bg-[#0b0f14] p-5 text-sm text-slate-200">
+                <details className="bento-card p-5 text-sm text-slate-200">
                     <summary className="cursor-pointer text-sm font-semibold text-emerald-200">
                         Data verification
                     </summary>

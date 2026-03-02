@@ -13,7 +13,7 @@ const NewsCard = ({ article }: { article: MarketauxArticle }) => {
     return (
         <Link
             href={articleUrl}
-            className="group flex h-full flex-col rounded-xl border border-gray-800 bg-[#0f1115] p-5 transition transform hover:-translate-y-1 hover:border-emerald-400/50 hover:shadow-lg hover:shadow-emerald-900/30"
+            className="bento-card-soft group flex h-full flex-col p-5 transition transform hover:-translate-y-1 hover:border-emerald-400/50 hover:shadow-lg hover:shadow-emerald-900/30"
             prefetch={false}
         >
             <span className="inline-flex w-fit rounded-full bg-emerald-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">

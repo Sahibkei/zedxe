@@ -56,7 +56,7 @@ const Pagination = ({ currentPage, totalPages }: { currentPage: number; totalPag
                         className={`min-w-10 rounded-full px-3 py-1 text-sm font-semibold transition border ${
                             isActive
                                 ? "bg-emerald-500 text-emerald-950 border-emerald-400"
-                                : "border-gray-700 text-gray-300 hover:border-emerald-400 hover:text-emerald-200"
+                                : "border-[#2d3a4b] bg-[#0f1624] text-gray-300 hover:border-emerald-400 hover:text-emerald-200"
                         }`}
                     >
                         {page}

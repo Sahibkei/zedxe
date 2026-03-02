@@ -155,28 +155,28 @@ const DashboardLiveClient = ({ stocks, initialQuotes, initialIndexQuotes, initia
     }));
 
     return (
-        <div className="min-h-screen bg-[#010409] text-slate-100">
-            <div className="mx-auto w-full max-w-[1800px] px-6 pb-12 pt-24">
-                <div className="space-y-6">
-                    <IndicesStrip quotes={indexQuotes} />
-                    <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[460px_1fr]">
-                        <section className="space-y-6">
-                            <div>
-                                <h1 className="mb-3 text-xl font-semibold text-slate-100">Market Overview</h1>
-                                <MarketOverviewCard />
-                            </div>
-                            <MarketList stocks={stocks} quotes={quotes} />
-                        </section>
+        <div className="bento-page">
+            <section className="bento-card px-5 py-4 md:px-6">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Market Desk</p>
+                <h1 className="mt-1 text-3xl font-semibold text-slate-100">Overview</h1>
+                <p className="mt-1 text-sm text-slate-400">Bento-aligned live snapshot of indices, movers, and headlines.</p>
+            </section>
 
-                        <section className="flex flex-col gap-6">
-                            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                                <TopMovers title="Top Gainers" movers={topGainers} viewAllHref="/markets/movers?tab=gainers" />
-                                <TopMovers title="Top Losers" movers={topLosers} viewAllHref="/markets/movers?tab=losers" />
-                            </div>
-                            <MarketNews />
-                        </section>
+            <IndicesStrip quotes={indexQuotes} />
+
+            <div className="bento-grid items-start">
+                <section className="space-y-5 xl:col-span-4">
+                    <MarketOverviewCard />
+                    <MarketList stocks={stocks} quotes={quotes} />
+                </section>
+
+                <section className="space-y-5 xl:col-span-8">
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                        <TopMovers title="Top Gainers" movers={topGainers} viewAllHref="/markets/movers?tab=gainers" />
+                        <TopMovers title="Top Losers" movers={topLosers} viewAllHref="/markets/movers?tab=losers" />
                     </div>
-                </div>
+                    <MarketNews />
+                </section>
             </div>
         </div>
     );

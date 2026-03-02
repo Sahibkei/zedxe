@@ -82,7 +82,7 @@ export default function VolatilityControls({
     const updateParams = (next: VolatilityParams) => onChange(normalizeParams(next));
 
     return (
-        <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#0b0f14] p-5 text-sm text-slate-200 shadow-xl shadow-black/30 lg:flex-row lg:items-end lg:justify-between">
+        <div className="bento-card flex flex-col gap-4 p-5 text-sm text-slate-200 lg:flex-row lg:items-end lg:justify-between">
             <div className="grid flex-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <div className="space-y-2">
                     <Label className="text-xs uppercase tracking-wide text-emerald-200/70">

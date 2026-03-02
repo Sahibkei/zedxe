@@ -45,8 +45,8 @@ const BtcUsdtChartPage = () => {
     const changeColor = pctChange === null ? "text-slate-300" : pctChange >= 0 ? "text-emerald-300" : "text-rose-300";
 
     return (
-        <section className="space-y-4">
-            <header className="rounded-2xl border border-slate-700/70 bg-gradient-to-r from-[#0b1422] via-[#0e1828] to-[#0b1422] p-4 shadow-[0_20px_50px_-35px_rgba(0,0,0,0.85)]">
+        <section className="bento-page space-y-4">
+            <header className="bento-card p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
                         <p className="text-xs uppercase tracking-[0.16em] text-cyan-300">Binance Spot</p>

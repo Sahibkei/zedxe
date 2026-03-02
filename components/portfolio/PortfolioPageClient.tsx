@@ -540,13 +540,13 @@ const PortfolioPageClient = ({
     };
 
     return (
-        <div className="space-y-6">
+        <div className="bento-page space-y-6">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                    <h1 className="text-3xl font-semibold tracking-tight text-foreground">Portfolio</h1>
-                    <p className="text-sm text-muted-foreground">Track positions, allocation, and performance.</p>
+                    <h1 className="bento-title tracking-tight">Portfolio</h1>
+                    <p className="bento-subtitle">Track positions, allocation, and performance.</p>
                 </div>
-                <div className="inline-flex gap-2 rounded-lg border border-border/70 bg-card/60 p-1">
+                <div className="inline-flex gap-2 rounded-lg border border-[#273042] bg-[#0f1624] p-1">
                     <Button
                         variant="ghost"
                         className={

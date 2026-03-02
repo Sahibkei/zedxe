@@ -13,7 +13,7 @@ const WatchlistPage = async () => {
 
     if (watchlist.length === 0) {
         return (
-            <section className="watchlist-empty-container">
+            <section className="bento-page watchlist-empty-container">
                 <div className="watchlist-empty">
                     <Star className="watchlist-star" />
                     <h2 className="empty-title">Your watchlist is empty</h2>
@@ -27,7 +27,7 @@ const WatchlistPage = async () => {
     }
 
     return (
-        <section className="watchlist">
+        <section className="bento-page watchlist">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <h2 className="watchlist-title">Watchlist</h2>
                 <SearchCommand initialStocks={initialStocks} />

@@ -18,9 +18,11 @@ const Layout = async ({ children }: { children : React.ReactNode }) => {
     const initialStocks = await searchStocks();
 
     return (
-        <main className="min-h-screen bg-[#010409] text-slate-200">
+        <main className="relative min-h-screen overflow-hidden bg-[#010409] text-slate-200">
+            <div className="bento-orb bento-orb-a" />
+            <div className="bento-orb bento-orb-b" />
             <TopNav user={user} initialStocks={initialStocks} />
-            <div className="container pb-10 pt-24">
+            <div className="container relative z-10 pb-10 pt-24">
                 {children}
             </div>
         </main>

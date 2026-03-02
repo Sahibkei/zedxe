@@ -69,7 +69,7 @@ const GLOBAL_MARKET_INDEXES: GlobalIndex[] = [
     { label: 'Bovespa', symbol: '^BVSP', name: 'Brazil Index', region: 'Americas' },
 ];
 
-const sectionClass = 'rounded-xl border border-[#273042] bg-[#0b1019]/80 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-sm';
+const sectionClass = 'bento-card-soft';
 const topRowPanelClass = 'xl:h-[640px]';
 const INDEX_REFRESH_MS = 20_000;
 const DEFAULT_FEAR_GREED_SCORE = 46;
@@ -177,7 +177,7 @@ const NewsTerminalClient = ({ items, generatedAt }: Props) => {
     const fearGreedState = fearGreedLabel(fearGreedScore);
 
     return (
-        <section className="mx-auto w-full max-w-[1820px] px-2 pb-8">
+        <section className="bento-page">
             <div className={`${sectionClass} mb-3 flex items-center justify-between px-4 py-3`}>
                 <div className="flex items-center gap-3 text-sm">
                     <span className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 font-semibold text-emerald-300">NEWS</span>

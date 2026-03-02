@@ -71,7 +71,7 @@ export default function VolatilityHeaderMetrics({
     ];
 
     return (
-        <div className="grid gap-4 rounded-2xl border border-emerald-500/10 bg-[#0b0f14] p-5 text-sm text-slate-200 shadow-xl shadow-black/30 md:grid-cols-5">
+        <div className="bento-card grid gap-4 p-5 text-sm text-slate-200 md:grid-cols-5">
             {metrics.map((metric) => (
                 <div key={metric.label} className="space-y-1">
                     <p className="text-xs uppercase tracking-wide text-emerald-200/70">

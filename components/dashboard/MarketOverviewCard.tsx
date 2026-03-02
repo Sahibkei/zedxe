@@ -32,9 +32,9 @@ const MarketOverviewCard = () => {
     const range = rangeMap[activeRange];
 
     return (
-        <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-4">
+        <div className="bento-card p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2 rounded-full border border-[#1c2432] bg-[#0b0f14] p-1">
+                <div className="flex items-center gap-2 rounded-full border border-[#2a3952] bg-[#0b0f14] p-1">
                     {tabs.map((tab) => {
                         const isActive = tab === activeTab;
                         return (
@@ -54,7 +54,7 @@ const MarketOverviewCard = () => {
                 <span className="text-xs font-mono text-slate-500">{activeTab} sector</span>
             </div>
 
-            <div className="mt-4 h-[260px] w-full overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+            <div className="mt-4 h-[260px] w-full overflow-hidden rounded-2xl border border-[#273042] bg-[#0b111d]">
                 <div className="h-full w-full">
                     <MarketOverviewTradingView symbol={symbol} range={range} />
                 </div>
@@ -70,7 +70,7 @@ const MarketOverviewCard = () => {
                             onClick={() => setActiveRange(rangeOption)}
                             className={`rounded-full border px-3 py-1 text-xs font-mono transition ${
                                 isActive
-                                    ? 'border-[#1c2432] bg-[#1c2432] text-white'
+                                    ? 'border-[#2a3952] bg-[#1f2f4d] text-white'
                                     : 'border-transparent bg-[#0b0f14] text-slate-400 hover:text-slate-200'
                             }`}
                         >

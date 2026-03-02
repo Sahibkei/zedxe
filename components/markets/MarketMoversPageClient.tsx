@@ -153,13 +153,13 @@ const MarketMoversPageClient = ({ initialTab, initialView, initialGainers, initi
     }, [updatedAt]);
 
     return (
-        <section className="mx-auto max-w-[1600px] space-y-5 px-4 pb-10">
-            <div className="space-y-2">
-                <h1 className="text-2xl font-semibold text-slate-100">US Market Movers</h1>
-                <p className="text-sm text-slate-400">Track the strongest day gainers and losers with table and heatmap view.</p>
+        <section className="bento-page">
+            <div className="bento-card px-5 py-4">
+                <h1 className="bento-title">US Market Movers</h1>
+                <p className="bento-subtitle">Track day gainers and losers with aligned table and heatmap views.</p>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 px-4 py-3">
+            <div className="bento-card flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <div className="flex items-center gap-2">
                     <button type="button" onClick={() => setTab('gainers')} className={tabButtonClass(tab === 'gainers')}>
                         Top Gainers
@@ -180,11 +180,11 @@ const MarketMoversPageClient = ({ initialTab, initialView, initialGainers, initi
             </div>
 
             {errorMessage ? (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">{errorMessage}</div>
+                <div className="bento-panel border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">{errorMessage}</div>
             ) : null}
 
             {view === 'table' ? (
-                <div className="overflow-hidden rounded-2xl border border-[#1c2432] bg-[#0d1117]/70">
+                <div className="bento-card overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="min-w-full border-collapse">
                             <thead>
@@ -231,7 +231,7 @@ const MarketMoversPageClient = ({ initialTab, initialView, initialGainers, initi
                     </div>
                 </div>
             ) : (
-                <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 p-4">
+                <div className="bento-card p-4">
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                         <p className="text-sm text-slate-400">Market cap weighted heatmap for {tab === 'gainers' ? 'gainers' : 'losers'}.</p>
                         <div className="flex items-center gap-1 text-xs font-mono">

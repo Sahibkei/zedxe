@@ -502,7 +502,7 @@ const ProbabilityPage = () => {
     }, [probability, rewardR, riskR]);
 
     return (
-        <section className="mx-auto max-w-6xl space-y-8 px-4 py-8">
+        <section className="bento-page space-y-6">
             <header className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
