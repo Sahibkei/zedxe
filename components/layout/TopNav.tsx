@@ -16,8 +16,8 @@ const TopNav = ({ user, initialStocks }: TopNavProps) => {
     const [menuOpen, setMenuOpen] = useState(false);
 
     return (
-        <header className="fixed top-0 z-50 w-full border-b border-[#1c2432] bg-[#0a0e14]/95 backdrop-blur">
-            <div className="container flex h-16 items-center justify-between gap-4">
+        <header className="fixed top-0 z-50 w-full border-b border-[#1c2432] bg-[#0a0e14]/95 backdrop-blur-xl">
+            <div className="container grid h-[84px] grid-cols-[auto_1fr_auto] items-center gap-4">
                 <Link href="/app" className="flex items-center gap-2">
                     <Image
                         src="/assets/icons/zedlogo.svg"
@@ -29,11 +29,13 @@ const TopNav = ({ user, initialStocks }: TopNavProps) => {
                     <span className="sr-only">ZedXe</span>
                 </Link>
 
-                <nav className="hidden items-center lg:flex">
-                    <NavItems initialStocks={initialStocks} />
+                <nav className="hidden justify-center lg:flex">
+                    <div className="rounded-2xl border border-[#202c3e] bg-[#0c131f]/80 p-1 shadow-[0_10px_25px_rgba(0,0,0,0.25)]">
+                        <NavItems initialStocks={initialStocks} />
+                    </div>
                 </nav>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-self-end gap-2">
                     <div className="hidden sm:block">
                         <UserDropdown user={user} initialStocks={initialStocks} />
                     </div>

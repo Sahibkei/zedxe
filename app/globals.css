@@ -232,7 +232,7 @@
         @apply text-gray-400 font-medium hover:text-yellow-400 hover:underline transition-colors;
     }
     .search-text {
-        @apply cursor-pointer hover:text-yellow-500;
+        @apply inline-flex items-center rounded-xl border border-transparent px-4 py-2 text-[0.95rem] font-medium text-slate-300 transition-all duration-200;
     }
     .search-btn {
         @apply cursor-pointer px-4 py-2 w-fit flex items-center gap-2 text-sm md:text-base bg-yellow-500 hover:bg-yellow-500 text-black font-medium rounded;
@@ -525,6 +525,56 @@
     background-color: #9095A1;
 }
 
+.indices-marquee-wrapper {
+    overflow: hidden;
+}
+
+.indices-marquee {
+    position: relative;
+    overflow: hidden;
+    mask-image: linear-gradient(to right, transparent 0, black 3%, black 97%, transparent 100%);
+}
+
+.indices-marquee-track {
+    display: flex;
+    width: max-content;
+    animation: indices-marquee-scroll 56s linear infinite;
+    will-change: transform;
+}
+
+.indices-marquee-group {
+    display: flex;
+    flex-shrink: 0;
+    gap: 0.85rem;
+    padding: 0.85rem;
+}
+
+.indices-marquee-item {
+    flex: 0 0 auto;
+}
+
+.indices-marquee:hover .indices-marquee-track,
+.indices-marquee:focus-within .indices-marquee-track {
+    animation-play-state: paused;
+}
+
+@media (max-width: 1023px) {
+    .indices-marquee-track {
+        animation-duration: 44s;
+    }
+
+    .indices-marquee-group {
+        gap: 0.75rem;
+        padding: 0.75rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .indices-marquee-track {
+        animation: none;
+    }
+}
+
 @layer utilities {
     .glass-nav {
         @apply border border-white/10 bg-white/5 backdrop-blur-xl;
@@ -618,6 +668,15 @@
     }
     100% {
         transform: translate3d(0, 0, 0) scale(1);
+    }
+}
+
+@keyframes indices-marquee-scroll {
+    from {
+        transform: translate3d(0, 0, 0);
+    }
+    to {
+        transform: translate3d(-50%, 0, 0);
     }
 }
 

@@ -1,13 +1,13 @@
 import { getQuotes, type MarketQuote } from '@/lib/market/providers';
+import { GLOBAL_MARKET_INDEXES } from '@/lib/market/global-indices';
 
-export const INDICES = [
-    { label: 'SPX', symbol: 'SPY', name: 'SPDR S&P 500 ETF' },
-    { label: 'NDX', symbol: 'QQQ', name: 'Invesco QQQ Trust' },
-    { label: 'DJI', symbol: 'DIA', name: 'SPDR Dow Jones Industrial Average ETF' },
-    { label: 'RUT', symbol: 'IWM', name: 'iShares Russell 2000 ETF' },
-    { label: 'VIX', symbol: 'VXX', name: 'iPath Series B S&P 500 VIX Short-Term Futures ETN' },
-    { label: 'TNX', symbol: 'TLT', name: 'iShares 20+ Year Treasury Bond ETF' },
-] as const;
+export const INDICES = GLOBAL_MARKET_INDEXES.map((index) => ({
+    label: index.ticker,
+    displayName: index.label,
+    symbol: index.symbol,
+    name: index.name,
+    region: index.region,
+}));
 
 const CACHE_TTL_MS = 30_000;
 const provider = (process.env.MARKET_DATA_PROVIDER ?? 'finnhub').toLowerCase();
@@ -29,6 +29,15 @@ export const getIndexQuotes = async (): Promise<Record<string, MarketQuote | nul
         return cachedQuotes;
     }
 
+    const symbols = INDICES.map((index) => index.symbol);
+
+    if (symbols.some((symbol) => symbol.startsWith('^'))) {
+        const emptyQuotes = buildEmptyQuotes();
+        cachedQuotes = emptyQuotes;
+        cacheExpiresAt = now + CACHE_TTL_MS;
+        return emptyQuotes;
+    }
+
     if (provider === 'finnhub' && !getFinnhubToken()) {
         if (!warnedMissingToken) {
             console.warn('FINNHUB API key is not configured; returning empty index quotes.');
@@ -41,7 +50,6 @@ export const getIndexQuotes = async (): Promise<Record<string, MarketQuote | nul
     }
 
     try {
-        const symbols = INDICES.map((index) => index.symbol);
         const quotes = await getQuotes(symbols);
         const merged = buildEmptyQuotes();
         Object.entries(quotes).forEach(([symbol, quote]) => {

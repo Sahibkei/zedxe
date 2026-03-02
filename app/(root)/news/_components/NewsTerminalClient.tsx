@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import WorldVesselMap from '@/app/(root)/news/_components/WorldVesselMap';
+import { GLOBAL_MARKET_INDEXES } from '@/lib/market/global-indices';
 
 type TerminalNewsItem = {
     id: string;
@@ -18,13 +19,6 @@ type LiveChannel = {
     key: string;
     label: string;
     embedUrl: string;
-};
-
-type GlobalIndex = {
-    label: string;
-    symbol: string;
-    name: string;
-    region: string;
 };
 
 type Quote = {
@@ -53,20 +47,6 @@ const LIVE_NEWS_CHANNELS: LiveChannel[] = [
     { key: 'euronews', label: 'EuroNews', embedUrl: 'https://www.youtube.com/embed/pykpO5kQJ98' },
     { key: 'cnbc', label: 'CNBC', embedUrl: 'https://www.youtube.com/embed/F0la2jccNDg' },
     { key: 'yfinance', label: 'YFinance', embedUrl: 'https://www.youtube.com/embed/KQp-e_XQnDE' },
-];
-
-const GLOBAL_MARKET_INDEXES: GlobalIndex[] = [
-    { label: 'S&P 500', symbol: '^GSPC', name: 'US Index', region: 'US' },
-    { label: 'NASDAQ 100', symbol: '^NDX', name: 'US Index', region: 'US' },
-    { label: 'Dow Jones', symbol: '^DJI', name: 'US Index', region: 'US' },
-    { label: 'Russell 2000', symbol: '^RUT', name: 'US Index', region: 'US' },
-    { label: 'Euro Stoxx 50', symbol: '^STOXX50E', name: 'Europe Index', region: 'Europe' },
-    { label: 'FTSE 100', symbol: '^FTSE', name: 'UK Index', region: 'Europe' },
-    { label: 'DAX', symbol: '^GDAXI', name: 'Germany Index', region: 'Europe' },
-    { label: 'Nikkei 225', symbol: '^N225', name: 'Japan Index', region: 'Asia' },
-    { label: 'Hang Seng', symbol: '^HSI', name: 'Hong Kong Index', region: 'Asia' },
-    { label: 'Nifty 50', symbol: '^NSEI', name: 'India Index', region: 'Asia' },
-    { label: 'Bovespa', symbol: '^BVSP', name: 'Brazil Index', region: 'Americas' },
 ];
 
 const sectionClass = 'bento-card-soft';
