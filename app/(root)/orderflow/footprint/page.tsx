@@ -164,7 +164,7 @@ const FootprintPageInner = () => {
 
     const footprintBars = useMemo<FootprintBar[]>(() => {
         if (windowedTrades.length === 0) return [];
-        const referenceTimestamp = Date.now();
+        const referenceTimestamp = windowedTrades[windowedTrades.length - 1]?.timestamp ?? 0;
         return buildFootprintBars(windowedTrades, {
             windowSeconds,
             bucketSizeSeconds,
@@ -190,7 +190,7 @@ const FootprintPageInner = () => {
     const windowMinutes = Math.max(1, Math.round(windowSeconds / 60));
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="bento-page flex flex-col gap-4">
             <div className="flex items-center justify-between">
                 <div>
                     <p className="text-xs uppercase tracking-wide text-gray-400">Orderflow</p>
@@ -204,7 +204,7 @@ const FootprintPageInner = () => {
                 </div>
             </div>
 
-            <div className="grid gap-3 rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20 md:grid-cols-2 lg:grid-cols-3">
+            <div className="bento-card grid gap-3 p-4 md:grid-cols-2 lg:grid-cols-3">
                 <div className="space-y-2">
                     <p className="text-xs uppercase tracking-wide text-gray-500">Symbol</p>
                     <Select value={selectedSymbol} onValueChange={(value) => setSelectedSymbol(value)}>
@@ -293,7 +293,7 @@ const FootprintPageInner = () => {
 
             <div className="grid gap-4 lg:grid-cols-3">
                 <div className="lg:col-span-2">
-                    <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20">
+                    <div className="bento-card p-4">
                         <div className="flex items-center justify-between pb-3">
                             <div>
                                 <p className="text-xs uppercase tracking-wide text-gray-500">Footprint Heatmap</p>

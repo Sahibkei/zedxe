@@ -21,23 +21,23 @@ const CryptoPage = async () => {
     const { totalMarketCapUsd, rows } = await getCryptoPageData();
 
     return (
-        <section className="space-y-8">
+        <section className="bento-page space-y-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="space-y-2">
-                    <h1 className="text-3xl font-semibold text-gray-100">Crypto Market Overview</h1>
-                    <p className="text-gray-400">Track the global crypto market and top 100 coins by market cap.</p>
+                    <h1 className="bento-title">Crypto Market Overview</h1>
+                    <p className="bento-subtitle">Track the global crypto market and top 100 coins by market cap.</p>
                 </div>
                 <Button asChild className="w-full sm:w-auto">
                     <Link href="/orderflow">View live orderflow ({ORDERFLOW_DEFAULT_SYMBOL.toUpperCase()})</Link>
                 </Button>
             </div>
 
-            <div className="rounded-xl bg-[#0f0f0f] border border-gray-800 p-6 shadow-lg">
+            <div className="bento-card p-6">
                 <p className="text-sm uppercase tracking-wide text-gray-400">Total Market Cap</p>
                 <p className="text-4xl font-bold text-gray-100">{formatMarketCapValue(totalMarketCapUsd)}</p>
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-gray-800 bg-[#0f0f0f] shadow-lg">
+            <div className="bento-card overflow-x-auto rounded-xl">
                 <table className="min-w-full divide-y divide-gray-800">
                     <thead>
                         <tr className="bg-gray-900/50">

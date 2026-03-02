@@ -34,8 +34,8 @@ export default async function StockDetailsPage({ params }: StockPageProps) {
                 : "Stock profile data is currently unavailable.";
 
         return (
-            <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-8 md:px-6">
-                <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-6">
+            <div className="bento-page max-w-5xl space-y-5 py-4">
+                <div className="bento-card border-red-500/40 bg-red-500/10 p-6">
                     <h1 className="text-2xl font-semibold text-red-100">Unable to load stock profile</h1>
                     <p className="mt-2 text-sm text-red-200">{message}</p>
                     <div className="mt-4 flex gap-2">
@@ -84,7 +84,7 @@ export default async function StockDetailsPage({ params }: StockPageProps) {
     const marketCap = stockProfile.company.marketCap || snapshot.marketCap;
 
     return (
-        <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-8 md:px-6">
+        <div className="bento-page max-w-7xl space-y-5 py-4">
             <StockProfileHeader
                 symbol={symbolUpper}
                 companyName={companyName}

@@ -35,19 +35,19 @@ const MODELS = [
 ];
 
 const ModelsPage = () => (
-    <section className="mx-auto max-w-6xl space-y-8 px-4 py-8">
+    <section className="bento-page space-y-6">
         <header className="space-y-3">
-            <h1 className="text-3xl font-semibold text-white">Models</h1>
-            <p className="text-gray-400">
+            <h1 className="bento-title">Models</h1>
+            <p className="bento-subtitle">
                 Explore quantitative models and tools available in ZedXe.
             </p>
         </header>
 
-        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+        <div className="bento-grid">
             {MODELS.map((model) => (
                 <div
                     key={model.title}
-                    className="flex h-full flex-col justify-between rounded-2xl border border-gray-800 bg-[#0f1115] p-6 shadow-lg shadow-black/20"
+                    className="bento-card flex h-full flex-col justify-between p-6 xl:col-span-4"
                 >
                     <div className="space-y-4">
                         <div className="flex items-center justify-between gap-4">

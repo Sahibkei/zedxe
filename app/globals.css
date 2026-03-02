@@ -232,7 +232,7 @@
         @apply text-gray-400 font-medium hover:text-yellow-400 hover:underline transition-colors;
     }
     .search-text {
-        @apply cursor-pointer hover:text-yellow-500;
+        @apply inline-flex items-center rounded-xl border border-transparent px-4 py-2 text-[0.95rem] font-medium text-slate-300 transition-all duration-200;
     }
     .search-btn {
         @apply cursor-pointer px-4 py-2 w-fit flex items-center gap-2 text-sm md:text-base bg-yellow-500 hover:bg-yellow-500 text-black font-medium rounded;
@@ -283,7 +283,7 @@
         @apply bg-red-500! hover:bg-red-500! text-gray-900!
     }
     .watchlist-empty-container {
-        @apply container gap-8 flex-col items-center md:mt-10 p-6 text-center;
+        @apply gap-8 flex-col items-center p-6 text-center;
     }
     .watchlist-empty {
         @apply flex flex-col items-center justify-center text-center;
@@ -325,16 +325,16 @@
         @apply text-xl md:text-2xl font-bold text-gray-100;
     }
     .watchlist-table {
-        @apply !relative overflow-hidden !w-full bg-gray-800 border !border-gray-600 !rounded-lg;
+        @apply !relative overflow-hidden !w-full rounded-2xl border border-[#273042] bg-[#0d1117]/70;
     }
     .table-header-row {
-        @apply text-gray-400 font-medium bg-gray-700 border-b border-gray-600 hover:bg-gray-700;
+        @apply text-gray-400 font-medium border-b border-[#273042] bg-[#0f1624] hover:bg-[#0f1624];
     }
     .table-header:first-child {
         @apply pl-4;
     }
     .table-row {
-        @apply border-b cursor-pointer text-gray-100 border-gray-600 hover:bg-gray-700/50 transition-colors;
+        @apply cursor-pointer border-b border-[#273042] text-gray-100 transition-colors hover:bg-[#111927];
     }
     .table-cell {
         @apply font-medium text-base
@@ -525,6 +525,56 @@
     background-color: #9095A1;
 }
 
+.indices-marquee-wrapper {
+    overflow: hidden;
+}
+
+.indices-marquee {
+    position: relative;
+    overflow: hidden;
+    mask-image: linear-gradient(to right, transparent 0, black 3%, black 97%, transparent 100%);
+}
+
+.indices-marquee-track {
+    display: flex;
+    width: max-content;
+    animation: indices-marquee-scroll 56s linear infinite;
+    will-change: transform;
+}
+
+.indices-marquee-group {
+    display: flex;
+    flex-shrink: 0;
+    gap: 0.85rem;
+    padding: 0.85rem;
+}
+
+.indices-marquee-item {
+    flex: 0 0 auto;
+}
+
+.indices-marquee:hover .indices-marquee-track,
+.indices-marquee:focus-within .indices-marquee-track {
+    animation-play-state: paused;
+}
+
+@media (max-width: 1023px) {
+    .indices-marquee-track {
+        animation-duration: 44s;
+    }
+
+    .indices-marquee-group {
+        gap: 0.75rem;
+        padding: 0.75rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .indices-marquee-track {
+        animation: none;
+    }
+}
+
 @layer utilities {
     .glass-nav {
         @apply border border-white/10 bg-white/5 backdrop-blur-xl;
@@ -551,6 +601,62 @@
         opacity: 0.15;
         mix-blend-mode: soft-light;
     }
+
+    .bento-page {
+        @apply relative mx-auto w-full max-w-[1780px] space-y-5;
+    }
+
+    .bento-grid {
+        @apply grid grid-cols-1 gap-4 md:gap-5 xl:grid-cols-12;
+    }
+
+    .bento-card {
+        @apply rounded-2xl border border-[#1c2432] bg-[#0d1117]/70 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-sm;
+    }
+
+    .bento-card-soft {
+        @apply rounded-2xl border border-[#273042] bg-[#0b1019]/80 shadow-[0_10px_24px_rgba(0,0,0,0.3)] backdrop-blur-sm;
+    }
+
+    .bento-panel {
+        @apply rounded-xl border border-[#273042] bg-[#0f1624]/70;
+    }
+
+    .bento-title {
+        @apply text-2xl font-semibold text-slate-100;
+    }
+
+    .bento-subtitle {
+        @apply text-sm text-slate-400;
+    }
+
+    .bento-pill {
+        @apply rounded-full border border-[#2a3952] bg-[#1f2f4d] px-3 py-1 text-xs font-semibold text-slate-100;
+    }
+
+    .bento-orb {
+        position: absolute;
+        border-radius: 9999px;
+        pointer-events: none;
+        filter: blur(6px);
+        z-index: 0;
+    }
+
+    .bento-orb-a {
+        width: 360px;
+        height: 360px;
+        top: -140px;
+        right: -120px;
+        background: radial-gradient(circle, rgba(88, 166, 255, 0.26), transparent 70%);
+    }
+
+    .bento-orb-b {
+        width: 420px;
+        height: 420px;
+        bottom: -170px;
+        left: -140px;
+        background: radial-gradient(circle, rgba(15, 237, 190, 0.16), transparent 70%);
+    }
 }
 
 @keyframes chart-float {
@@ -562,6 +668,15 @@
     }
     100% {
         transform: translate3d(0, 0, 0) scale(1);
+    }
+}
+
+@keyframes indices-marquee-scroll {
+    from {
+        transform: translate3d(0, 0, 0);
+    }
+    to {
+        transform: translate3d(-50%, 0, 0);
     }
 }
 

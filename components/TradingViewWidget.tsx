@@ -14,7 +14,11 @@ interface TradingViewWidgetProps {
 
 const TradingViewWidget = ({ title, cspUrl, scripUrl, config, height, className}: TradingViewWidgetProps) => {
     const scriptUrl = cspUrl || scripUrl;
-    const containerRef = useTradingViewWidget(scriptUrl, config, height ?? 600);
+    const configHeight = config.height;
+    const resolvedHeight =
+        height ??
+        (typeof configHeight === "number" || typeof configHeight === "string" ? configHeight : 600);
+    const containerRef = useTradingViewWidget(scriptUrl, config, resolvedHeight);
 
     if (!scriptUrl) {
         return (
@@ -33,7 +37,7 @@ const TradingViewWidget = ({ title, cspUrl, scripUrl, config, height, className}
             <div
                 className={cn('tradingview-widget-container tv-embed w-full', className)}
                 ref={containerRef}
-                style={height ? { height } : undefined}
+                style={{ height: resolvedHeight }}
             />
         </div>
     );

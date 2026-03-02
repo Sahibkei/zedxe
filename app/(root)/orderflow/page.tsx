@@ -475,7 +475,7 @@ const OrderflowPage = () => {
     };
 
     return (
-        <section className="space-y-6 px-4 py-6 md:px-6 min-w-0">
+        <section className="bento-page min-w-0 space-y-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                     <p className="text-xs uppercase tracking-wide text-emerald-400">Orderflow</p>
@@ -505,7 +505,7 @@ const OrderflowPage = () => {
                 </div>
             </div>
 
-            <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 shadow-lg shadow-black/20">
+            <div className="bento-card p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div className="flex flex-wrap items-center gap-3">
                         <div className="flex items-center gap-2">
@@ -574,7 +574,7 @@ const OrderflowPage = () => {
             {hasData ? (
                 <OrderflowSummary {...metrics} />
             ) : (
-                <div className="rounded-xl border border-gray-800 bg-[#0f1115] px-4 py-6 text-center shadow-lg shadow-black/20">
+                <div className="bento-card px-4 py-6 text-center">
                     <p className="text-sm font-semibold text-white">No recent trades</p>
                     <p className="text-xs text-gray-400">
                         We haven’t seen trades in the last {windowMinutes} minute{windowMinutes === 1 ? "" : "s"} for {" "}
@@ -602,7 +602,7 @@ const OrderflowPage = () => {
                 />
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/5 to-black/20 p-5">
+            <div className="bento-card p-5">
                 <div className="mb-3">
                     <div className="text-xs tracking-widest text-white/60">CHART</div>
                     <div className="text-sm text-white/80">Selected symbol: {selectedSymbol}</div>
@@ -622,7 +622,7 @@ const OrderflowPage = () => {
                     <FootprintPanel symbol={selectedSymbol} timeframe={DEFAULT_FOOTPRINT_TIMEFRAME} />
                     {hasData && <OrderflowChart buckets={effectiveBuckets} />}
                     {hasData && <CumulativeDeltaChart data={cumulativeDeltaData} />}
-                    <div className="rounded-xl border border-gray-800 bg-[#0f1115] p-4 text-sm text-gray-400 shadow-lg shadow-black/20">
+                    <div className="bento-card p-4 text-sm text-gray-400">
                         <p>
                             Bucketing trades every <span className="font-semibold text-white">{bucketSizeSeconds}s</span> over the last
                             <span className="font-semibold text-white"> {windowSeconds}s</span>.

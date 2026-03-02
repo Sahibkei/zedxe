@@ -1,14 +1,20 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { CommandDialog, CommandEmpty, CommandInput, CommandList } from "@/components/ui/command"
 import {Button} from "@/components/ui/button";
 import {Loader2,  TrendingUp} from "lucide-react";
 import Link from "next/link";
 import {searchStocks} from "@/lib/actions/finnhub.actions";
 import {useDebounce} from "@/hooks/useDebounce";
+import { cn } from "@/lib/utils";
 
-export default function SearchCommand({ renderAs = 'button', label = 'Add stock', initialStocks }: SearchCommandProps) {
+export default function SearchCommand({
+    renderAs = 'button',
+    label = 'Add stock',
+    textClassName,
+    initialStocks,
+}: SearchCommandProps) {
     const [open, setOpen] = useState(false)
     const [searchTerm, setSearchTerm] = useState("")
     const [loading, setLoading] = useState(false)
@@ -28,7 +34,7 @@ export default function SearchCommand({ renderAs = 'button', label = 'Add stock'
         return () => window.removeEventListener("keydown", onKeyDown)
     }, [])
 
-    const handleSearch = async () => {
+    const handleSearch = useCallback(async () => {
         if(!isSearchMode) return setStocks(initialStocks);
 
         setLoading(true)
@@ -40,13 +46,13 @@ export default function SearchCommand({ renderAs = 'button', label = 'Add stock'
         } finally {
             setLoading(false)
         }
-    }
+    }, [initialStocks, isSearchMode, searchTerm])
 
     const debouncedSearch = useDebounce(handleSearch, 300);
 
     useEffect(() => {
         debouncedSearch();
-    }, [searchTerm]);
+    }, [debouncedSearch]);
 
     const handleSelectStock = () => {
         setOpen(false);
@@ -57,9 +63,9 @@ export default function SearchCommand({ renderAs = 'button', label = 'Add stock'
     return (
         <>
             {renderAs === 'text' ? (
-                <span onClick={() => setOpen(true)} className="search-text">
-            {label}
-          </span>
+                <button type="button" onClick={() => setOpen(true)} className={cn("search-text", textClassName)}>
+                    {label}
+                </button>
             ): (
                 <Button onClick={() => setOpen(true)} className="search-btn">
                     {label}
@@ -83,7 +89,7 @@ export default function SearchCommand({ renderAs = 'button', label = 'Add stock'
                                 {isSearchMode ? 'Search results' : 'Popular stocks'}
                                 {` `}({displayStocks?.length || 0})
                             </div>
-                            {displayStocks?.map((stock, i) => (
+                            {displayStocks?.map((stock) => (
                                 <li key={stock.symbol} className="search-item">
                                     <Link
                                         href={`/stocks/${stock.symbol}`}

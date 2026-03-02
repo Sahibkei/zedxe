@@ -12,7 +12,7 @@ const FeaturedArticle = ({ article }: { article: MarketauxArticle }) => {
     const articleUrl = article.uuid ? `/news/article/${article.uuid}` : article.url ?? "#";
 
     return (
-        <article className="grid gap-6 rounded-2xl border border-gray-800 bg-[#0f1115] p-6 shadow-lg shadow-black/20 md:grid-cols-5">
+        <article className="bento-card grid gap-6 p-6 md:grid-cols-5">
             <div className="md:col-span-2">
                 {article.image_url ? (
                     <img
@@ -22,7 +22,7 @@ const FeaturedArticle = ({ article }: { article: MarketauxArticle }) => {
                         loading="lazy"
                     />
                 ) : (
-                    <div className="flex h-full min-h-64 items-center justify-center rounded-xl border border-dashed border-gray-700 bg-gray-900 text-sm uppercase tracking-wide text-gray-500">
+                    <div className="flex h-full min-h-64 items-center justify-center rounded-xl border border-dashed border-[#2d3a4b] bg-[#0f1624] text-sm uppercase tracking-wide text-gray-500">
                         Featured Image Placeholder
                     </div>
                 )}

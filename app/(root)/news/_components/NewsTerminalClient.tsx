@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import WorldVesselMap from '@/app/(root)/news/_components/WorldVesselMap';
+import { GLOBAL_MARKET_INDEXES } from '@/lib/market/global-indices';
 
 type TerminalNewsItem = {
     id: string;
@@ -18,13 +19,6 @@ type LiveChannel = {
     key: string;
     label: string;
     embedUrl: string;
-};
-
-type GlobalIndex = {
-    label: string;
-    symbol: string;
-    name: string;
-    region: string;
 };
 
 type Quote = {
@@ -55,21 +49,7 @@ const LIVE_NEWS_CHANNELS: LiveChannel[] = [
     { key: 'yfinance', label: 'YFinance', embedUrl: 'https://www.youtube.com/embed/KQp-e_XQnDE' },
 ];
 
-const GLOBAL_MARKET_INDEXES: GlobalIndex[] = [
-    { label: 'S&P 500', symbol: '^GSPC', name: 'US Index', region: 'US' },
-    { label: 'NASDAQ 100', symbol: '^NDX', name: 'US Index', region: 'US' },
-    { label: 'Dow Jones', symbol: '^DJI', name: 'US Index', region: 'US' },
-    { label: 'Russell 2000', symbol: '^RUT', name: 'US Index', region: 'US' },
-    { label: 'Euro Stoxx 50', symbol: '^STOXX50E', name: 'Europe Index', region: 'Europe' },
-    { label: 'FTSE 100', symbol: '^FTSE', name: 'UK Index', region: 'Europe' },
-    { label: 'DAX', symbol: '^GDAXI', name: 'Germany Index', region: 'Europe' },
-    { label: 'Nikkei 225', symbol: '^N225', name: 'Japan Index', region: 'Asia' },
-    { label: 'Hang Seng', symbol: '^HSI', name: 'Hong Kong Index', region: 'Asia' },
-    { label: 'Nifty 50', symbol: '^NSEI', name: 'India Index', region: 'Asia' },
-    { label: 'Bovespa', symbol: '^BVSP', name: 'Brazil Index', region: 'Americas' },
-];
-
-const sectionClass = 'rounded-xl border border-[#273042] bg-[#0b1019]/80 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-sm';
+const sectionClass = 'bento-card-soft';
 const topRowPanelClass = 'xl:h-[640px]';
 const INDEX_REFRESH_MS = 20_000;
 const DEFAULT_FEAR_GREED_SCORE = 46;
@@ -177,7 +157,7 @@ const NewsTerminalClient = ({ items, generatedAt }: Props) => {
     const fearGreedState = fearGreedLabel(fearGreedScore);
 
     return (
-        <section className="mx-auto w-full max-w-[1820px] px-2 pb-8">
+        <section className="bento-page">
             <div className={`${sectionClass} mb-3 flex items-center justify-between px-4 py-3`}>
                 <div className="flex items-center gap-3 text-sm">
                     <span className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 font-semibold text-emerald-300">NEWS</span>

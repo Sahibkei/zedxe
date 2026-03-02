@@ -7,7 +7,7 @@ import MarketOverviewCard from '@/components/dashboard/MarketOverviewCard';
 import MarketNews from '@/components/dashboard/MarketNews';
 import TopMovers from '@/components/dashboard/TopMovers';
 import type { MarketMover } from '@/lib/market/movers';
-import { INDICES } from '@/lib/market/indices';
+import { GLOBAL_MARKET_INDEXES } from '@/lib/market/global-indices';
 import type { MarketQuote } from '@/lib/market/providers';
 
 type Props = {
@@ -32,7 +32,16 @@ type MoversApiResponse = {
     losers?: MarketMover[];
 };
 
-const REFRESH_INTERVAL_MS = 160000;
+type IndicesApiResponse = {
+    quotes?: Array<{
+        symbol: string;
+        price: number;
+        change: number;
+        changePercent: number;
+    }>;
+};
+
+const REFRESH_INTERVAL_MS = 30000;
 
 const toMarketQuoteMap = (data: QuotesApiResponse): Record<string, MarketQuote | null> => {
     const quoteEntries =
@@ -55,8 +64,7 @@ const DashboardLiveClient = ({ stocks, initialQuotes, initialIndexQuotes, initia
     const isMounted = useRef(true);
 
     const symbols = useMemo(() => stocks.map((stock) => stock.symbol.toUpperCase()), [stocks]);
-    const indexSymbols = useMemo(() => INDICES.map((index) => index.symbol.toUpperCase()), []);
-    const allSymbols = useMemo(() => Array.from(new Set([...symbols, ...indexSymbols])), [symbols, indexSymbols]);
+    const indexSymbols = useMemo(() => GLOBAL_MARKET_INDEXES.map((index) => index.symbol.toUpperCase()), []);
 
     useEffect(() => {
         isMounted.current = true;
@@ -66,7 +74,7 @@ const DashboardLiveClient = ({ stocks, initialQuotes, initialIndexQuotes, initia
     }, []);
 
     useEffect(() => {
-        if (!allSymbols.length) return;
+        if (!symbols.length) return;
 
         let intervalId: ReturnType<typeof setInterval> | null = null;
         let inflightController: AbortController | null = null;
@@ -75,12 +83,16 @@ const DashboardLiveClient = ({ stocks, initialQuotes, initialIndexQuotes, initia
             try {
                 inflightController?.abort();
                 inflightController = new AbortController();
-                const [quotesResponse, moversResponse] = await Promise.all([
-                    fetch(`/api/quotes?symbols=${allSymbols.join(',')}`, {
+                const [quotesResponse, moversResponse, indicesResponse] = await Promise.all([
+                    fetch(`/api/quotes?symbols=${symbols.join(',')}`, {
                         signal: inflightController.signal,
                         cache: 'no-store',
                     }),
                     fetch('/api/market/movers?count=50', {
+                        signal: inflightController.signal,
+                        cache: 'no-store',
+                    }),
+                    fetch(`/api/market/indices?symbols=${encodeURIComponent(indexSymbols.join(','))}`, {
                         signal: inflightController.signal,
                         cache: 'no-store',
                     }),
@@ -97,13 +109,7 @@ const DashboardLiveClient = ({ stocks, initialQuotes, initialIndexQuotes, initia
                         return acc;
                     }, {});
 
-                    const nextIndexQuotes = indexSymbols.reduce<Record<string, MarketQuote | null>>((acc, symbol) => {
-                        acc[symbol] = merged[symbol] ?? null;
-                        return acc;
-                    }, {});
-
                     setQuotes(nextStockQuotes);
-                    setIndexQuotes(nextIndexQuotes);
                 }
 
                 if (moversResponse.ok) {
@@ -114,6 +120,18 @@ const DashboardLiveClient = ({ stocks, initialQuotes, initialIndexQuotes, initia
                     if (Array.isArray(moversPayload.losers) && moversPayload.losers.length) {
                         setLosers(moversPayload.losers);
                     }
+                }
+
+                if (indicesResponse.ok) {
+                    const payload = (await indicesResponse.json()) as IndicesApiResponse;
+                    const merged = toMarketQuoteMap(payload);
+
+                    const nextIndexQuotes = indexSymbols.reduce<Record<string, MarketQuote | null>>((acc, symbol) => {
+                        acc[symbol] = merged[symbol] ?? null;
+                        return acc;
+                    }, {});
+
+                    setIndexQuotes(nextIndexQuotes);
                 }
             } catch (error) {
                 if ((error as Error).name !== 'AbortError') {
@@ -138,7 +156,7 @@ const DashboardLiveClient = ({ stocks, initialQuotes, initialIndexQuotes, initia
             inflightController?.abort();
             document.removeEventListener('visibilitychange', onVisibilityChange);
         };
-    }, [allSymbols, symbols, indexSymbols]);
+    }, [symbols, indexSymbols]);
 
     const topGainers = gainers.slice(0, 5).map((item) => ({
         symbol: item.symbol,
@@ -155,28 +173,28 @@ const DashboardLiveClient = ({ stocks, initialQuotes, initialIndexQuotes, initia
     }));
 
     return (
-        <div className="min-h-screen bg-[#010409] text-slate-100">
-            <div className="mx-auto w-full max-w-[1800px] px-6 pb-12 pt-24">
-                <div className="space-y-6">
-                    <IndicesStrip quotes={indexQuotes} />
-                    <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[460px_1fr]">
-                        <section className="space-y-6">
-                            <div>
-                                <h1 className="mb-3 text-xl font-semibold text-slate-100">Market Overview</h1>
-                                <MarketOverviewCard />
-                            </div>
-                            <MarketList stocks={stocks} quotes={quotes} />
-                        </section>
+        <div className="bento-page">
+            <section className="bento-card px-5 py-4 md:px-6">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Market Desk</p>
+                <h1 className="mt-1 text-3xl font-semibold text-slate-100">Overview</h1>
+                <p className="mt-1 text-sm text-slate-400">Bento-aligned live snapshot of indices, movers, and headlines.</p>
+            </section>
 
-                        <section className="flex flex-col gap-6">
-                            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                                <TopMovers title="Top Gainers" movers={topGainers} viewAllHref="/markets/movers?tab=gainers" />
-                                <TopMovers title="Top Losers" movers={topLosers} viewAllHref="/markets/movers?tab=losers" />
-                            </div>
-                            <MarketNews />
-                        </section>
+            <IndicesStrip quotes={indexQuotes} />
+
+            <div className="bento-grid items-start">
+                <section className="space-y-5 xl:col-span-4">
+                    <MarketOverviewCard />
+                    <MarketList stocks={stocks} quotes={quotes} />
+                </section>
+
+                <section className="space-y-5 xl:col-span-8">
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                        <TopMovers title="Top Gainers" movers={topGainers} viewAllHref="/markets/movers?tab=gainers" />
+                        <TopMovers title="Top Losers" movers={topLosers} viewAllHref="/markets/movers?tab=losers" />
                     </div>
-                </div>
+                    <MarketNews />
+                </section>
             </div>
         </div>
     );

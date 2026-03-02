@@ -48,14 +48,14 @@ const MarketNews = () => {
     }, []);
 
     return (
-        <div className="rounded-2xl border border-[#1c2432] bg-[#0d1117]/70">
-            <div className="flex items-center justify-between border-b border-[#1c2432] px-4 py-3">
+        <div className="bento-card overflow-hidden">
+            <div className="flex items-center justify-between border-b border-[#273042] px-4 py-3">
                 <p className="text-sm font-mono text-slate-400">Market News</p>
                 <a className="text-xs font-mono text-slate-500 hover:text-slate-300" href="/news">
                     View All
                 </a>
             </div>
-            <div className="divide-y divide-[#1c2432]">
+            <div className="divide-y divide-[#273042]">
                 {isLoading ? (
                     <div className="px-4 py-6 text-xs font-mono text-slate-500">Loading market news...</div>
                 ) : items.length ? (

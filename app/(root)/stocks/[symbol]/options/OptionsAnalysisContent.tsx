@@ -243,7 +243,7 @@ export default function OptionsAnalysisContent({ symbol, companyName }: OptionsA
     const smileTYears = analysis?.tYears ?? null;
 
     return (
-        <div className="mx-auto w-full max-w-7xl px-4 md:px-6 py-8 space-y-8">
+        <div className="bento-page max-w-7xl space-y-8 py-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="space-y-2">
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Derivatives</p>
@@ -732,7 +732,7 @@ function ModelSetup({
 
                 {selectedExpiryExists && !chain && !loadingData && (
                     <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-                        Click "Fetch Data" to retrieve spot and option chain data for this expiry.
+                        Click &quot;Fetch Data&quot; to retrieve spot and option chain data for this expiry.
                     </div>
                 )}
 

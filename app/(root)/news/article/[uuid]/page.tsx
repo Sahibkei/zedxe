@@ -20,7 +20,7 @@ const NewsArticlePage = async ({ params, searchParams }: NewsArticlePageProps) =
 
     if (!uuid) {
         return (
-            <div className="max-w-3xl mx-auto px-4 py-16">
+            <div className="bento-page max-w-3xl py-16">
                 <h1 className="text-2xl font-semibold text-white">Article not found</h1>
                 <p className="mt-2 text-gray-400">
                     We couldn&apos;t find this article. It may have expired or been removed.
@@ -45,7 +45,7 @@ const NewsArticlePage = async ({ params, searchParams }: NewsArticlePageProps) =
 
     if (!article) {
         return (
-            <div className="max-w-3xl mx-auto px-4 py-16">
+            <div className="bento-page max-w-3xl py-16">
                 <h1 className="text-2xl font-semibold text-white">Article not found</h1>
                 <p className="mt-2 text-gray-400">
                     We couldn&apos;t load this article. It may have expired or been removed.
@@ -66,7 +66,7 @@ const NewsArticlePage = async ({ params, searchParams }: NewsArticlePageProps) =
     const externalUrl = article.url ?? "#";
 
     return (
-        <article className="max-w-3xl mx-auto px-4 py-10 space-y-6">
+        <article className="bento-page max-w-3xl space-y-6 py-6">
             <header className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-emerald-400">
                     News Article
@@ -82,7 +82,7 @@ const NewsArticlePage = async ({ params, searchParams }: NewsArticlePageProps) =
             </header>
 
             {imageUrl && (
-                <div className="overflow-hidden rounded-xl border border-gray-800 bg-black/40">
+                <div className="bento-card overflow-hidden rounded-xl bg-black/40">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                         src={imageUrl}
@@ -105,7 +105,7 @@ const NewsArticlePage = async ({ params, searchParams }: NewsArticlePageProps) =
                 </p>
             )}
 
-            <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-gray-800 pt-6">
+            <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-[#273042] pt-6">
                 <Link
                     href={backHref}
                     className="text-sm text-gray-400 hover:text-gray-200"
