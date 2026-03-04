@@ -1,13 +1,13 @@
 export const WIN_PROB_COLORSCALE: Array<[number, string]> = [
     [0, "#0b1320"],
-    [0.55, "#0ea5e9"],
-    [1, "#22c55e"],
+    [0.4, "#1d4ed8"],
+    [1, "#38bdf8"],
 ];
 
 export const MEAN_FWD_DIVERGING_COLORSCALE: Array<[number, string]> = [
-    [0, "#ef4444"],
-    [0.5, "#0b0f14"],
-    [1, "#22c55e"],
+    [0, "#2563eb"],
+    [0.5, "#f8fafc"],
+    [1, "#ef4444"],
 ];
 
 const quantile = (values: number[], q: number) => {
@@ -64,7 +64,25 @@ export const robustSymmetricRange = (values: number[], p = 0.98) => {
     if (!finite.length) {
         return { zmin: -1, zmax: 1 };
     }
+    const clampedP = Math.min(0.499, Math.max(0.001, p));
     const absValues = finite.map((value) => Math.abs(value));
-    const maxAbs = quantile(absValues, p) || Math.max(...absValues);
-    return { zmin: -maxAbs, zmax: maxAbs };
+    const quantileAbs = quantile(absValues, clampedP);
+    let maxAbs = Number.isFinite(quantileAbs) && quantileAbs > 0 ? quantileAbs : Math.max(...absValues);
+    if (!Number.isFinite(maxAbs) || maxAbs === 0) {
+        const fallback = Math.max(...absValues);
+        maxAbs = Number.isFinite(fallback) && fallback > 0 ? fallback : 1;
+    }
+    const zmin = -maxAbs;
+    const zmax = maxAbs;
+    if (!Number.isFinite(zmin) || !Number.isFinite(zmax) || zmin === zmax) {
+        const min = Math.min(...finite);
+        const max = Math.max(...finite);
+        const safeMin = Number.isFinite(min) ? min : -1;
+        const safeMax = Number.isFinite(max) ? max : 1;
+        if (safeMin === safeMax) {
+            return { zmin: safeMin - 1, zmax: safeMax + 1 };
+        }
+        return { zmin: safeMin, zmax: safeMax };
+    }
+    return { zmin, zmax };
 };
