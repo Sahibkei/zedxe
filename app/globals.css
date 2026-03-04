@@ -570,6 +570,7 @@
     --terminal-down: #d94f45;
     --terminal-accent: #2794ff;
     --terminal-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+
     min-height: 100vh;
     background: var(--terminal-bg);
     color: var(--terminal-text);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import TerminalSidebar from '@/components/terminal/TerminalSidebar';
 import TerminalTopBar from '@/components/terminal/TerminalTopBar';
 
@@ -12,7 +12,8 @@ const TerminalShellClient = ({ children }: { children: React.ReactNode }) => {
     const [sidebarHidden, setSidebarHidden] = useState<boolean>(false);
     const [settingsLoaded, setSettingsLoaded] = useState(false);
 
-    useEffect(() => {
+    // Apply persisted settings before paint to reduce first-frame theme/sidebar flicker.
+    useLayoutEffect(() => {
         try {
             const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
             const storedSidebar = localStorage.getItem(SIDEBAR_STORAGE_KEY);

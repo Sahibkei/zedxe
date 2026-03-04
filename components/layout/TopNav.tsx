@@ -40,7 +40,7 @@ const TopNav = ({ user, initialStocks }: TopNavProps) => {
                         href="/terminal/dashboard"
                         className="hidden h-10 items-center rounded-xl border border-[#2a3f5e] bg-gradient-to-b from-[#1d2a3d] to-[#131d2e] px-4 text-sm font-semibold text-slate-100 transition hover:border-[#3d5f8f] hover:text-white sm:inline-flex"
                     >
-                        Acess Terminal
+                        Access Terminal
                     </Link>
                     <div className="hidden sm:block">
                         <UserDropdown user={user} initialStocks={initialStocks} />
@@ -65,7 +65,7 @@ const TopNav = ({ user, initialStocks }: TopNavProps) => {
                         onClick={() => setMenuOpen(false)}
                         className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-[#2a3f5e] bg-gradient-to-b from-[#1d2a3d] to-[#131d2e] px-4 text-sm font-semibold text-slate-100 transition hover:border-[#3d5f8f] hover:text-white"
                     >
-                        Acess Terminal
+                        Access Terminal
                     </Link>
                     <div className="sm:hidden">
                         <UserDropdown user={user} initialStocks={initialStocks} />

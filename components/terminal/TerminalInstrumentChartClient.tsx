@@ -242,7 +242,9 @@ const TerminalInstrumentChartClient = () => {
                         ].join('<br/>');
                     }
 
-                    const value = Number(params[0]?.value ?? point.c);
+                    const rawValue = params[0]?.value;
+                    const seriesYValue = Array.isArray(rawValue) ? rawValue[1] : rawValue;
+                    const value = Number(seriesYValue ?? point.c);
                     if (mode === 'percent') {
                         return `<strong>${formatDateLong(point.t)}</strong><br/>${toTicker(symbol)}: ${value.toFixed(2)}%`;
                     }
@@ -468,7 +470,7 @@ const TerminalInstrumentChartClient = () => {
                     </div>
                     <p className="text-xl font-semibold">{displayName}</p>
                     <p className="text-sm terminal-muted">
-                        {symbol} {latestPrice !== null ? `• ${formatPrice(latestPrice, payload?.currency ?? 'USD')}` : ''}{' '}
+                        {symbol} {latestPrice !== null ? `| ${formatPrice(latestPrice, payload?.currency ?? 'USD')}` : ''}{' '}
                         {change !== null && changePct !== null ? (
                             <span className={cn(change >= 0 ? 'terminal-up' : 'terminal-down')}>
                                 ({change >= 0 ? '+' : ''}

@@ -20,17 +20,31 @@ const inferRegion = (article: MarketauxArticle): TerminalNewsItem['region'] => {
     return 'world';
 };
 
-const normalizeItem = (article: MarketauxArticle, index: number): TerminalNewsItem => {
+const sanitizeExternalUrl = (url: string | undefined) => {
+    const candidate = (url ?? '').trim();
+    if (!candidate) return '#';
+    try {
+        const parsed = new URL(candidate);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            return parsed.toString();
+        }
+    } catch {
+        return '#';
+    }
+    return '#';
+};
+
+const normalizeItem = (article: MarketauxArticle, index: number, forcedRegion?: TerminalNewsItem['region']): TerminalNewsItem => {
     const title = (article.title ?? '').trim() || 'Untitled headline';
     const summary = (article.snippet ?? article.description ?? '').trim() || 'No summary available.';
     return {
         id: article.uuid ?? `${title}-${index}`,
         title,
         source: (article.source ?? 'Unknown source').trim(),
-        url: article.url ?? '#',
+        url: sanitizeExternalUrl(article.url),
         summary,
         publishedAt: article.published_at ?? null,
-        region: inferRegion(article),
+        region: forcedRegion ?? inferRegion(article),
     };
 };
 
@@ -75,14 +89,36 @@ export const TERMINAL_FALLBACK_ITEMS: TerminalNewsItem[] = [
 
 export const loadTerminalNewsItems = async () => {
     try {
-        const [pageOne, pageTwo] = await Promise.all([fetchNews(1), fetchNews(2)]);
-        const allArticles = [...(pageOne.data ?? []), ...(pageTwo.data ?? [])];
-        const items = allArticles
-            .filter((article) => article?.title && article?.url)
-            .map(normalizeItem)
-            .slice(0, 40);
+        const [world, us, europe, middleEast] = await Promise.all([
+            fetchNews(1, { countries: 'us,gb,de,fr,it,es,in,jp,au,ca' }),
+            fetchNews(1, { countries: 'us' }),
+            fetchNews(1, { countries: 'gb,de,fr,it,es,nl,se,ch' }),
+            fetchNews(1, { countries: 'ae,sa,qa,il,eg,tr' }),
+        ]);
 
-        if (items.length) return items;
+        const regionalArticles: Array<{ region: TerminalNewsItem['region']; data: MarketauxArticle[] }> = [
+            { region: 'world', data: world.data ?? [] },
+            { region: 'us', data: us.data ?? [] },
+            { region: 'europe', data: europe.data ?? [] },
+            { region: 'middle-east', data: middleEast.data ?? [] },
+        ];
+
+        const seen = new Set<string>();
+        const items: TerminalNewsItem[] = [];
+        for (const panel of regionalArticles) {
+            for (const article of panel.data) {
+                if (!article?.title) continue;
+                const normalized = normalizeItem(article, items.length, panel.region);
+                if (normalized.url === '#') continue;
+                if (seen.has(normalized.url)) continue;
+                seen.add(normalized.url);
+                items.push(normalized);
+            }
+        }
+
+        const cappedItems = items.slice(0, 40);
+
+        if (cappedItems.length) return cappedItems;
     } catch (error) {
         console.error('[loadTerminalNewsItems] Failed to fetch MarketAux feed', error);
     }

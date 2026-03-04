@@ -7,6 +7,7 @@ export const revalidate = 0;
 const DEFAULT_SYMBOLS = ["^GSPC", "^NDX", "^DJI"] as const;
 const MAX_SYMBOLS = 8;
 const CACHE_TTL_MS = 30_000;
+const MAX_CACHE_ENTRIES = 240;
 
 const RANGE_CONFIG: Record<
     string,
@@ -15,7 +16,7 @@ const RANGE_CONFIG: Record<
         yahooInterval: string;
     }
 > = {
-    "1D": { yahooRange: "5d", yahooInterval: "30m" },
+    "1D": { yahooRange: "1d", yahooInterval: "5m" },
     "1M": { yahooRange: "1mo", yahooInterval: "1d" },
     "3M": { yahooRange: "3mo", yahooInterval: "1d" },
     "YTD": { yahooRange: "ytd", yahooInterval: "1d" },
@@ -66,14 +67,51 @@ type PerformanceResponse = {
 const cache = new Map<string, { expiresAt: number; payload: PerformanceResponse }>();
 
 const parseSymbols = (symbolsParam: string | null) => {
-    const rawSymbols = symbolsParam
+    const normalizedSymbols = symbolsParam
         ? symbolsParam
               .split(",")
               .map((symbol) => symbol.trim().toUpperCase())
               .filter(Boolean)
-        : [...DEFAULT_SYMBOLS];
+        : [];
 
+    const rawSymbols = normalizedSymbols.length ? normalizedSymbols : [...DEFAULT_SYMBOLS];
     return Array.from(new Set(rawSymbols)).slice(0, MAX_SYMBOLS);
+};
+
+const pruneExpiredCacheEntries = (now: number) => {
+    for (const [key, entry] of cache) {
+        if (entry.expiresAt <= now) {
+            cache.delete(key);
+        }
+    }
+};
+
+const getCachedPayload = (cacheKey: string): PerformanceResponse | null => {
+    const now = Date.now();
+    const cached = cache.get(cacheKey);
+    if (!cached) return null;
+    if (cached.expiresAt <= now) {
+        cache.delete(cacheKey);
+        return null;
+    }
+
+    // Refresh insertion order so older keys are evicted first.
+    cache.delete(cacheKey);
+    cache.set(cacheKey, cached);
+    return cached.payload;
+};
+
+const setCachedPayload = (cacheKey: string, payload: PerformanceResponse) => {
+    const now = Date.now();
+    pruneExpiredCacheEntries(now);
+    cache.delete(cacheKey);
+    cache.set(cacheKey, { expiresAt: now + CACHE_TTL_MS, payload });
+
+    while (cache.size > MAX_CACHE_ENTRIES) {
+        const oldestKey = cache.keys().next().value as string | undefined;
+        if (!oldestKey) break;
+        cache.delete(oldestKey);
+    }
 };
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
@@ -141,10 +179,9 @@ export async function GET(request: Request) {
     const range = parseRange(searchParams.get("range"));
     const symbols = parseSymbols(searchParams.get("symbols"));
     const cacheKey = `${range}:${symbols.join(",")}`;
-    const cached = cache.get(cacheKey);
-
-    if (cached && cached.expiresAt > Date.now()) {
-        return NextResponse.json(cached.payload);
+    const cachedPayload = getCachedPayload(cacheKey);
+    if (cachedPayload) {
+        return NextResponse.json(cachedPayload);
     }
 
     const settled = await Promise.allSettled(symbols.map((symbol) => fetchSeries(symbol, range)));
@@ -159,6 +196,6 @@ export async function GET(request: Request) {
         series,
     };
 
-    cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, payload });
+    setCachedPayload(cacheKey, payload);
     return NextResponse.json(payload);
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type JSX, type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { cn } from '@/lib/utils';
@@ -409,6 +409,7 @@ const TerminalDashboardClient = () => {
 
     const gridRef = useRef<HTMLDivElement | null>(null);
     const resizeSessionRef = useRef<ResizeSession | null>(null);
+    const pendingLayoutPayloadRef = useRef<string | null>(null);
 
     const activeChannel = LIVE_CHANNELS.find((item) => item.key === selectedChannel) ?? LIVE_CHANNELS[0];
 
@@ -500,8 +501,26 @@ const TerminalDashboardClient = () => {
     }, []);
 
     useEffect(() => {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ order, layouts }));
+        const payload = JSON.stringify({ order, layouts });
+        pendingLayoutPayloadRef.current = payload;
+
+        const timer = window.setTimeout(() => {
+            if (!pendingLayoutPayloadRef.current) return;
+            localStorage.setItem(STORAGE_KEY, pendingLayoutPayloadRef.current);
+            pendingLayoutPayloadRef.current = null;
+        }, 220);
+
+        return () => window.clearTimeout(timer);
     }, [order, layouts]);
+
+    useEffect(
+        () => () => {
+            if (!pendingLayoutPayloadRef.current) return;
+            localStorage.setItem(STORAGE_KEY, pendingLayoutPayloadRef.current);
+            pendingLayoutPayloadRef.current = null;
+        },
+        []
+    );
 
     useEffect(() => {
         const grid = gridRef.current;

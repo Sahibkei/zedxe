@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const CACHE_TTL_MS = 30_000;
+const MAX_CACHE_ENTRIES = 300;
 const DEFAULT_SYMBOL = "^GSPC";
 
 const RANGE_CONFIG: Record<
@@ -77,15 +78,50 @@ const parseRange = (raw: string | null) => {
     return RANGE_CONFIG[normalized] ? normalized : "1Y";
 };
 
+const pruneExpiredCacheEntries = (now: number) => {
+    for (const [key, entry] of cache) {
+        if (entry.expiresAt <= now) {
+            cache.delete(key);
+        }
+    }
+};
+
+const getCachedPayload = (cacheKey: string): HistoryResponse | null => {
+    const now = Date.now();
+    const cached = cache.get(cacheKey);
+    if (!cached) return null;
+    if (cached.expiresAt <= now) {
+        cache.delete(cacheKey);
+        return null;
+    }
+
+    // Refresh insertion order so oldest entries are evicted first.
+    cache.delete(cacheKey);
+    cache.set(cacheKey, cached);
+    return cached.payload;
+};
+
+const setCachedPayload = (cacheKey: string, payload: HistoryResponse) => {
+    const now = Date.now();
+    pruneExpiredCacheEntries(now);
+    cache.delete(cacheKey);
+    cache.set(cacheKey, { expiresAt: now + CACHE_TTL_MS, payload });
+
+    while (cache.size > MAX_CACHE_ENTRIES) {
+        const oldestKey = cache.keys().next().value as string | undefined;
+        if (!oldestKey) break;
+        cache.delete(oldestKey);
+    }
+};
+
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const symbol = (searchParams.get("symbol") ?? DEFAULT_SYMBOL).trim().toUpperCase();
     const range = parseRange(searchParams.get("range"));
     const cacheKey = `${symbol}:${range}`;
-    const cached = cache.get(cacheKey);
-
-    if (cached && cached.expiresAt > Date.now()) {
-        return NextResponse.json(cached.payload);
+    const cachedPayload = getCachedPayload(cacheKey);
+    if (cachedPayload) {
+        return NextResponse.json(cachedPayload);
     }
 
     const config = RANGE_CONFIG[range];
@@ -177,6 +213,6 @@ export async function GET(request: Request) {
         points,
     };
 
-    cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, payload: response });
+    setCachedPayload(cacheKey, response);
     return NextResponse.json(response);
 }

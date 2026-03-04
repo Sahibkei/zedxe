@@ -1,6 +1,6 @@
 import NewsTerminalPageContent from '@/components/terminal/NewsTerminalPageContent';
 
-const NewsTerminalPage = async () => {
+const NewsTerminalPage = () => {
     return <NewsTerminalPageContent />;
 };
 
