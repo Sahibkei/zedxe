@@ -56,6 +56,9 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                         <Link href="#features" className="transition hover:text-white">
                             Features
                         </Link>
+                        <Link href="/blog" className="transition hover:text-white">
+                            Blog
+                        </Link>
                     </nav>
                     <div className="flex items-center gap-3">
                         {isSignedIn ? (
@@ -111,6 +114,9 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                             </Link>
                             <Link href="#features" onClick={() => setIsOpen(false)} className="transition hover:text-white">
                                 Features
+                            </Link>
+                            <Link href="/blog" onClick={() => setIsOpen(false)} className="transition hover:text-white">
+                                Blog
                             </Link>
                             {isSignedIn ? (
                                 <>
