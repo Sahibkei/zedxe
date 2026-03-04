@@ -36,6 +36,12 @@ const TopNav = ({ user, initialStocks }: TopNavProps) => {
                 </nav>
 
                 <div className="flex items-center justify-self-end gap-2">
+                    <Link
+                        href="/terminal/dashboard"
+                        className="hidden h-10 items-center rounded-xl border border-[#2a3f5e] bg-gradient-to-b from-[#1d2a3d] to-[#131d2e] px-4 text-sm font-semibold text-slate-100 transition hover:border-[#3d5f8f] hover:text-white sm:inline-flex"
+                    >
+                        Acess Terminal
+                    </Link>
                     <div className="hidden sm:block">
                         <UserDropdown user={user} initialStocks={initialStocks} />
                     </div>
@@ -54,6 +60,13 @@ const TopNav = ({ user, initialStocks }: TopNavProps) => {
             <div className={`${menuOpen ? "block" : "hidden"} border-t border-[#1c2432] bg-[#0a0e14] lg:hidden`}>
                 <div className="container space-y-4 py-4">
                     <NavItems initialStocks={initialStocks} />
+                    <Link
+                        href="/terminal/dashboard"
+                        onClick={() => setMenuOpen(false)}
+                        className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-[#2a3f5e] bg-gradient-to-b from-[#1d2a3d] to-[#131d2e] px-4 text-sm font-semibold text-slate-100 transition hover:border-[#3d5f8f] hover:text-white"
+                    >
+                        Acess Terminal
+                    </Link>
                     <div className="sm:hidden">
                         <UserDropdown user={user} initialStocks={initialStocks} />
                     </div>

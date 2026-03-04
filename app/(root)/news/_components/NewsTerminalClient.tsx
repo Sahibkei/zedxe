@@ -4,16 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import WorldVesselMap from '@/app/(root)/news/_components/WorldVesselMap';
 import { GLOBAL_MARKET_INDEXES } from '@/lib/market/global-indices';
-
-type TerminalNewsItem = {
-    id: string;
-    title: string;
-    source: string;
-    url: string;
-    summary: string;
-    publishedAt: string | null;
-    region: 'world' | 'us' | 'europe' | 'middle-east';
-};
+import type { TerminalNewsItem } from '@/lib/news/terminal-items';
 
 type LiveChannel = {
     key: string;

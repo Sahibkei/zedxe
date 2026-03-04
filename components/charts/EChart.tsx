@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react";
 import dynamic from "next/dynamic";
-import type { EChartsOption } from "echarts";
+import type { EChartsOption, EChartsType } from "echarts";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), {
     ssr: false,
@@ -13,6 +13,7 @@ type EChartProps = {
     style?: CSSProperties;
     className?: string;
     onEvents?: Record<string, (params: unknown) => void>;
+    onChartReady?: (chart: EChartsType) => void;
     notMerge?: boolean;
     lazyUpdate?: boolean;
 };
@@ -27,6 +28,7 @@ export default function EChart({
     style,
     className,
     onEvents,
+    onChartReady,
     notMerge = true,
     lazyUpdate = true,
 }: EChartProps) {
@@ -36,6 +38,7 @@ export default function EChart({
             style={style}
             className={className}
             onEvents={onEvents}
+            onChartReady={onChartReady}
             notMerge={notMerge}
             lazyUpdate={lazyUpdate}
         />
