@@ -4,6 +4,13 @@ const MARKET_AUX_BASE_URL = "https://api.marketaux.com/v1/news/all";
 const MARKET_AUX_ARTICLE_URL = "https://api.marketaux.com/v1/news/uuid";
 export const DEFAULT_LIMIT = 10;
 const PUBLISHED_AFTER_DAYS = 14;
+const DEFAULT_COUNTRIES = "us";
+const DEFAULT_LANGUAGE = "en";
+
+type FetchNewsOptions = {
+    countries?: string;
+    language?: string;
+};
 
 const extractErrorMessage = (bodyText: string): string | undefined => {
     const trimmed = bodyText.trim();
@@ -44,7 +51,7 @@ const buildPublishedAfterDate = (): string | null => {
     return computedDate.toISOString().slice(0, 10);
 };
 
-export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
+export const fetchNews = async (page: number, options: FetchNewsOptions = {}): Promise<MarketauxResponse> => {
     const apiToken = process.env.MARKETAUX_API_TOKEN;
 
     if (!apiToken) {
@@ -53,10 +60,12 @@ export const fetchNews = async (page: number): Promise<MarketauxResponse> => {
     }
 
     const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+    const countries = options.countries?.trim() || DEFAULT_COUNTRIES;
+    const language = options.language?.trim() || DEFAULT_LANGUAGE;
 
     const params = new URLSearchParams({
-        countries: "us",
-        language: "en",
+        countries,
+        language,
         filter_entities: "true",
         limit: DEFAULT_LIMIT.toString(),
         page: safePage.toString(),

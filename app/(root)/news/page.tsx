@@ -83,7 +83,7 @@ const NewsPage = async ({ searchParams }: NewsPageProps) => {
                     <p className="text-gray-400">Stay on top of market-moving headlines and deep-dive analyses.</p>
                 </div>
                 <Link
-                    href="/news/terminal"
+                    href="/terminal/news-terminal"
                     className="bento-pill rounded-lg px-4 py-2 text-sm transition hover:border-[#4a6ea5] hover:text-white"
                 >
                     Open News Terminal
