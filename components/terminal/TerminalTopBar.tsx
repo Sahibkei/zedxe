@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 const resolveTitle = (pathname: string) => {
     if (pathname.startsWith('/terminal/news-terminal')) return 'Market News';
     if (pathname.startsWith('/terminal/chart')) return 'Chart';
+    if (pathname.startsWith('/terminal/constituents')) return 'Constituents';
     return "Today's Markets";
 };
 
