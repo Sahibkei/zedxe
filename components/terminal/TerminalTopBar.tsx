@@ -22,6 +22,7 @@ type Props = {
 const TerminalTopBar = ({ theme, sidebarHidden, onToggleTheme, onToggleSidebar }: Props) => {
     const pathname = usePathname();
     const title = resolveTitle(pathname);
+    const classicHref = pathname.startsWith('/terminal/news-terminal') ? '/news' : '/dashboard';
     const now = new Date();
     const dateLabel = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     const timeLabel = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -62,7 +63,7 @@ const TerminalTopBar = ({ theme, sidebarHidden, onToggleTheme, onToggleSidebar }
                     {theme === 'dark' ? 'Light' : 'Dark'}
                 </button>
                 <Link
-                    href="/news/terminal"
+                    href={classicHref}
                     className="terminal-top-chip"
                 >
                     Classic

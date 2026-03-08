@@ -840,6 +840,7 @@
 
 .terminal-bento-grid {
     display: grid;
+    grid-auto-flow: dense;
     grid-template-columns: repeat(12, minmax(0, 1fr));
     gap: 0.75rem;
     grid-auto-rows: 150px;
