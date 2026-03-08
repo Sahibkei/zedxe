@@ -4,6 +4,7 @@ import { type ComponentType, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic';
 import type { PlotParams } from 'react-plotly.js';
 import { ChartSpline, Download, Globe2, Plus, Radar, RefreshCw, X } from 'lucide-react';
+import TerminalNewsMarketBoard, { type NewsTabKey } from '@/components/terminal/TerminalNewsMarketBoard';
 import { cn } from '@/lib/utils';
 
 const Plot = dynamic(() => import('react-plotly.js'), {
@@ -221,6 +222,7 @@ const buildHistoryCacheKey = (metric: Exclude<MacroMetricKey, 'none'>, iso3: str
 
 const TerminalNewsGlobeClient = () => {
     const [selectedMetric, setSelectedMetric] = useState<MacroMetricKey>('none');
+    const [activeNewsTab, setActiveNewsTab] = useState<NewsTabKey>('topNews');
     const [metricCache, setMetricCache] = useState<Partial<Record<Exclude<MacroMetricKey, 'none'>, MacroPayload>>>({});
     const [metricError, setMetricError] = useState<string | null>(null);
     const [isLoadingMetric, setIsLoadingMetric] = useState(false);
@@ -670,7 +672,9 @@ const TerminalNewsGlobeClient = () => {
                 </div>
             </div>
 
-            <div className="terminal-bento-grid">
+            <TerminalNewsMarketBoard activeTab={activeNewsTab} onActiveTabChange={setActiveNewsTab} />
+
+            {activeNewsTab === 'topNews' ? <div className="terminal-bento-grid">
                 <article className="terminal-widget col-span-2 row-span-4 overflow-hidden md:col-span-6 xl:col-span-8">
                     <header className="terminal-widget-head">
                         <div>
@@ -865,7 +869,7 @@ const TerminalNewsGlobeClient = () => {
                                 value={primaryCountryIso}
                                 onChange={(event) => setPrimaryCountryIso(event.target.value)}
                                 disabled={selectedMetric === 'none' || !sortedCountries.length}
-                                className="h-9 min-w-44 rounded-lg border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-3 text-sm text-[var(--terminal-foreground)] outline-none transition focus:border-[var(--terminal-accent)] disabled:opacity-50"
+                                className="h-9 min-w-44 rounded-lg border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-3 text-sm text-[var(--terminal-text)] outline-none transition focus:border-[var(--terminal-accent)] disabled:opacity-50"
                             >
                                 <option value="">Primary country...</option>
                                 {sortedCountries.map((country) => (
@@ -883,7 +887,7 @@ const TerminalNewsGlobeClient = () => {
                                     !primaryCountryIso ||
                                     compareCountryIsos.length >= MAX_COMPARE_COUNTRIES
                                 }
-                                className="h-9 min-w-44 rounded-lg border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-3 text-sm text-[var(--terminal-foreground)] outline-none transition focus:border-[var(--terminal-accent)] disabled:opacity-50"
+                                className="h-9 min-w-44 rounded-lg border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-3 text-sm text-[var(--terminal-text)] outline-none transition focus:border-[var(--terminal-accent)] disabled:opacity-50"
                             >
                                 <option value="">Compare country...</option>
                                 {comparisonOptions.map((country) => (
@@ -947,7 +951,7 @@ const TerminalNewsGlobeClient = () => {
                                                 onClick={() =>
                                                     setCompareCountryIsos((prev) => prev.filter((item) => item !== iso3))
                                                 }
-                                                className="text-[var(--terminal-muted)] transition hover:text-[var(--terminal-foreground)]"
+                                                className="text-[var(--terminal-muted)] transition hover:text-[var(--terminal-text)]"
                                                 aria-label={`Remove ${country?.country ?? iso3}`}
                                             >
                                                 <X className="h-3.5 w-3.5" />
@@ -1108,7 +1112,7 @@ const TerminalNewsGlobeClient = () => {
                         )}
                     </div>
                 </article>
-            </div>
+            </div> : null}
         </section>
     );
 };
