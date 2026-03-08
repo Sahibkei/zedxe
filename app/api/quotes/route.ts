@@ -111,6 +111,8 @@ export async function GET(request: Request) {
 
     try {
         const staleQuoteMap = new Map<string, Quote>((cached?.payload.quotes ?? []).map((quote) => [quote.symbol, quote]));
+        let sawRateLimit = false;
+        const otherFailures: string[] = [];
 
         const settled = await Promise.allSettled(symbols.map((symbol) => fetchFinnhubQuote(symbol, apiKey)));
         const quotes: Quote[] = symbols
@@ -119,10 +121,22 @@ export async function GET(request: Request) {
                 if (!result) return staleQuoteMap.get(symbol);
                 if (result.status === "fulfilled") return result.value;
 
-                console.error("Quote fetch failed for symbol", symbol, result.reason);
+                const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+                if (reason.includes("429")) {
+                    sawRateLimit = true;
+                } else {
+                    otherFailures.push(`${symbol}: ${reason}`);
+                }
                 return staleQuoteMap.get(symbol);
             })
             .filter((quote): quote is Quote => Boolean(quote));
+
+        if (sawRateLimit) {
+            console.warn(`[quotes] Finnhub rate-limited (429). Served stale/mixed data for ${symbols.length} symbols.`);
+        }
+        if (otherFailures.length) {
+            console.warn(`[quotes] Some symbols failed: ${otherFailures.join(" | ")}`);
+        }
 
         if (!quotes.length && cached?.payload) {
             return NextResponse.json(cached.payload);
