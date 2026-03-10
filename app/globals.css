@@ -487,6 +487,17 @@
     display: block !important;
 }
 
+.terminal-shell[data-terminal-theme='light'] .terminal-economic-calendar {
+    background-color: var(--terminal-panel-soft) !important;
+}
+
+.terminal-shell[data-terminal-theme='light'] .terminal-economic-calendar,
+.terminal-shell[data-terminal-theme='light'] .terminal-economic-calendar .tradingview-widget-container__widget,
+.terminal-shell[data-terminal-theme='light'] .terminal-economic-calendar .tv-embed-widget-wrapper__body,
+.terminal-shell[data-terminal-theme='light'] .terminal-economic-calendar iframe {
+    background-color: var(--terminal-panel-soft) !important;
+}
+
 .custom-chart.tradingview-widget-container iframe {
     border: 1px solid #30333A;
     border-radius: 8px !important;

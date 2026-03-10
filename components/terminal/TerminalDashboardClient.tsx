@@ -1,10 +1,20 @@
 'use client';
 
-import { type CSSProperties, type JSX, type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    cloneElement,
+    type CSSProperties,
+    type JSX,
+    type MouseEvent as ReactMouseEvent,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 import Link from 'next/link';
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { cn } from '@/lib/utils';
-import { GripVertical, LayoutGrid, Plus, RefreshCw, RotateCcw, Save, Sparkles, Trash2, X } from 'lucide-react';
+import { Expand, GripVertical, LayoutGrid, Plus, RefreshCw, RotateCcw, Save, Sparkles, Trash2, X } from 'lucide-react';
 import TerminalEconomicCalendarWidget from '@/components/terminal/TerminalEconomicCalendarWidget';
 import TerminalMarketHeatmapWidget from '@/components/terminal/TerminalMarketHeatmapWidget';
 import TerminalPortfolioSnapshotWidget, {
@@ -133,6 +143,17 @@ type TableRow = {
         onToggle: () => void;
         label: string;
     };
+};
+
+type ExpandedTickerItem = {
+    key: string;
+    symbol: string;
+    ticker: string;
+    name: string;
+    price: number | null;
+    change: number | null;
+    changePercent: number | null;
+    href: string;
 };
 
 type ChartDatum = {
@@ -289,6 +310,14 @@ const CHART_TICKER_ALIAS: Record<string, string> = {
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));
 const formatSigned = (value: number, digits = 2) => `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
+const formatExpandedPrice = (value: number | null) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
+    const digits = value >= 1000 ? 2 : value >= 100 ? 2 : value >= 1 ? 2 : 4;
+    return value.toLocaleString('en-US', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+    });
+};
 
 const formatChartTick = (value: number, range: (typeof CHART_RANGES)[number]['key']) => {
     if (!Number.isFinite(value)) return '--';
@@ -451,6 +480,8 @@ const getTerminalPalette = (theme: 'dark' | 'light') =>
               text: '#e4e9f2',
               muted: '#9ea8b8',
               accent: '#2794ff',
+              up: '#00a86b',
+              down: '#d94f45',
           }
         : {
               panel: '#f3f5f8',
@@ -460,6 +491,8 @@ const getTerminalPalette = (theme: 'dark' | 'light') =>
               text: '#111827',
               muted: '#556277',
               accent: '#1376d3',
+              up: '#0d8f5d',
+              down: '#c43e34',
           };
 
 const buildAutoAdjustedState = (visibleOrder: WidgetId[], maxColumns: number) => {
@@ -744,6 +777,7 @@ const TerminalDashboardClient = () => {
     const [layoutDraftName, setLayoutDraftName] = useState(PRIMARY_DEFAULT_LAYOUT.name);
     const [isWidgetDialogOpen, setIsWidgetDialogOpen] = useState(false);
     const [isLayoutDialogOpen, setIsLayoutDialogOpen] = useState(false);
+    const [expandedWidgetId, setExpandedWidgetId] = useState<WidgetId | null>(null);
     const [terminalTheme, setTerminalTheme] = useState<'dark' | 'light'>(() => readTerminalTheme());
     const [dragging, setDragging] = useState<WidgetId | null>(null);
     const [resizing, setResizing] = useState<WidgetId | null>(null);
@@ -764,10 +798,13 @@ const TerminalDashboardClient = () => {
 
     const [selectedChannel, setSelectedChannel] = useState(LIVE_CHANNELS[0].key);
     const [chartRangeKey, setChartRangeKey] = useState<(typeof CHART_RANGES)[number]['key']>('1Y');
+    const [expandedRangeKey, setExpandedRangeKey] = useState<(typeof CHART_RANGES)[number]['key']>('1Y');
     const [selectedChartSymbols, setSelectedChartSymbols] = useState<string[]>(CHART_DEFAULT_SYMBOLS);
     const [chartSeries, setChartSeries] = useState<PerformanceSeries[]>([]);
+    const [expandedTickerSeries, setExpandedTickerSeries] = useState<PerformanceSeries[]>([]);
     const [chartUpdatedAt, setChartUpdatedAt] = useState<string | null>(null);
     const [isChartLoading, setIsChartLoading] = useState(false);
+    const [isExpandedTickerLoading, setIsExpandedTickerLoading] = useState(false);
 
     const gridRef = useRef<HTMLDivElement | null>(null);
     const resizeSessionRef = useRef<ResizeSession | null>(null);
@@ -798,6 +835,81 @@ const TerminalDashboardClient = () => {
             }) satisfies CSSProperties,
         [terminalPalette, terminalTheme]
     );
+
+    const expandedTickerItems = useMemo<ExpandedTickerItem[]>(() => {
+        if (!expandedWidgetId) return [];
+
+        const toItems = (
+            entries: Array<{ symbol: string; label: string }>,
+            quoteMap: Record<string, TerminalQuote>
+        ) =>
+            entries.map((entry) => {
+                const key = entry.symbol.toUpperCase();
+                const quote = quoteMap[key];
+                return {
+                    key,
+                    symbol: entry.symbol,
+                    ticker: CHART_TICKER_ALIAS[key] ?? entry.symbol.replace('^', ''),
+                    name: entry.label,
+                    price: quote?.price ?? null,
+                    change: quote?.change ?? null,
+                    changePercent: quote?.changePercent ?? null,
+                    href: buildTerminalChartHref(entry.symbol, entry.label),
+                } satisfies ExpandedTickerItem;
+            });
+
+        if (expandedWidgetId === 'usMarkets') return toItems(US_INDEXES, usIndexMap);
+        if (expandedWidgetId === 'usSectors') return toItems(US_SECTORS, usSectorsMap);
+        if (expandedWidgetId === 'globalMarkets') return toItems(GLOBAL_MARKETS, globalMap);
+        if (expandedWidgetId === 'currencies') return toItems(CURRENCIES, currencyMap);
+        if (expandedWidgetId === 'commodities') return toItems(COMMODITIES, commodityMap);
+        if (expandedWidgetId === 'watchList') {
+            return WATCHLIST_SYMBOLS.map((symbol) => {
+                const key = symbol.toUpperCase();
+                const quote = watchMap[key];
+                return {
+                    key,
+                    symbol,
+                    ticker: symbol,
+                    name: symbol,
+                    price: quote?.price ?? null,
+                    change: quote?.change ?? null,
+                    changePercent: quote?.changePercent ?? null,
+                    href: buildTerminalChartHref(symbol, symbol),
+                } satisfies ExpandedTickerItem;
+            });
+        }
+        if (expandedWidgetId === 'topGainers' || expandedWidgetId === 'topLosers') {
+            const items = expandedWidgetId === 'topGainers' ? movers.gainers ?? [] : movers.losers ?? [];
+            return items.slice(0, 16).map((item) => ({
+                key: item.symbol,
+                symbol: item.symbol,
+                ticker: item.symbol,
+                name: item.name,
+                price: item.price,
+                change: null,
+                changePercent: item.changePercent,
+                href: buildTerminalChartHref(item.symbol, item.name),
+            }));
+        }
+
+        return [];
+    }, [commodityMap, currencyMap, expandedWidgetId, globalMap, movers.gainers, movers.losers, usIndexMap, usSectorsMap, watchMap]);
+
+    const expandedTickerSeriesMap = useMemo(
+        () =>
+            expandedTickerSeries.reduce<Record<string, PerformanceSeries>>((acc, series) => {
+                acc[series.symbol.toUpperCase()] = series;
+                return acc;
+            }, {}),
+        [expandedTickerSeries]
+    );
+
+    const expandedWidgetAllowsChartSelection =
+        expandedWidgetId === 'usMarkets' ||
+        expandedWidgetId === 'globalMarkets' ||
+        expandedWidgetId === 'currencies' ||
+        expandedWidgetId === 'commodities';
 
     const chartUniverseMap = useMemo(() => {
         const merged = [...US_INDEXES, ...GLOBAL_MARKETS, ...CURRENCIES, ...COMMODITIES];
@@ -1166,6 +1278,50 @@ const TerminalDashboardClient = () => {
         };
     }, [refreshChartData]);
 
+    useEffect(() => {
+        if (!expandedWidgetId || !expandedTickerItems.length) {
+            setExpandedTickerSeries([]);
+            setIsExpandedTickerLoading(false);
+            return;
+        }
+
+        let isMounted = true;
+        const controller = new AbortController();
+
+        const loadExpandedTickerSeries = async () => {
+            setIsExpandedTickerLoading(true);
+            try {
+                const response = await fetch(
+                    `/api/market/performance?range=${expandedRangeKey}&symbols=${encodeURIComponent(
+                        expandedTickerItems.map((item) => item.symbol).join(',')
+                    )}`,
+                    { cache: 'no-store', signal: controller.signal }
+                );
+
+                if (!response.ok) {
+                    if (isMounted) setExpandedTickerSeries([]);
+                    return;
+                }
+
+                const payload = (await response.json()) as PerformanceApiResponse;
+                if (!isMounted) return;
+                setExpandedTickerSeries(payload.series ?? []);
+            } catch (error) {
+                if ((error as Error).name === 'AbortError' || !isMounted) return;
+                console.error('Expanded widget performance refresh failed', error);
+                setExpandedTickerSeries([]);
+            } finally {
+                if (isMounted) setIsExpandedTickerLoading(false);
+            }
+        };
+
+        void loadExpandedTickerSeries();
+        return () => {
+            isMounted = false;
+            controller.abort();
+        };
+    }, [expandedRangeKey, expandedTickerItems, expandedWidgetId]);
+
     const refreshAll = useCallback(async () => {
         await Promise.all([refreshData(true), refreshChartData(true)]);
     }, [refreshData, refreshChartData]);
@@ -1278,6 +1434,9 @@ const TerminalDashboardClient = () => {
         setOrder((prev) => {
             if (prev.includes(id)) {
                 if (prev.length === 1) return prev;
+                if (expandedWidgetId === id) {
+                    setExpandedWidgetId(null);
+                }
                 return prev.filter((item) => item !== id);
             }
 
@@ -1772,6 +1931,187 @@ const TerminalDashboardClient = () => {
                 </DialogContent>
             </Dialog>
 
+            <Dialog open={Boolean(expandedWidgetId)} onOpenChange={(open) => !open && setExpandedWidgetId(null)}>
+                <DialogContent
+                    className="flex h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-none flex-col overflow-hidden border-[var(--terminal-border)] !bg-[var(--terminal-panel)] p-0 text-[var(--terminal-text)] sm:max-w-none"
+                    style={dialogSurfaceStyle}
+                >
+                    {expandedWidgetId ? (
+                        <>
+                            <DialogHeader className="border-b border-[var(--terminal-border)] px-6 py-4 pr-14">
+                                <DialogTitle>{WIDGET_TITLES[expandedWidgetId]}</DialogTitle>
+                                <DialogDescription className="text-[var(--terminal-muted)]">
+                                    Full view for the selected dashboard widget.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="min-h-0 flex-1 overflow-hidden p-4">
+                                <article className="terminal-widget h-full overflow-hidden">
+                                    {expandedTickerItems.length ? (
+                                        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                                            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--terminal-border)] px-4 py-3">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    {CHART_RANGES.map((range) => (
+                                                        <button
+                                                            key={`expanded-${range.key}`}
+                                                            type="button"
+                                                            onClick={() => setExpandedRangeKey(range.key)}
+                                                            className={cn(
+                                                                'terminal-mini-btn',
+                                                                expandedRangeKey === range.key && 'terminal-mini-btn-active'
+                                                            )}
+                                                        >
+                                                            {range.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-3 text-xs terminal-muted">
+                                                    {expandedWidgetAllowsChartSelection ? (
+                                                        <span>
+                                                            {selectedChartSymbols.length}/{CHART_SYMBOL_LIMIT} selected for chart
+                                                        </span>
+                                                    ) : null}
+                                                    <span>
+                                                        {isExpandedTickerLoading
+                                                            ? 'Loading widget performance...'
+                                                            : `${expandedTickerItems.length} tickers in view`}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            <div className="min-h-0 flex-1 overflow-auto">
+                                                <div className="min-w-[1080px]">
+                                                    <div
+                                                        className="grid gap-3 border-b border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] terminal-muted"
+                                                        style={{
+                                                            gridTemplateColumns: expandedWidgetAllowsChartSelection
+                                                                ? '40px 120px minmax(220px,1.45fr) 120px 110px 110px 100px'
+                                                                : '120px minmax(220px,1.45fr) 120px 110px 110px 100px',
+                                                        }}
+                                                    >
+                                                        {expandedWidgetAllowsChartSelection ? (
+                                                            <span className="text-center">Sel</span>
+                                                        ) : null}
+                                                        <span>Ticker</span>
+                                                        <span>Name</span>
+                                                        <span className="text-right">Last Price</span>
+                                                        <span className="text-right">1-Day %</span>
+                                                        <span className="text-right">Return</span>
+                                                        <span className="text-right">Chart</span>
+                                                    </div>
+
+                                                    {expandedTickerItems.map((item) => {
+                                                        const series = expandedTickerSeriesMap[item.symbol.toUpperCase()];
+                                                        const points = series?.points ?? [];
+                                                        const firstPoint = points[0];
+                                                        const lastPoint = points[points.length - 1];
+                                                        const rangeReturn =
+                                                            firstPoint &&
+                                                            lastPoint &&
+                                                            Number.isFinite(firstPoint.close) &&
+                                                            Number.isFinite(lastPoint.close) &&
+                                                            firstPoint.close !== 0
+                                                                ? ((lastPoint.close - firstPoint.close) / firstPoint.close) * 100
+                                                                : null;
+
+                                                        return (
+                                                            <div
+                                                                key={`expanded-row-${item.key}`}
+                                                                className="grid items-center gap-3 border-b border-[var(--terminal-border)] px-4 py-3 text-sm last:border-b-0"
+                                                                style={{
+                                                                    gridTemplateColumns: expandedWidgetAllowsChartSelection
+                                                                        ? '40px 120px minmax(220px,1.45fr) 120px 110px 110px 100px'
+                                                                        : '120px minmax(220px,1.45fr) 120px 110px 110px 100px',
+                                                                }}
+                                                            >
+                                                                {expandedWidgetAllowsChartSelection ? (
+                                                                    <div className="flex justify-center">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={selectedChartSymbolSet.has(item.symbol.toUpperCase())}
+                                                                            onChange={() => toggleChartSymbol(item.symbol)}
+                                                                            aria-label={`Show ${item.name} in chart`}
+                                                                            className="terminal-check-input"
+                                                                        />
+                                                                    </div>
+                                                                ) : null}
+                                                                <div className="min-w-0">
+                                                                    <Link href={item.href} className="terminal-ticker-link text-sm font-semibold">
+                                                                        {item.ticker}
+                                                                    </Link>
+                                                                    <p className="mt-1 truncate text-xs terminal-muted">{item.symbol}</p>
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="truncate font-semibold">{item.name}</p>
+                                                                    <p className="mt-1 text-xs terminal-muted">
+                                                                        {CHART_TICKER_ALIAS[item.symbol.toUpperCase()] ? 'Terminal chart available' : 'Live dashboard feed'}
+                                                                    </p>
+                                                                </div>
+                                                                <span className="text-right font-medium">{formatExpandedPrice(item.price)}</span>
+                                                                <span
+                                                                    className={cn(
+                                                                        'text-right font-medium',
+                                                                        typeof item.changePercent === 'number' ? '' : 'terminal-muted'
+                                                                    )}
+                                                                    style={
+                                                                        typeof item.changePercent === 'number'
+                                                                            ? {
+                                                                                  color:
+                                                                                      item.changePercent >= 0
+                                                                                          ? terminalPalette.up
+                                                                                          : terminalPalette.down,
+                                                                              }
+                                                                            : undefined
+                                                                    }
+                                                                >
+                                                                    {typeof item.changePercent === 'number'
+                                                                        ? `${item.changePercent >= 0 ? '+' : ''}${item.changePercent.toFixed(2)}%`
+                                                                        : '--'}
+                                                                </span>
+                                                                <span
+                                                                    className={cn(
+                                                                        'text-right font-medium',
+                                                                        typeof rangeReturn === 'number' ? '' : 'terminal-muted'
+                                                                    )}
+                                                                    style={
+                                                                        typeof rangeReturn === 'number'
+                                                                            ? {
+                                                                                  color:
+                                                                                      rangeReturn >= 0
+                                                                                          ? terminalPalette.up
+                                                                                          : terminalPalette.down,
+                                                                              }
+                                                                            : undefined
+                                                                    }
+                                                                >
+                                                                    {typeof rangeReturn === 'number'
+                                                                        ? `${rangeReturn >= 0 ? '+' : ''}${rangeReturn.toFixed(2)}%`
+                                                                        : '--'}
+                                                                </span>
+                                                                <div className="flex justify-end">
+                                                                    <Link href={item.href} className="terminal-mini-btn px-2.5 py-1">
+                                                                        Open
+                                                                    </Link>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                                            {cloneElement(widgetContent[expandedWidgetId], {
+                                                key: `expanded-${expandedWidgetId}`,
+                                            })}
+                                        </div>
+                                    )}
+                                </article>
+                            </div>
+                        </>
+                    ) : null}
+                </DialogContent>
+            </Dialog>
+
             <div ref={gridRef} className="terminal-bento-grid">
                 {order.map((id) => {
                     const layout = layouts[id];
@@ -1790,6 +2130,18 @@ const TerminalDashboardClient = () => {
                             <header className="terminal-widget-head">
                                 <p className="text-sm font-semibold">{WIDGET_TITLES[id]}</p>
                                 <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            setExpandedWidgetId(id);
+                                        }}
+                                        className="terminal-mini-btn px-2 py-1"
+                                        title={`Open ${WIDGET_TITLES[id]} in full view`}
+                                        aria-label={`Open ${WIDGET_TITLES[id]} in full view`}
+                                    >
+                                        <Expand className="h-3.5 w-3.5" />
+                                    </button>
                                     <button
                                         type="button"
                                         onClick={(event) => {

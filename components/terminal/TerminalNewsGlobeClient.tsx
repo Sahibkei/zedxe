@@ -649,29 +649,6 @@ const TerminalNewsGlobeClient = () => {
 
     return (
         <section className="space-y-3">
-            <div className="terminal-banner">
-                <div>
-                    <p className="terminal-banner-kicker">Market News Globe</p>
-                    <p className="text-sm terminal-muted">
-                        Interactive globe with rotating default view and macro heat overlays for GDP, inflation, rates, unemployment, and debt.
-                    </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="terminal-series-chip">Auto rotate</span>
-                    <span className="terminal-series-chip">Drag to move</span>
-                    <span
-                        className={cn(
-                            'terminal-series-chip',
-                            selectedMetric === 'none'
-                                ? 'border-[var(--terminal-border)]'
-                                : 'border-[var(--terminal-accent)] text-[var(--terminal-accent)]'
-                        )}
-                    >
-                        {METRIC_OPTIONS.find((option) => option.key === selectedMetric)?.label ?? 'Default Globe'}
-                    </span>
-                </div>
-            </div>
-
             <TerminalNewsMarketBoard activeTab={activeNewsTab} onActiveTabChange={setActiveNewsTab} />
 
             {activeNewsTab === 'topNews' ? <div className="terminal-bento-grid">

@@ -29,7 +29,7 @@ const TerminalEconomicCalendarWidget = () => {
     const config = useMemo(
         () => ({
             colorTheme: theme,
-            isTransparent: true,
+            isTransparent: false,
             width: '100%',
             height: '100%',
             locale: 'en',
@@ -42,7 +42,12 @@ const TerminalEconomicCalendarWidget = () => {
 
     return (
         <div className="h-full min-h-0 p-2">
-            <TradingViewWidget cspUrl={SCRIPT_URL} config={config} height="100%" className="h-full w-full rounded border border-[var(--terminal-border)]" />
+            <TradingViewWidget
+                cspUrl={SCRIPT_URL}
+                config={config}
+                height="100%"
+                className="terminal-economic-calendar h-full w-full rounded border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)]"
+            />
         </div>
     );
 };

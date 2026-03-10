@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import {
     ArrowUpRight,
@@ -58,6 +59,7 @@ type CorporateEventItem = {
 const NEWS_REFRESH_MS = 60_000;
 const INDEX_REFRESH_MS = 30_000;
 const NEWS_LIMIT = 16;
+const INDEX_CONSTITUENTS_SYMBOLS = new Set(['^GSPC', '^NDX', '^DJI']);
 
 const TAB_ITEMS: Array<{ key: NewsTabKey; label: string; icon: typeof Newspaper }> = [
     { key: 'topNews', label: 'Top News', icon: Newspaper },
@@ -94,6 +96,25 @@ const toTone = (value: number | null | undefined) => {
     if (value > 0) return 'text-emerald-300';
     if (value < 0) return 'text-rose-300';
     return 'text-[var(--terminal-text)]';
+};
+
+const buildTerminalChartHref = (symbol: string, label: string) =>
+    `/terminal/chart?symbol=${encodeURIComponent(symbol)}&label=${encodeURIComponent(label)}`;
+
+const scoreGlobalImpact = (item: MarketNewsItem) => {
+    const headline = item.headline.toLowerCase();
+    const hoursAgo = Math.max(0, (Date.now() - item.datetime * 1000) / 3_600_000);
+    const impactPatterns: RegExp[] = [
+        /\bfed\b|\bfomc\b|ecb|boj|boe|central bank/,
+        /inflation|cpi|ppi|jobs|payrolls|gdp|recession|rates?/,
+        /war|attack|missile|sanction|tariff|ceasefire|oil|crude|opec/,
+        /china|europe|eurozone|united states|u\.s\.|japan|iran|russia/,
+        /treasury|bond|yield|currency|dollar|yen|euro/,
+    ];
+    const patternScore = impactPatterns.reduce((score, pattern) => score + (pattern.test(headline) ? 3 : 0), 0);
+    const sourceScore = /reuters|bloomberg|financial times|wall street journal|cnbc/i.test(item.source) ? 2 : 1;
+    const recencyScore = Math.max(0, 6 - Math.min(hoursAgo, 6));
+    return patternScore + sourceScore + recencyScore;
 };
 
 const classifyCorporateEvent = (item: MarketNewsItem): CorporateEventItem | null => {
@@ -209,6 +230,13 @@ const TerminalNewsMarketBoard = ({ activeTab, onActiveTabChange }: Props) => {
 
     const topNewsPrimary = useMemo(() => newsItems.slice(0, 6), [newsItems]);
     const topNewsLatest = useMemo(() => newsItems.slice(6, 14), [newsItems]);
+    const featuredGlobalNews = useMemo(
+        () =>
+            [...newsItems]
+                .sort((left, right) => scoreGlobalImpact(right) - scoreGlobalImpact(left))
+                .at(0) ?? null,
+        [newsItems]
+    );
 
     const corporateEvents = useMemo(() => {
         const classified = newsItems.map(classifyCorporateEvent).filter((item): item is CorporateEventItem => item !== null);
@@ -343,24 +371,111 @@ const TerminalNewsMarketBoard = ({ activeTab, onActiveTabChange }: Props) => {
     );
 
     const renderGlobalMarkets = () => (
-        <div className="grid min-h-[560px] gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="grid min-h-[560px] gap-3 p-3">
+            <section className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-4">
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
+                    <a
+                        href={featuredGlobalNews?.url ?? '#'}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={cn(
+                            'group rounded-xl border border-[var(--terminal-border)] bg-[color-mix(in_srgb,var(--terminal-panel)_72%,black)] p-4 transition',
+                            featuredGlobalNews
+                                ? 'hover:border-[var(--terminal-accent)] hover:bg-[color-mix(in_srgb,var(--terminal-accent)_7%,var(--terminal-panel))]'
+                                : 'pointer-events-none'
+                        )}
+                    >
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--terminal-accent)]">
+                            Global Impact
+                        </p>
+                        <div className="mt-3 flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <p className="line-clamp-3 text-lg font-semibold">
+                                    {featuredGlobalNews?.headline ?? 'Waiting for the highest-impact global headline.'}
+                                </p>
+                                <p className="mt-2 text-sm terminal-muted">
+                                    {featuredGlobalNews
+                                        ? `${featuredGlobalNews.source} | ${featuredGlobalNews.category || 'Global'} | ${formatRelative(featuredGlobalNews.datetime)}`
+                                        : 'Live headlines will populate here as the market news feed refreshes.'}
+                                </p>
+                                <p className="mt-3 text-xs terminal-muted">
+                                    {featuredGlobalNews
+                                        ? 'Selected from the live tape using macro, geopolitics, and cross-market impact signals.'
+                                        : 'Using the same live market news feed as the rest of the board.'}
+                                </p>
+                            </div>
+                            <ExternalLink className="mt-1 h-4 w-4 shrink-0 text-[var(--terminal-muted)] transition group-hover:text-[var(--terminal-accent)]" />
+                        </div>
+                    </a>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-xl border border-[var(--terminal-border)] bg-[color-mix(in_srgb,var(--terminal-panel)_65%,black)] p-4">
+                            <p className="text-[11px] uppercase tracking-[0.16em] terminal-muted">Advancing</p>
+                            <p className="mt-2 text-2xl font-semibold">{marketStats.advancing}</p>
+                            <p className="mt-1 text-xs terminal-muted">Indexes printing green</p>
+                        </div>
+                        <div className="rounded-xl border border-[var(--terminal-border)] bg-[color-mix(in_srgb,var(--terminal-panel)_65%,black)] p-4">
+                            <p className="text-[11px] uppercase tracking-[0.16em] terminal-muted">Declining</p>
+                            <p className="mt-2 text-2xl font-semibold">{marketStats.declining}</p>
+                            <p className="mt-1 text-xs terminal-muted">Indexes printing red</p>
+                        </div>
+                        <div className="rounded-xl border border-[var(--terminal-border)] bg-[color-mix(in_srgb,var(--terminal-panel)_65%,black)] p-4">
+                            <p className="text-[11px] uppercase tracking-[0.16em] terminal-muted">Average Move</p>
+                            <p className={cn('mt-2 text-2xl font-semibold', toTone(marketStats.averageMove))}>
+                                {typeof marketStats.averageMove === 'number'
+                                    ? `${marketStats.averageMove > 0 ? '+' : ''}${marketStats.averageMove.toFixed(2)}%`
+                                    : '--'}
+                            </p>
+                            <p className="mt-1 text-xs terminal-muted">
+                                {quotesUpdatedAt ? `Updated ${formatRelative(quotesUpdatedAt)}` : 'Waiting for quotes'}
+                            </p>
+                        </div>
+                        <div className="rounded-xl border border-[var(--terminal-border)] bg-[color-mix(in_srgb,var(--terminal-panel)_65%,black)] p-4">
+                            <p className="text-[11px] uppercase tracking-[0.16em] terminal-muted">Coverage</p>
+                            <p className="mt-2 text-2xl font-semibold">{marketStats.total || '--'}</p>
+                            <p className="mt-1 text-xs terminal-muted">Tracked global benchmarks</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <section className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)]">
-                <div className="grid grid-cols-[0.8fr_2fr_1fr_1fr] border-b border-[var(--terminal-border)] px-4 py-3 text-[11px] uppercase tracking-[0.16em] terminal-muted">
+                <div className="flex items-center justify-between gap-3 border-b border-[var(--terminal-border)] px-4 py-3">
+                    <div>
+                        <p className="text-sm font-semibold">Global Indexes</p>
+                        <p className="mt-1 text-xs terminal-muted">
+                            Open any row for the terminal chart and index detail view.
+                        </p>
+                    </div>
+                    <span className="text-xs terminal-muted">
+                        {quotesLoading ? 'Refreshing quotes...' : `${globalMarketRows.length} tracked benchmarks`}
+                    </span>
+                </div>
+                <div className="grid grid-cols-[0.85fr_2fr_1fr_1fr_auto] border-b border-[var(--terminal-border)] px-4 py-3 text-[11px] uppercase tracking-[0.16em] terminal-muted">
                     <span>Ticker</span>
                     <span>Market</span>
                     <span className="text-right">Price</span>
                     <span className="text-right">Move</span>
+                    <span className="text-right">Profile</span>
                 </div>
                 <div className="divide-y divide-[var(--terminal-border)]">
                     {globalMarketRows.map((row) => (
-                        <div key={row.symbol} className="grid grid-cols-[0.8fr_2fr_1fr_1fr] items-center gap-3 px-4 py-3">
+                        <Link
+                            key={row.symbol}
+                            href={buildTerminalChartHref(row.symbol, row.label)}
+                            className="grid grid-cols-[0.85fr_2fr_1fr_1fr_auto] items-center gap-3 px-4 py-3 transition hover:bg-[color-mix(in_srgb,var(--terminal-accent)_7%,var(--terminal-panel-soft))] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--terminal-accent)]"
+                            aria-label={`Open ${row.label} index profile`}
+                        >
                             <div>
                                 <p className="text-sm font-semibold">{row.ticker}</p>
                                 <p className="text-xs terminal-muted">{row.region}</p>
                             </div>
                             <div className="min-w-0">
                                 <p className="truncate text-sm font-semibold">{row.label}</p>
-                                <p className="truncate text-xs terminal-muted">{row.quote?.name ?? row.name}</p>
+                                <p className="truncate text-xs terminal-muted">
+                                    {row.quote?.name ?? row.name}
+                                    {INDEX_CONSTITUENTS_SYMBOLS.has(row.symbol) ? ' | Constituents available' : ''}
+                                </p>
                             </div>
                             <p className="text-right text-sm font-semibold">
                                 {typeof row.quote?.price === 'number' ? formatIndexPrice.format(row.quote.price) : '--'}
@@ -377,44 +492,28 @@ const TerminalNewsMarketBoard = ({ activeTab, onActiveTabChange }: Props) => {
                                         : '--'}
                                 </p>
                             </div>
-                        </div>
+                            <span className="justify-self-end rounded-full border border-[var(--terminal-border)] px-2 py-1 text-[11px] font-semibold text-[var(--terminal-accent)]">
+                                Open
+                            </span>
+                        </Link>
                     ))}
                 </div>
             </section>
-
-            <div className="grid gap-3">
-                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-4">
-                    <p className="text-[11px] uppercase tracking-[0.16em] terminal-muted">Advancing</p>
-                    <p className="mt-2 text-3xl font-semibold">{marketStats.advancing}</p>
-                    <p className="mt-1 text-xs terminal-muted">Indexes printing green</p>
-                </div>
-                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-4">
-                    <p className="text-[11px] uppercase tracking-[0.16em] terminal-muted">Declining</p>
-                    <p className="mt-2 text-3xl font-semibold">{marketStats.declining}</p>
-                    <p className="mt-1 text-xs terminal-muted">Indexes printing red</p>
-                </div>
-                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-4">
-                    <p className="text-[11px] uppercase tracking-[0.16em] terminal-muted">Average Move</p>
-                    <p className={cn('mt-2 text-3xl font-semibold', toTone(marketStats.averageMove))}>
-                        {typeof marketStats.averageMove === 'number'
-                            ? `${marketStats.averageMove > 0 ? '+' : ''}${marketStats.averageMove.toFixed(2)}%`
-                            : '--'}
-                    </p>
-                    <p className="mt-1 text-xs terminal-muted">
-                        {quotesUpdatedAt ? `Updated ${formatRelative(quotesUpdatedAt)}` : 'Waiting for quotes'}
-                    </p>
-                </div>
-                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-4">
-                    <p className="text-[11px] uppercase tracking-[0.16em] terminal-muted">Coverage</p>
-                    <p className="mt-2 text-3xl font-semibold">{marketStats.total || '--'}</p>
-                    <p className="mt-1 text-xs terminal-muted">Tracked global benchmarks</p>
-                </div>
-            </div>
         </div>
     );
 
     const renderCorporateEvents = () => (
-        <div className="grid min-h-[560px] gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="grid min-h-[560px] gap-3 p-3">
+            <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                {(Object.entries(corporateStats) as Array<[CorporateEventCategory, number]>).map(([label, count]) => (
+                    <div key={label} className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-4">
+                        <p className="text-[11px] uppercase tracking-[0.16em] terminal-muted">{label}</p>
+                        <p className="mt-2 text-2xl font-semibold">{count}</p>
+                        <p className="mt-1 text-xs terminal-muted">Detected headline events</p>
+                    </div>
+                ))}
+            </section>
+
             <section className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)]">
                 <div className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 border-b border-[var(--terminal-border)] px-4 py-3 text-[11px] uppercase tracking-[0.16em] terminal-muted">
                     <span>Type</span>
@@ -453,45 +552,28 @@ const TerminalNewsMarketBoard = ({ activeTab, onActiveTabChange }: Props) => {
                     ))}
                 </div>
             </section>
-
-            <div className="grid gap-3">
-                {(Object.entries(corporateStats) as Array<[CorporateEventCategory, number]>).map(([label, count]) => (
-                    <div key={label} className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-4">
-                        <p className="text-[11px] uppercase tracking-[0.16em] terminal-muted">{label}</p>
-                        <p className="mt-2 text-3xl font-semibold">{count}</p>
-                        <p className="mt-1 text-xs terminal-muted">Detected headline events</p>
-                    </div>
-                ))}
-            </div>
         </div>
     );
 
     const renderEconomicCalendar = () => (
-        <div className="grid min-h-[560px] gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_300px]">
-            <section className="min-h-[560px] rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-2">
+        <div className="grid min-h-[560px] gap-3 p-3">
+            <section className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <p className="text-sm font-semibold">Macro releases</p>
+                        <p className="mt-1 text-xs terminal-muted">
+                            High-priority events from the U.S., Europe, U.K., Japan, China, Australia, and Canada.
+                        </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="terminal-series-chip">Terminal filter</span>
+                        <span className="terminal-series-chip">Live embed</span>
+                    </div>
+                </div>
+            </section>
+            <section className="min-h-[640px] rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-2">
                 <TerminalEconomicCalendarWidget />
             </section>
-            <div className="grid gap-3">
-                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-4">
-                    <p className="text-[11px] uppercase tracking-[0.16em] terminal-muted">Focus</p>
-                    <p className="mt-2 text-lg font-semibold">Macro releases</p>
-                    <p className="mt-1 text-sm terminal-muted">
-                        High-priority events from the U.S., Europe, U.K., Japan, China, Australia, and Canada.
-                    </p>
-                </div>
-                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-4">
-                    <p className="text-[11px] uppercase tracking-[0.16em] terminal-muted">Mode</p>
-                    <p className="mt-2 text-lg font-semibold">Terminal filter</p>
-                    <p className="mt-1 text-sm terminal-muted">
-                        Built for a scan-first workflow with compact event rows and country filters.
-                    </p>
-                </div>
-                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-4">
-                    <p className="text-[11px] uppercase tracking-[0.16em] terminal-muted">Refresh</p>
-                    <p className="mt-2 text-lg font-semibold">Live embed</p>
-                    <p className="mt-1 text-sm terminal-muted">Updates inside the page without leaving the terminal workspace.</p>
-                </div>
-            </div>
         </div>
     );
 

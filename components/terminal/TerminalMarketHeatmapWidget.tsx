@@ -42,14 +42,14 @@ const toTileStyle = (changePercent: number | null) => {
     const intensity = Math.min(Math.abs(changePercent) / 6, 1);
     if (changePercent >= 0) {
         return {
-            background: `linear-gradient(180deg, rgba(20, 135, 95, ${0.18 + intensity * 0.18}), rgba(10, 31, 29, 0.92))`,
-            borderColor: `rgba(42, 181, 122, ${0.32 + intensity * 0.3})`,
+            background: `linear-gradient(180deg, color-mix(in srgb, var(--terminal-up) ${18 + intensity * 18}%, var(--terminal-panel-soft)), color-mix(in srgb, var(--terminal-up) ${10 + intensity * 8}%, var(--terminal-panel)))`,
+            borderColor: `color-mix(in srgb, var(--terminal-up) ${28 + intensity * 28}%, var(--terminal-border))`,
         };
     }
 
     return {
-        background: `linear-gradient(180deg, rgba(153, 55, 53, ${0.18 + intensity * 0.2}), rgba(34, 13, 19, 0.92))`,
-        borderColor: `rgba(219, 86, 84, ${0.32 + intensity * 0.3})`,
+        background: `linear-gradient(180deg, color-mix(in srgb, var(--terminal-down) ${18 + intensity * 18}%, var(--terminal-panel-soft)), color-mix(in srgb, var(--terminal-down) ${10 + intensity * 8}%, var(--terminal-panel)))`,
+        borderColor: `color-mix(in srgb, var(--terminal-down) ${28 + intensity * 28}%, var(--terminal-border))`,
     };
 };
 
