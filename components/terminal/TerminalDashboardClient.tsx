@@ -1,10 +1,34 @@
 'use client';
 
-import { type JSX, type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    cloneElement,
+    type CSSProperties,
+    type JSX,
+    type MouseEvent as ReactMouseEvent,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 import Link from 'next/link';
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { cn } from '@/lib/utils';
-import { GripVertical, RefreshCw, RotateCcw } from 'lucide-react';
+import { Expand, GripVertical, LayoutGrid, Plus, RefreshCw, RotateCcw, Save, Sparkles, Trash2, X } from 'lucide-react';
+import TerminalEconomicCalendarWidget from '@/components/terminal/TerminalEconomicCalendarWidget';
+import TerminalMarketHeatmapWidget from '@/components/terminal/TerminalMarketHeatmapWidget';
+import TerminalPortfolioSnapshotWidget, {
+    type TerminalPortfolioWidgetPayload,
+} from '@/components/terminal/TerminalPortfolioSnapshotWidget';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 
 type TerminalQuote = {
     symbol: string;
@@ -64,12 +88,23 @@ type PerformanceApiResponse = {
     series?: PerformanceSeries[];
 };
 
+type SavedLayoutSlot = {
+    id: string;
+    name: string;
+    order: WidgetId[];
+    layouts: Record<WidgetId, WidgetLayout>;
+    savedAt: string;
+};
+
 type WidgetId =
     | 'usMarkets'
     | 'chart'
     | 'globalMarkets'
     | 'usSectors'
+    | 'heatmap'
     | 'currencies'
+    | 'calendar'
+    | 'portfolio'
     | 'topGainers'
     | 'topLosers'
     | 'commodities'
@@ -110,21 +145,37 @@ type TableRow = {
     };
 };
 
+type ExpandedTickerItem = {
+    key: string;
+    symbol: string;
+    ticker: string;
+    name: string;
+    price: number | null;
+    change: number | null;
+    changePercent: number | null;
+    href: string;
+};
+
 type ChartDatum = {
     time: number;
     [key: string]: number;
 };
 
-const STORAGE_KEY = 'zedxe-terminal-dashboard-layout-v3';
-const REFRESH_MS = 30_000;
+const STORAGE_KEY = 'zedxe-terminal-dashboard-layout-v4';
+const DATA_REFRESH_MS = 60_000;
+const CHART_REFRESH_MS = 120_000;
 const CHART_SYMBOL_LIMIT = 6;
+const LAYOUT_SLOT_IDS = ['slot-1', 'slot-2', 'slot-3', 'slot-4', 'slot-5'] as const;
 
 const DEFAULT_ORDER: WidgetId[] = [
     'usMarkets',
     'chart',
     'globalMarkets',
     'usSectors',
+    'heatmap',
     'currencies',
+    'calendar',
+    'portfolio',
     'topGainers',
     'topLosers',
     'commodities',
@@ -138,11 +189,14 @@ const DEFAULT_LAYOUTS: Record<WidgetId, WidgetLayout> = {
     chart: { w: 6, h: 4 },
     globalMarkets: { w: 3, h: 2 },
     usSectors: { w: 3, h: 2 },
+    heatmap: { w: 6, h: 2 },
     currencies: { w: 3, h: 2 },
+    calendar: { w: 4, h: 2 },
+    portfolio: { w: 4, h: 2 },
     topGainers: { w: 3, h: 1 },
     topLosers: { w: 3, h: 1 },
-    commodities: { w: 3, h: 1 },
-    watchList: { w: 3, h: 1 },
+    commodities: { w: 4, h: 1 },
+    watchList: { w: 4, h: 1 },
     news: { w: 6, h: 2 },
     liveStream: { w: 6, h: 2 },
 };
@@ -152,13 +206,21 @@ const WIDGET_TITLES: Record<WidgetId, string> = {
     chart: 'Normalized Performance',
     globalMarkets: 'Global Markets',
     usSectors: 'U.S. Equity Sectors',
+    heatmap: 'Heatmap',
     currencies: 'Currencies',
+    calendar: 'Economic Calendar',
+    portfolio: 'Portfolio Holdings',
     topGainers: 'Top Gainers',
     topLosers: 'Top Losers',
     commodities: 'Commodities',
     watchList: 'Watch List',
     news: 'News',
     liveStream: 'Live News Stream',
+};
+
+const WIDGET_VIEW_ALL_HREFS: Partial<Record<WidgetId, string>> = {
+    topGainers: '/terminal/movers?tab=gainers',
+    topLosers: '/terminal/movers?tab=losers',
 };
 
 const US_INDEXES = [
@@ -253,6 +315,14 @@ const CHART_TICKER_ALIAS: Record<string, string> = {
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));
 const formatSigned = (value: number, digits = 2) => `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
+const formatExpandedPrice = (value: number | null) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
+    const digits = value >= 1000 ? 2 : value >= 100 ? 2 : value >= 1 ? 2 : 4;
+    return value.toLocaleString('en-US', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+    });
+};
 
 const formatChartTick = (value: number, range: (typeof CHART_RANGES)[number]['key']) => {
     if (!Number.isFinite(value)) return '--';
@@ -277,9 +347,11 @@ const toTableQuoteMap = (payload: IndicesApiResponse | QuotesApiResponse): Recor
     (payload.quotes ?? []).reduce<Record<string, TerminalQuote>>((acc, item) => {
         const key = (item.symbol ?? '').toUpperCase();
         if (!key) return acc;
+        const maybeNamedItem = item as { name?: unknown };
+        const name = typeof maybeNamedItem.name === 'string' ? maybeNamedItem.name : key;
         acc[key] = {
             symbol: key,
-            name: 'name' in item && item.name ? item.name : key,
+            name,
             price: item.price,
             change: item.change,
             changePercent: item.changePercent,
@@ -382,13 +454,343 @@ const buildQuoteCells = (quote: TerminalQuote | undefined, priceDigits = 2, chan
     ] as TableCell[];
 };
 
+const normalizeWidgetOrder = (input: WidgetId[] | undefined) => {
+    if (!Array.isArray(input) || !input.length) return DEFAULT_ORDER;
+    return Array.from(new Set(input)).filter((id): id is WidgetId => DEFAULT_ORDER.includes(id));
+};
+
+const normalizeLayouts = (input?: Partial<Record<WidgetId, WidgetLayout>>, maxColumns = 12) => {
+    const next = { ...DEFAULT_LAYOUTS };
+    (Object.keys(DEFAULT_LAYOUTS) as WidgetId[]).forEach((id) => {
+        const saved = input?.[id];
+        if (!saved) return;
+        next[id] = {
+            w: clamp(saved.w ?? next[id].w, 1, maxColumns),
+            h: clamp(saved.h ?? next[id].h, 1, 6),
+        };
+    });
+    return next;
+};
+
+const readTerminalTheme = () => {
+    if (typeof document === 'undefined') return 'light';
+    return document.querySelector('.terminal-shell')?.getAttribute('data-terminal-theme') === 'dark' ? 'dark' : 'light';
+};
+
+const getTerminalPalette = (theme: 'dark' | 'light') =>
+    theme === 'dark'
+        ? {
+              panel: '#0f1622',
+              panelSoft: '#111b2a',
+              border: '#2b3445',
+              borderStrong: '#3b475d',
+              text: '#e4e9f2',
+              muted: '#9ea8b8',
+              accent: '#2794ff',
+              up: '#00a86b',
+              down: '#d94f45',
+          }
+        : {
+              panel: '#f3f5f8',
+              panelSoft: '#e8ecf2',
+              border: '#bac3d1',
+              borderStrong: '#a8b4c7',
+              text: '#111827',
+              muted: '#556277',
+              accent: '#1376d3',
+              up: '#0d8f5d',
+              down: '#c43e34',
+          };
+
+const buildAutoAdjustedState = (visibleOrder: WidgetId[], maxColumns: number) => {
+    const columns = Math.max(1, maxColumns);
+    const normalizedOrder = DEFAULT_ORDER.filter((id) => visibleOrder.includes(id));
+    const nextLayouts = normalizeLayouts(undefined, columns);
+
+    if (columns <= 2) {
+        for (const id of normalizedOrder) {
+            nextLayouts[id] = {
+                w: columns,
+                h: DEFAULT_LAYOUTS[id].h,
+            };
+        }
+        return { order: normalizedOrder, layouts: nextLayouts };
+    }
+
+    const sideWidgets: WidgetId[] = ['usMarkets', 'globalMarkets', 'usSectors', 'currencies'];
+    const adaptableWidgets: WidgetId[] = ['calendar', 'portfolio'];
+    const compactWidgets: WidgetId[] = ['topGainers', 'topLosers', 'commodities', 'watchList'];
+    const wideWidgets: WidgetId[] = ['heatmap', 'news', 'liveStream'];
+    const heroFillWidgets: WidgetId[] = [...sideWidgets, ...adaptableWidgets, ...compactWidgets];
+    const standardRowWidgets: WidgetId[] = [...sideWidgets, ...adaptableWidgets, ...compactWidgets];
+    const remaining = [...normalizedOrder];
+    const nextOrder: WidgetId[] = [];
+
+    const takeFirstMatch = (candidates: WidgetId[]) => {
+        const index = remaining.findIndex((id) => candidates.includes(id));
+        if (index < 0) return null;
+        const [id] = remaining.splice(index, 1);
+        return id;
+    };
+
+    const takeMany = (candidates: WidgetId[], count: number) => {
+        const picked: WidgetId[] = [];
+        while (picked.length < count) {
+            const id = takeFirstMatch(candidates);
+            if (!id) break;
+            picked.push(id);
+        }
+        return picked;
+    };
+
+    const placeItems = (items: Array<{ id: WidgetId; w: number; h: number }>) => {
+        items.forEach(({ id, w, h }) => {
+            nextOrder.push(id);
+            nextLayouts[id] = {
+                w: clamp(w, 1, columns),
+                h: clamp(h, 1, 6),
+            };
+        });
+    };
+
+    if (columns < 12) {
+        const chart = takeFirstMatch(['chart']);
+        if (chart) {
+            placeItems([{ id: chart, w: columns, h: 4 }]);
+        }
+
+        while (remaining.length > 0) {
+            const wide = takeFirstMatch([...wideWidgets, ...adaptableWidgets]);
+            if (wide) {
+                placeItems([{ id: wide, w: columns, h: DEFAULT_LAYOUTS[wide].h }]);
+                continue;
+            }
+
+            const pair = takeMany(standardRowWidgets, 2);
+            if (pair.length === 2) {
+                placeItems([
+                    { id: pair[0], w: Math.ceil(columns / 2), h: 2 },
+                    { id: pair[1], w: Math.floor(columns / 2), h: 2 },
+                ]);
+                continue;
+            }
+
+            if (pair.length === 1) {
+                placeItems([{ id: pair[0], w: columns, h: 2 }]);
+            }
+        }
+
+        return {
+            order: nextOrder,
+            layouts: nextLayouts,
+        };
+    }
+
+    const chart = takeFirstMatch(['chart']);
+
+    if (chart) {
+        const heroFillers = takeMany(heroFillWidgets, 4);
+
+        if (heroFillers.length >= 4) {
+            placeItems([
+                { id: heroFillers[0], w: 3, h: 2 },
+                { id: chart, w: 6, h: 4 },
+                { id: heroFillers[1], w: 3, h: 2 },
+                { id: heroFillers[2], w: 3, h: 2 },
+                { id: heroFillers[3], w: 3, h: 2 },
+            ]);
+        } else if (heroFillers.length === 3) {
+            placeItems([
+                { id: heroFillers[0], w: 3, h: 4 },
+                { id: chart, w: 6, h: 4 },
+                { id: heroFillers[1], w: 3, h: 2 },
+                { id: heroFillers[2], w: 3, h: 2 },
+            ]);
+        } else if (heroFillers.length === 2) {
+            placeItems([
+                { id: heroFillers[0], w: 3, h: 4 },
+                { id: chart, w: 6, h: 4 },
+                { id: heroFillers[1], w: 3, h: 4 },
+            ]);
+        } else if (heroFillers.length === 1) {
+            placeItems([
+                { id: heroFillers[0], w: 4, h: 4 },
+                { id: chart, w: 8, h: 4 },
+            ]);
+        } else {
+            placeItems([{ id: chart, w: 12, h: 4 }]);
+        }
+    }
+
+    while (remaining.length > 0) {
+        const sixWide = takeFirstMatch(wideWidgets);
+        const pairOfThrees = takeMany(standardRowWidgets, 2);
+
+        if (sixWide && pairOfThrees.length === 2) {
+            placeItems([
+                { id: pairOfThrees[0], w: 3, h: 2 },
+                { id: sixWide, w: 6, h: 2 },
+                { id: pairOfThrees[1], w: 3, h: 2 },
+            ]);
+            continue;
+        }
+
+        if (sixWide && pairOfThrees.length === 1) {
+            placeItems([
+                { id: pairOfThrees[0], w: 3, h: 2 },
+                { id: sixWide, w: 9, h: 2 },
+            ]);
+            continue;
+        }
+
+        if (sixWide) {
+            const secondWide = takeFirstMatch([...wideWidgets, ...adaptableWidgets]);
+            if (secondWide) {
+                placeItems([
+                    { id: sixWide, w: 6, h: 2 },
+                    { id: secondWide, w: 6, h: 2 },
+                ]);
+            } else {
+                placeItems([{ id: sixWide, w: 12, h: 2 }]);
+            }
+            continue;
+        }
+
+        const adaptablePair = takeMany(adaptableWidgets, 2);
+        if (adaptablePair.length === 2) {
+            placeItems([
+                { id: adaptablePair[0], w: 6, h: 2 },
+                { id: adaptablePair[1], w: 6, h: 2 },
+            ]);
+            continue;
+        }
+
+        if (adaptablePair.length === 1) {
+            const supporting = takeMany([...sideWidgets, ...compactWidgets], 2);
+            if (supporting.length === 2) {
+                placeItems([
+                    { id: supporting[0], w: 3, h: 2 },
+                    { id: adaptablePair[0], w: 6, h: 2 },
+                    { id: supporting[1], w: 3, h: 2 },
+                ]);
+                continue;
+            }
+
+            if (supporting.length === 1) {
+                placeItems([
+                    { id: supporting[0], w: 4, h: 2 },
+                    { id: adaptablePair[0], w: 8, h: 2 },
+                ]);
+                continue;
+            }
+
+            placeItems([{ id: adaptablePair[0], w: 12, h: 2 }]);
+            continue;
+        }
+
+        const fourSmall = takeMany([...sideWidgets, ...compactWidgets], 4);
+        if (fourSmall.length === 4) {
+            placeItems(fourSmall.map((id) => ({ id, w: 3, h: 2 })));
+            continue;
+        }
+
+        if (fourSmall.length === 3) {
+            placeItems(fourSmall.map((id) => ({ id, w: 4, h: 2 })));
+            continue;
+        }
+
+        if (fourSmall.length === 2) {
+            placeItems([
+                { id: fourSmall[0], w: 6, h: 2 },
+                { id: fourSmall[1], w: 6, h: 2 },
+            ]);
+            continue;
+        }
+
+        if (fourSmall.length === 1) {
+            placeItems([{ id: fourSmall[0], w: 12, h: 2 }]);
+        }
+    }
+
+    return {
+        order: nextOrder,
+        layouts: nextLayouts,
+    };
+};
+
+const DEFAULT_LAYOUT_BUILT_AT = '2026-03-08T00:00:00.000Z';
+
+const DEFAULT_LAYOUT_PRESETS: Array<{
+    id: (typeof LAYOUT_SLOT_IDS)[number];
+    name: string;
+    widgets: WidgetId[];
+}> = [
+    {
+        id: 'slot-1',
+        name: 'Market Desk',
+        widgets: DEFAULT_ORDER,
+    },
+    {
+        id: 'slot-2',
+        name: 'Macro Pulse',
+        widgets: ['chart', 'globalMarkets', 'currencies', 'calendar', 'commodities', 'news', 'liveStream', 'heatmap'],
+    },
+    {
+        id: 'slot-3',
+        name: 'Equity Flow',
+        widgets: ['usMarkets', 'chart', 'usSectors', 'heatmap', 'topGainers', 'topLosers', 'watchList', 'news', 'portfolio'],
+    },
+    {
+        id: 'slot-4',
+        name: 'Portfolio Pulse',
+        widgets: ['portfolio', 'watchList', 'chart', 'usMarkets', 'globalMarkets', 'news', 'calendar', 'topGainers', 'topLosers'],
+    },
+    {
+        id: 'slot-5',
+        name: 'Newsroom',
+        widgets: ['news', 'liveStream', 'calendar', 'chart', 'globalMarkets', 'currencies', 'commodities', 'watchList'],
+    },
+];
+
+const DEFAULT_SAVED_LAYOUTS: SavedLayoutSlot[] = DEFAULT_LAYOUT_PRESETS.map((preset) => {
+    const nextState = buildAutoAdjustedState(preset.widgets, 12);
+    return {
+        id: preset.id,
+        name: preset.name,
+        order: nextState.order,
+        layouts: nextState.layouts,
+        savedAt: DEFAULT_LAYOUT_BUILT_AT,
+    };
+});
+
+const mergeSavedLayoutsWithDefaults = (input: SavedLayoutSlot[]) =>
+    LAYOUT_SLOT_IDS.map((slotId) => {
+        const defaultSlot = DEFAULT_SAVED_LAYOUTS.find((slot) => slot.id === slotId);
+        const existing = input.find((slot) => slot.id === slotId);
+
+        if (!defaultSlot) return existing ?? null;
+        if (!existing) return defaultSlot;
+        if (existing.name === defaultSlot.name) return defaultSlot;
+        return existing;
+    }).filter((slot): slot is SavedLayoutSlot => Boolean(slot));
+
+const PRIMARY_DEFAULT_LAYOUT = DEFAULT_SAVED_LAYOUTS[0];
+
 const TerminalDashboardClient = () => {
-    const [layouts, setLayouts] = useState<Record<WidgetId, WidgetLayout>>(DEFAULT_LAYOUTS);
-    const [order, setOrder] = useState<WidgetId[]>(DEFAULT_ORDER);
+    const [layouts, setLayouts] = useState<Record<WidgetId, WidgetLayout>>(PRIMARY_DEFAULT_LAYOUT.layouts);
+    const [order, setOrder] = useState<WidgetId[]>(PRIMARY_DEFAULT_LAYOUT.order);
+    const [savedLayouts, setSavedLayouts] = useState<SavedLayoutSlot[]>(DEFAULT_SAVED_LAYOUTS);
+    const [selectedLayoutSlotId, setSelectedLayoutSlotId] = useState<string | null>(PRIMARY_DEFAULT_LAYOUT.id);
+    const [layoutDraftName, setLayoutDraftName] = useState(PRIMARY_DEFAULT_LAYOUT.name);
+    const [isWidgetDialogOpen, setIsWidgetDialogOpen] = useState(false);
+    const [isLayoutDialogOpen, setIsLayoutDialogOpen] = useState(false);
+    const [expandedWidgetId, setExpandedWidgetId] = useState<WidgetId | null>(null);
+    const [terminalTheme, setTerminalTheme] = useState<'dark' | 'light'>(() => readTerminalTheme());
     const [dragging, setDragging] = useState<WidgetId | null>(null);
     const [resizing, setResizing] = useState<WidgetId | null>(null);
     const [gridColumns, setGridColumns] = useState(12);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isPortfolioLoading, setIsPortfolioLoading] = useState(false);
 
     const [usIndexMap, setUsIndexMap] = useState<Record<string, TerminalQuote>>({});
     const [usSectorsMap, setUsSectorsMap] = useState<Record<string, TerminalQuote>>({});
@@ -398,20 +800,122 @@ const TerminalDashboardClient = () => {
     const [watchMap, setWatchMap] = useState<Record<string, TerminalQuote>>({});
     const [movers, setMovers] = useState<MoversApiResponse>({});
     const [headlines, setHeadlines] = useState<MarketNewsResponse['items']>([]);
+    const [portfolioSnapshot, setPortfolioSnapshot] = useState<TerminalPortfolioWidgetPayload | null>(null);
     const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
     const [selectedChannel, setSelectedChannel] = useState(LIVE_CHANNELS[0].key);
     const [chartRangeKey, setChartRangeKey] = useState<(typeof CHART_RANGES)[number]['key']>('1Y');
+    const [expandedRangeKey, setExpandedRangeKey] = useState<(typeof CHART_RANGES)[number]['key']>('1Y');
     const [selectedChartSymbols, setSelectedChartSymbols] = useState<string[]>(CHART_DEFAULT_SYMBOLS);
     const [chartSeries, setChartSeries] = useState<PerformanceSeries[]>([]);
+    const [expandedTickerSeries, setExpandedTickerSeries] = useState<PerformanceSeries[]>([]);
     const [chartUpdatedAt, setChartUpdatedAt] = useState<string | null>(null);
     const [isChartLoading, setIsChartLoading] = useState(false);
+    const [isExpandedTickerLoading, setIsExpandedTickerLoading] = useState(false);
 
     const gridRef = useRef<HTMLDivElement | null>(null);
     const resizeSessionRef = useRef<ResizeSession | null>(null);
     const pendingLayoutPayloadRef = useRef<string | null>(null);
+    const isPageVisibleRef = useRef(true);
 
     const activeChannel = LIVE_CHANNELS.find((item) => item.key === selectedChannel) ?? LIVE_CHANNELS[0];
+    const terminalPalette = useMemo(() => getTerminalPalette(terminalTheme), [terminalTheme]);
+    const dialogSurfaceStyle = useMemo(() => {
+        const style = {
+                background: terminalPalette.panel,
+                backgroundColor: terminalPalette.panel,
+                backgroundImage: 'none',
+                color: terminalPalette.text,
+                borderColor: terminalPalette.border,
+                boxShadow: terminalTheme === 'dark' ? '0 20px 60px rgba(0,0,0,0.45)' : '0 20px 50px rgba(15,23,42,0.18)',
+                opacity: 1,
+                backdropFilter: 'none',
+                WebkitBackdropFilter: 'none',
+                '--terminal-panel': terminalPalette.panel,
+                '--terminal-panel-soft': terminalPalette.panelSoft,
+                '--terminal-border': terminalPalette.border,
+                '--terminal-border-strong': terminalPalette.borderStrong,
+                '--terminal-text': terminalPalette.text,
+                '--terminal-muted': terminalPalette.muted,
+                '--terminal-accent': terminalPalette.accent,
+            };
+        return style as unknown as CSSProperties & Record<string, string>;
+    }, [terminalPalette, terminalTheme]);
+
+    const expandedTickerItems = useMemo<ExpandedTickerItem[]>(() => {
+        if (!expandedWidgetId) return [];
+
+        const toItems = (
+            entries: Array<{ symbol: string; label: string }>,
+            quoteMap: Record<string, TerminalQuote>
+        ) =>
+            entries.map((entry) => {
+                const key = entry.symbol.toUpperCase();
+                const quote = quoteMap[key];
+                return {
+                    key,
+                    symbol: entry.symbol,
+                    ticker: CHART_TICKER_ALIAS[key] ?? entry.symbol.replace('^', ''),
+                    name: entry.label,
+                    price: quote?.price ?? null,
+                    change: quote?.change ?? null,
+                    changePercent: quote?.changePercent ?? null,
+                    href: buildTerminalChartHref(entry.symbol, entry.label),
+                } satisfies ExpandedTickerItem;
+            });
+
+        if (expandedWidgetId === 'usMarkets') return toItems(US_INDEXES, usIndexMap);
+        if (expandedWidgetId === 'usSectors') return toItems(US_SECTORS, usSectorsMap);
+        if (expandedWidgetId === 'globalMarkets') return toItems(GLOBAL_MARKETS, globalMap);
+        if (expandedWidgetId === 'currencies') return toItems(CURRENCIES, currencyMap);
+        if (expandedWidgetId === 'commodities') return toItems(COMMODITIES, commodityMap);
+        if (expandedWidgetId === 'watchList') {
+            return WATCHLIST_SYMBOLS.map((symbol) => {
+                const key = symbol.toUpperCase();
+                const quote = watchMap[key];
+                return {
+                    key,
+                    symbol,
+                    ticker: symbol,
+                    name: symbol,
+                    price: quote?.price ?? null,
+                    change: quote?.change ?? null,
+                    changePercent: quote?.changePercent ?? null,
+                    href: buildTerminalChartHref(symbol, symbol),
+                } satisfies ExpandedTickerItem;
+            });
+        }
+        if (expandedWidgetId === 'topGainers' || expandedWidgetId === 'topLosers') {
+            const items = expandedWidgetId === 'topGainers' ? movers.gainers ?? [] : movers.losers ?? [];
+            return items.slice(0, 16).map((item) => ({
+                key: item.symbol,
+                symbol: item.symbol,
+                ticker: item.symbol,
+                name: item.name,
+                price: item.price,
+                change: null,
+                changePercent: item.changePercent,
+                href: buildTerminalChartHref(item.symbol, item.name),
+            }));
+        }
+
+        return [];
+    }, [commodityMap, currencyMap, expandedWidgetId, globalMap, movers.gainers, movers.losers, usIndexMap, usSectorsMap, watchMap]);
+
+    const expandedTickerSeriesMap = useMemo(
+        () =>
+            expandedTickerSeries.reduce<Record<string, PerformanceSeries>>((acc, series) => {
+                acc[series.symbol.toUpperCase()] = series;
+                return acc;
+            }, {}),
+        [expandedTickerSeries]
+    );
+
+    const expandedWidgetAllowsChartSelection =
+        expandedWidgetId === 'usMarkets' ||
+        expandedWidgetId === 'globalMarkets' ||
+        expandedWidgetId === 'currencies' ||
+        expandedWidgetId === 'commodities';
 
     const chartUniverseMap = useMemo(() => {
         const merged = [...US_INDEXES, ...GLOBAL_MARKETS, ...CURRENCIES, ...COMMODITIES];
@@ -471,29 +975,120 @@ const TerminalDashboardClient = () => {
             .filter((item): item is { symbol: string; value: number } => Boolean(item));
     }, [normalizedChartData, plottedSymbols]);
 
+    const widgetSelectorItems = useMemo(
+        () =>
+            DEFAULT_ORDER.map((id) => ({
+                id,
+                title: WIDGET_TITLES[id],
+                visible: order.includes(id),
+            })),
+        [order]
+    );
+
+    const layoutSlots = useMemo(
+        () =>
+            LAYOUT_SLOT_IDS.map((slotId) => ({
+                id: slotId,
+                saved: savedLayouts.find((slot) => slot.id === slotId) ?? null,
+            })),
+        [savedLayouts]
+    );
+
+    const heatmapGroups = useMemo(
+        () => [
+            {
+                key: 'sectors',
+                label: 'US Sectors',
+                items: US_SECTORS.map((item) => {
+                    const quote = usSectorsMap[item.symbol.toUpperCase()];
+                    return {
+                        key: item.symbol,
+                        symbol: item.symbol.replace('XL', ''),
+                        label: item.label,
+                        sublabel: 'ETF',
+                        price: typeof quote?.price === 'number' ? quote.price : null,
+                        changePercent: typeof quote?.changePercent === 'number' ? quote.changePercent : null,
+                        href: buildTerminalChartHref(item.symbol, item.label),
+                    };
+                }),
+            },
+            {
+                key: 'global',
+                label: 'Global',
+                items: GLOBAL_MARKETS.map((item) => {
+                    const quote = globalMap[item.symbol.toUpperCase()];
+                    return {
+                        key: item.symbol,
+                        symbol: item.label,
+                        label: item.label,
+                        sublabel: 'Index',
+                        price: typeof quote?.price === 'number' ? quote.price : null,
+                        changePercent: typeof quote?.changePercent === 'number' ? quote.changePercent : null,
+                        href: buildTerminalChartHref(item.symbol, item.label),
+                    };
+                }),
+            },
+            {
+                key: 'watchlist',
+                label: 'Watchlist',
+                items: WATCHLIST_SYMBOLS.map((symbol) => {
+                    const quote = watchMap[symbol];
+                    return {
+                        key: symbol,
+                        symbol,
+                        label: symbol,
+                        sublabel: 'Equity',
+                        price: typeof quote?.price === 'number' ? quote.price : null,
+                        changePercent: typeof quote?.changePercent === 'number' ? quote.changePercent : null,
+                        href: `/stocks/${encodeURIComponent(symbol)}`,
+                    };
+                }),
+            },
+        ],
+        [globalMap, usSectorsMap, watchMap]
+    );
+
     useEffect(() => {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return;
         try {
-            const parsed = JSON.parse(raw) as { order?: WidgetId[]; layouts?: Partial<Record<WidgetId, WidgetLayout>> };
-            if (Array.isArray(parsed.order) && parsed.order.length) {
-                const normalized = Array.from(new Set(parsed.order)).filter((id): id is WidgetId => DEFAULT_ORDER.includes(id));
-                const missing = DEFAULT_ORDER.filter((id) => !normalized.includes(id));
-                setOrder([...normalized, ...missing]);
-            }
-            if (parsed.layouts) {
-                setLayouts((prev) => {
-                    const next = { ...prev };
-                    (Object.keys(DEFAULT_LAYOUTS) as WidgetId[]).forEach((id) => {
-                        const saved = parsed.layouts?.[id];
-                        if (!saved) return;
-                        next[id] = {
-                            w: clamp(saved.w ?? prev[id].w, 1, 12),
-                            h: clamp(saved.h ?? prev[id].h, 1, 6),
-                        };
-                    });
-                    return next;
-                });
+            const parsed = JSON.parse(raw) as {
+                order?: WidgetId[];
+                layouts?: Partial<Record<WidgetId, WidgetLayout>>;
+                savedLayouts?: SavedLayoutSlot[];
+                selectedLayoutSlotId?: string | null;
+            };
+            setOrder(normalizeWidgetOrder(parsed.order));
+            setLayouts(normalizeLayouts(parsed.layouts));
+            if (Array.isArray(parsed.savedLayouts)) {
+                const normalizedSavedLayouts = parsed.savedLayouts
+                    .filter((slot): slot is SavedLayoutSlot => Boolean(slot?.id))
+                    .slice(0, LAYOUT_SLOT_IDS.length)
+                    .map((slot) => ({
+                        ...slot,
+                        order: normalizeWidgetOrder(slot.order),
+                        layouts: normalizeLayouts(slot.layouts),
+                    }));
+                const effectiveSavedLayouts =
+                    normalizedSavedLayouts.length > 0 ? mergeSavedLayoutsWithDefaults(normalizedSavedLayouts) : DEFAULT_SAVED_LAYOUTS;
+                setSavedLayouts(effectiveSavedLayouts);
+                const selected =
+                    parsed.selectedLayoutSlotId && effectiveSavedLayouts.some((slot) => slot.id === parsed.selectedLayoutSlotId)
+                        ? parsed.selectedLayoutSlotId
+                        : effectiveSavedLayouts[0]?.id ?? null;
+                setSelectedLayoutSlotId(selected);
+                const selectedSlot = effectiveSavedLayouts.find((slot) => slot.id === selected) ?? effectiveSavedLayouts[0];
+                if (selectedSlot?.name) {
+                    setLayoutDraftName(selectedSlot.name);
+                }
+                if (selectedSlot && DEFAULT_SAVED_LAYOUTS.some((slot) => slot.id === selectedSlot.id && slot.name === selectedSlot.name)) {
+                    setOrder(selectedSlot.order);
+                    setLayouts(normalizeLayouts(selectedSlot.layouts));
+                }
+            } else {
+                setSavedLayouts(DEFAULT_SAVED_LAYOUTS);
+                setSelectedLayoutSlotId(PRIMARY_DEFAULT_LAYOUT.id);
+                setLayoutDraftName(PRIMARY_DEFAULT_LAYOUT.name);
             }
         } catch (error) {
             console.error('Failed to parse dashboard layout', error);
@@ -501,7 +1096,17 @@ const TerminalDashboardClient = () => {
     }, []);
 
     useEffect(() => {
-        const payload = JSON.stringify({ order, layouts });
+        const shell = document.querySelector('.terminal-shell');
+        if (!shell) return;
+
+        setTerminalTheme(readTerminalTheme());
+        const observer = new MutationObserver(() => setTerminalTheme(readTerminalTheme()));
+        observer.observe(shell, { attributes: true, attributeFilter: ['data-terminal-theme'] });
+        return () => observer.disconnect();
+    }, []);
+
+    useEffect(() => {
+        const payload = JSON.stringify({ order, layouts, savedLayouts, selectedLayoutSlotId });
         pendingLayoutPayloadRef.current = payload;
 
         const timer = window.setTimeout(() => {
@@ -511,7 +1116,7 @@ const TerminalDashboardClient = () => {
         }, 220);
 
         return () => window.clearTimeout(timer);
-    }, [order, layouts]);
+    }, [order, layouts, savedLayouts, selectedLayoutSlotId]);
 
     useEffect(
         () => () => {
@@ -521,6 +1126,17 @@ const TerminalDashboardClient = () => {
         },
         []
     );
+
+    useEffect(() => {
+        const onVisibilityChange = () => {
+            isPageVisibleRef.current = !document.hidden;
+        };
+        onVisibilityChange();
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        return () => {
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        };
+    }, []);
 
     useEffect(() => {
         const grid = gridRef.current;
@@ -565,8 +1181,10 @@ const TerminalDashboardClient = () => {
         return toTableQuoteMap(payload);
     }, []);
 
-    const refreshData = useCallback(async () => {
+    const refreshData = useCallback(async (force = false) => {
+        if (!force && !isPageVisibleRef.current) return;
         setIsRefreshing(true);
+        setIsPortfolioLoading(true);
         try {
             const [
                 usIndices,
@@ -577,6 +1195,7 @@ const TerminalDashboardClient = () => {
                 watchlist,
                 moversResponse,
                 newsResponse,
+                portfolioResponse,
             ] = await Promise.all([
                 fetchIndicesGroup(US_INDEXES.map((item) => item.symbol)),
                 fetchQuotesGroup(US_SECTORS.map((item) => item.symbol)),
@@ -586,6 +1205,7 @@ const TerminalDashboardClient = () => {
                 fetchQuotesGroup([...WATCHLIST_SYMBOLS]),
                 fetch('/api/market/movers?count=40', { cache: 'no-store' }),
                 fetch('/api/market/news', { cache: 'no-store' }),
+                fetch('/api/portfolio/widget', { cache: 'no-store' }),
             ]);
 
             setUsIndexMap(usIndices);
@@ -605,14 +1225,19 @@ const TerminalDashboardClient = () => {
                 const newsPayload = (await newsResponse.json()) as MarketNewsResponse;
                 setHeadlines(newsPayload.items ?? []);
             }
+
+            const portfolioPayload = (await portfolioResponse.json().catch(() => null)) as TerminalPortfolioWidgetPayload | null;
+            setPortfolioSnapshot(portfolioPayload);
         } catch (error) {
             console.error('Terminal dashboard refresh failed', error);
         } finally {
             setIsRefreshing(false);
+            setIsPortfolioLoading(false);
         }
     }, [fetchIndicesGroup, fetchQuotesGroup]);
 
-    const refreshChartData = useCallback(async () => {
+    const refreshChartData = useCallback(async (force = false) => {
+        if (!force && !isPageVisibleRef.current) return;
         if (!selectedChartSymbols.length) {
             setChartSeries([]);
             return;
@@ -643,8 +1268,8 @@ const TerminalDashboardClient = () => {
 
     useEffect(() => {
         let intervalId: ReturnType<typeof setInterval> | null = null;
-        void refreshData();
-        intervalId = setInterval(() => void refreshData(), REFRESH_MS);
+        void refreshData(true);
+        intervalId = setInterval(() => void refreshData(), DATA_REFRESH_MS);
         return () => {
             if (intervalId) clearInterval(intervalId);
         };
@@ -652,15 +1277,59 @@ const TerminalDashboardClient = () => {
 
     useEffect(() => {
         let intervalId: ReturnType<typeof setInterval> | null = null;
-        void refreshChartData();
-        intervalId = setInterval(() => void refreshChartData(), REFRESH_MS);
+        void refreshChartData(true);
+        intervalId = setInterval(() => void refreshChartData(), CHART_REFRESH_MS);
         return () => {
             if (intervalId) clearInterval(intervalId);
         };
     }, [refreshChartData]);
 
+    useEffect(() => {
+        if (!expandedWidgetId || !expandedTickerItems.length) {
+            setExpandedTickerSeries([]);
+            setIsExpandedTickerLoading(false);
+            return;
+        }
+
+        let isMounted = true;
+        const controller = new AbortController();
+
+        const loadExpandedTickerSeries = async () => {
+            setIsExpandedTickerLoading(true);
+            try {
+                const response = await fetch(
+                    `/api/market/performance?range=${expandedRangeKey}&symbols=${encodeURIComponent(
+                        expandedTickerItems.map((item) => item.symbol).join(',')
+                    )}`,
+                    { cache: 'no-store', signal: controller.signal }
+                );
+
+                if (!response.ok) {
+                    if (isMounted) setExpandedTickerSeries([]);
+                    return;
+                }
+
+                const payload = (await response.json()) as PerformanceApiResponse;
+                if (!isMounted) return;
+                setExpandedTickerSeries(payload.series ?? []);
+            } catch (error) {
+                if ((error as Error).name === 'AbortError' || !isMounted) return;
+                console.error('Expanded widget performance refresh failed', error);
+                setExpandedTickerSeries([]);
+            } finally {
+                if (isMounted) setIsExpandedTickerLoading(false);
+            }
+        };
+
+        void loadExpandedTickerSeries();
+        return () => {
+            isMounted = false;
+            controller.abort();
+        };
+    }, [expandedRangeKey, expandedTickerItems, expandedWidgetId]);
+
     const refreshAll = useCallback(async () => {
-        await Promise.all([refreshData(), refreshChartData()]);
+        await Promise.all([refreshData(true), refreshChartData(true)]);
     }, [refreshData, refreshChartData]);
 
     const toggleChartSymbol = useCallback((symbol: string) => {
@@ -759,9 +1428,76 @@ const TerminalDashboardClient = () => {
     }, [resizing]);
 
     const resetLayout = () => {
-        setOrder(DEFAULT_ORDER);
-        setLayouts(DEFAULT_LAYOUTS);
+        setOrder(PRIMARY_DEFAULT_LAYOUT.order);
+        setLayouts(PRIMARY_DEFAULT_LAYOUT.layouts);
+        setSavedLayouts(DEFAULT_SAVED_LAYOUTS);
+        setSelectedLayoutSlotId(PRIMARY_DEFAULT_LAYOUT.id);
+        setLayoutDraftName(PRIMARY_DEFAULT_LAYOUT.name);
         localStorage.removeItem(STORAGE_KEY);
+    };
+
+    const toggleWidgetVisibility = (id: WidgetId) => {
+        setOrder((prev) => {
+            if (prev.includes(id)) {
+                if (prev.length === 1) return prev;
+                if (expandedWidgetId === id) {
+                    setExpandedWidgetId(null);
+                }
+                return prev.filter((item) => item !== id);
+            }
+
+            const next = [...prev, id];
+            return DEFAULT_ORDER.filter((widgetId) => next.includes(widgetId));
+        });
+
+        setLayouts((prev) => ({
+            ...prev,
+            [id]: prev[id] ?? DEFAULT_LAYOUTS[id],
+        }));
+    };
+
+    const autoAdjustLayout = () => {
+        const nextState = buildAutoAdjustedState(order, gridColumns);
+        setOrder(nextState.order);
+        setLayouts(nextState.layouts);
+    };
+
+    const saveCurrentLayout = () => {
+        const fallbackId = selectedLayoutSlotId ?? LAYOUT_SLOT_IDS.find((id) => !savedLayouts.some((slot) => slot.id === id)) ?? LAYOUT_SLOT_IDS[0];
+        const name = layoutDraftName.trim() || `Layout ${savedLayouts.length + 1}`;
+        const snapshot: SavedLayoutSlot = {
+            id: fallbackId,
+            name,
+            order,
+            layouts,
+            savedAt: new Date().toISOString(),
+        };
+
+        setSavedLayouts((prev) => {
+            const withoutCurrent = prev.filter((slot) => slot.id !== fallbackId);
+            return [...withoutCurrent, snapshot].sort(
+                (a, b) => LAYOUT_SLOT_IDS.indexOf(a.id as (typeof LAYOUT_SLOT_IDS)[number]) - LAYOUT_SLOT_IDS.indexOf(b.id as (typeof LAYOUT_SLOT_IDS)[number])
+            );
+        });
+        setSelectedLayoutSlotId(fallbackId);
+        setIsLayoutDialogOpen(false);
+    };
+
+    const loadSavedLayout = (slotId: string) => {
+        const slot = savedLayouts.find((item) => item.id === slotId);
+        setSelectedLayoutSlotId(slotId);
+        if (!slot) return;
+        setOrder(normalizeWidgetOrder(slot.order));
+        setLayouts(normalizeLayouts(slot.layouts, gridColumns));
+        setLayoutDraftName(slot.name);
+        setIsLayoutDialogOpen(false);
+    };
+
+    const deleteSavedLayout = () => {
+        if (!selectedLayoutSlotId) return;
+        setSavedLayouts((prev) => prev.filter((slot) => slot.id !== selectedLayoutSlotId));
+        setSelectedLayoutSlotId(null);
+        setLayoutDraftName(PRIMARY_DEFAULT_LAYOUT.name);
     };
 
     const widgetContent: Record<WidgetId, JSX.Element> = {
@@ -799,6 +1535,7 @@ const TerminalDashboardClient = () => {
                 })}
             />
         ),
+        heatmap: <TerminalMarketHeatmapWidget groups={heatmapGroups} />,
         chart: (
             <div className="flex h-full min-h-0 flex-col">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--terminal-border)] px-2.5 py-2">
@@ -947,6 +1684,8 @@ const TerminalDashboardClient = () => {
                 })}
             />
         ),
+        calendar: <TerminalEconomicCalendarWidget />,
+        portfolio: <TerminalPortfolioSnapshotWidget payload={portfolioSnapshot} isLoading={isPortfolioLoading} />,
         topGainers: (
             <TableWidget
                 headers={['Top Gainers', 'Price', 'Chg']}
@@ -1025,7 +1764,7 @@ const TerminalDashboardClient = () => {
         ),
         news: (
             <div className="terminal-table">
-                {headlines.slice(0, 12).map((item) => (
+                {(headlines ?? []).slice(0, 12).map((item) => (
                     <a key={`${item.url}-${item.datetime}`} href={item.url} target="_blank" rel="noreferrer" className="terminal-news-row">
                         <p className="line-clamp-1 text-sm font-semibold">{item.headline}</p>
                         <p className="text-xs terminal-muted">{item.source}</p>
@@ -1063,21 +1802,321 @@ const TerminalDashboardClient = () => {
     return (
         <section className="space-y-3">
             <div className="terminal-banner">
-                <div>
-                    <p className="terminal-banner-kicker">Terminal Dashboard</p>
-                    <p className="terminal-muted text-sm">Select symbols with checkboxes to plot them on the custom chart. Drag, resize, and reset anytime.</p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => void refreshAll()} className="terminal-mini-btn">
-                        <RefreshCw className={cn('h-4 w-4', (isRefreshing || isChartLoading) && 'animate-spin')} />
-                        Refresh
-                    </button>
-                    <button type="button" onClick={resetLayout} className="terminal-mini-btn">
-                        <RotateCcw className="h-4 w-4" />
-                        Reset Layout
-                    </button>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                        <p className="terminal-banner-kicker">Terminal Dashboard</p>
+                        <p className="terminal-muted text-sm">
+                            Configure widgets, save up to five named layouts, and auto-fit the board when the mix changes.
+                        </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button type="button" onClick={() => setIsWidgetDialogOpen(true)} className="terminal-mini-btn">
+                            <Plus className="h-4 w-4" />
+                            Widgets
+                        </button>
+                        <button type="button" onClick={() => setIsLayoutDialogOpen(true)} className="terminal-mini-btn">
+                            <Save className="h-4 w-4" />
+                            Layouts
+                        </button>
+                        <button type="button" onClick={() => void refreshAll()} className="terminal-mini-btn">
+                            <RefreshCw className={cn('h-4 w-4', (isRefreshing || isChartLoading) && 'animate-spin')} />
+                            Refresh
+                        </button>
+                        <button type="button" onClick={autoAdjustLayout} className="terminal-mini-btn">
+                            <Sparkles className="h-4 w-4" />
+                            Auto Adjust
+                        </button>
+                        <button type="button" onClick={resetLayout} className="terminal-mini-btn">
+                            <RotateCcw className="h-4 w-4" />
+                            Reset Layout
+                        </button>
+                        <span className="inline-flex items-center gap-1 text-xs terminal-muted">
+                            <LayoutGrid className="h-3.5 w-3.5" />
+                            {order.length} active widgets
+                        </span>
+                    </div>
                 </div>
             </div>
+
+            <Dialog open={isWidgetDialogOpen} onOpenChange={setIsWidgetDialogOpen}>
+                <DialogContent
+                    className="max-w-3xl border-[var(--terminal-border)] !bg-[var(--terminal-panel)] text-[var(--terminal-text)] sm:max-w-3xl"
+                    style={dialogSurfaceStyle}
+                >
+                    <DialogHeader>
+                        <DialogTitle>Widget Library</DialogTitle>
+                        <DialogDescription className="text-[var(--terminal-muted)]">
+                            Toggle widgets on or off for the terminal dashboard.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {widgetSelectorItems.map((item) => (
+                            <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => toggleWidgetVisibility(item.id)}
+                                className={cn(
+                                    'flex items-center justify-between rounded-lg border px-3 py-3 text-left transition',
+                                    item.visible
+                                        ? 'border-[var(--terminal-accent)] bg-[color-mix(in_srgb,var(--terminal-accent)_14%,var(--terminal-panel-soft))]'
+                                        : 'border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] hover:border-[var(--terminal-border-strong)]'
+                                )}
+                            >
+                                <span className="text-sm font-semibold">{item.title}</span>
+                                <span className="text-xs uppercase tracking-[0.12em] terminal-muted">{item.visible ? 'On' : 'Off'}</span>
+                            </button>
+                        ))}
+                    </div>
+                    <DialogFooter>
+                        <button type="button" onClick={() => setIsWidgetDialogOpen(false)} className="terminal-mini-btn">
+                            Close
+                        </button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={isLayoutDialogOpen} onOpenChange={setIsLayoutDialogOpen}>
+                <DialogContent
+                    className="max-w-3xl border-[var(--terminal-border)] !bg-[var(--terminal-panel)] text-[var(--terminal-text)] sm:max-w-3xl"
+                    style={dialogSurfaceStyle}
+                >
+                    <DialogHeader>
+                        <DialogTitle>Saved Layouts</DialogTitle>
+                        <DialogDescription className="text-[var(--terminal-muted)]">
+                            Save the current arrangement or load one of up to five named presets.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                        <Input
+                            value={layoutDraftName}
+                            onChange={(event) => setLayoutDraftName(event.target.value)}
+                            placeholder="Layout name"
+                            className="border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] text-[var(--terminal-text)]"
+                        />
+                        <button type="button" onClick={saveCurrentLayout} className="terminal-mini-btn">
+                            <Save className="h-4 w-4" />
+                            Save Current
+                        </button>
+                        <button type="button" onClick={deleteSavedLayout} className="terminal-mini-btn" disabled={!selectedLayoutSlotId}>
+                            <Trash2 className="h-4 w-4" />
+                            Delete
+                        </button>
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                        {layoutSlots.map((slot, index) => {
+                            const isActive = slot.id === selectedLayoutSlotId;
+                            return (
+                                <button
+                                    key={slot.id}
+                                    type="button"
+                                    onClick={() => loadSavedLayout(slot.id)}
+                                    className={cn(
+                                        'rounded-lg border px-3 py-3 text-left transition',
+                                        isActive
+                                            ? 'border-[var(--terminal-accent)] bg-[color-mix(in_srgb,var(--terminal-accent)_16%,var(--terminal-panel-soft))]'
+                                            : 'border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] hover:border-[var(--terminal-border-strong)]'
+                                    )}
+                                >
+                                    <p className="text-[11px] uppercase tracking-[0.14em] terminal-muted">Slot {index + 1}</p>
+                                    <p className="mt-1 truncate text-sm font-semibold">{slot.saved?.name ?? 'Empty'}</p>
+                                    <p className="mt-1 text-xs terminal-muted">
+                                        {slot.saved?.savedAt ? new Date(slot.saved.savedAt).toLocaleDateString() : 'No layout saved'}
+                                    </p>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <DialogFooter>
+                        <button type="button" onClick={() => setIsLayoutDialogOpen(false)} className="terminal-mini-btn">
+                            Close
+                        </button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={Boolean(expandedWidgetId)} onOpenChange={(open) => !open && setExpandedWidgetId(null)}>
+                <DialogContent
+                    className="flex h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-none flex-col overflow-hidden border-[var(--terminal-border)] !bg-[var(--terminal-panel)] p-0 text-[var(--terminal-text)] sm:max-w-none"
+                    style={dialogSurfaceStyle}
+                >
+                    {expandedWidgetId ? (
+                        <>
+                            <DialogHeader className="border-b border-[var(--terminal-border)] px-6 py-4 pr-14">
+                                <DialogTitle>{WIDGET_TITLES[expandedWidgetId]}</DialogTitle>
+                                <DialogDescription className="text-[var(--terminal-muted)]">
+                                    Full view for the selected dashboard widget.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="min-h-0 flex-1 overflow-hidden p-4">
+                                <article className="terminal-widget h-full overflow-hidden">
+                                    {expandedTickerItems.length ? (
+                                        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                                            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--terminal-border)] px-4 py-3">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    {CHART_RANGES.map((range) => (
+                                                        <button
+                                                            key={`expanded-${range.key}`}
+                                                            type="button"
+                                                            onClick={() => setExpandedRangeKey(range.key)}
+                                                            className={cn(
+                                                                'terminal-mini-btn',
+                                                                expandedRangeKey === range.key && 'terminal-mini-btn-active'
+                                                            )}
+                                                        >
+                                                            {range.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-3 text-xs terminal-muted">
+                                                    {expandedWidgetAllowsChartSelection ? (
+                                                        <span>
+                                                            {selectedChartSymbols.length}/{CHART_SYMBOL_LIMIT} selected for chart
+                                                        </span>
+                                                    ) : null}
+                                                    <span>
+                                                        {isExpandedTickerLoading
+                                                            ? 'Loading widget performance...'
+                                                            : `${expandedTickerItems.length} tickers in view`}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            <div className="min-h-0 flex-1 overflow-auto">
+                                                <div className="min-w-[1080px]">
+                                                    <div
+                                                        className="grid gap-3 border-b border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] terminal-muted"
+                                                        style={{
+                                                            gridTemplateColumns: expandedWidgetAllowsChartSelection
+                                                                ? '40px 120px minmax(220px,1.45fr) 120px 110px 110px 100px'
+                                                                : '120px minmax(220px,1.45fr) 120px 110px 110px 100px',
+                                                        }}
+                                                    >
+                                                        {expandedWidgetAllowsChartSelection ? (
+                                                            <span className="text-center">Sel</span>
+                                                        ) : null}
+                                                        <span>Ticker</span>
+                                                        <span>Name</span>
+                                                        <span className="text-right">Last Price</span>
+                                                        <span className="text-right">1-Day %</span>
+                                                        <span className="text-right">Return</span>
+                                                        <span className="text-right">Chart</span>
+                                                    </div>
+
+                                                    {expandedTickerItems.map((item) => {
+                                                        const series = expandedTickerSeriesMap[item.symbol.toUpperCase()];
+                                                        const points = series?.points ?? [];
+                                                        const firstPoint = points[0];
+                                                        const lastPoint = points[points.length - 1];
+                                                        const rangeReturn =
+                                                            firstPoint &&
+                                                            lastPoint &&
+                                                            Number.isFinite(firstPoint.close) &&
+                                                            Number.isFinite(lastPoint.close) &&
+                                                            firstPoint.close !== 0
+                                                                ? ((lastPoint.close - firstPoint.close) / firstPoint.close) * 100
+                                                                : null;
+
+                                                        return (
+                                                            <div
+                                                                key={`expanded-row-${item.key}`}
+                                                                className="grid items-center gap-3 border-b border-[var(--terminal-border)] px-4 py-3 text-sm last:border-b-0"
+                                                                style={{
+                                                                    gridTemplateColumns: expandedWidgetAllowsChartSelection
+                                                                        ? '40px 120px minmax(220px,1.45fr) 120px 110px 110px 100px'
+                                                                        : '120px minmax(220px,1.45fr) 120px 110px 110px 100px',
+                                                                }}
+                                                            >
+                                                                {expandedWidgetAllowsChartSelection ? (
+                                                                    <div className="flex justify-center">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={selectedChartSymbolSet.has(item.symbol.toUpperCase())}
+                                                                            onChange={() => toggleChartSymbol(item.symbol)}
+                                                                            aria-label={`Show ${item.name} in chart`}
+                                                                            className="terminal-check-input"
+                                                                        />
+                                                                    </div>
+                                                                ) : null}
+                                                                <div className="min-w-0">
+                                                                    <Link href={item.href} className="terminal-ticker-link text-sm font-semibold">
+                                                                        {item.ticker}
+                                                                    </Link>
+                                                                    <p className="mt-1 truncate text-xs terminal-muted">{item.symbol}</p>
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="truncate font-semibold">{item.name}</p>
+                                                                    <p className="mt-1 text-xs terminal-muted">
+                                                                        {CHART_TICKER_ALIAS[item.symbol.toUpperCase()] ? 'Terminal chart available' : 'Live dashboard feed'}
+                                                                    </p>
+                                                                </div>
+                                                                <span className="text-right font-medium">{formatExpandedPrice(item.price)}</span>
+                                                                <span
+                                                                    className={cn(
+                                                                        'text-right font-medium',
+                                                                        typeof item.changePercent === 'number' ? '' : 'terminal-muted'
+                                                                    )}
+                                                                    style={
+                                                                        typeof item.changePercent === 'number'
+                                                                            ? {
+                                                                                  color:
+                                                                                      item.changePercent >= 0
+                                                                                          ? terminalPalette.up
+                                                                                          : terminalPalette.down,
+                                                                              }
+                                                                            : undefined
+                                                                    }
+                                                                >
+                                                                    {typeof item.changePercent === 'number'
+                                                                        ? `${item.changePercent >= 0 ? '+' : ''}${item.changePercent.toFixed(2)}%`
+                                                                        : '--'}
+                                                                </span>
+                                                                <span
+                                                                    className={cn(
+                                                                        'text-right font-medium',
+                                                                        typeof rangeReturn === 'number' ? '' : 'terminal-muted'
+                                                                    )}
+                                                                    style={
+                                                                        typeof rangeReturn === 'number'
+                                                                            ? {
+                                                                                  color:
+                                                                                      rangeReturn >= 0
+                                                                                          ? terminalPalette.up
+                                                                                          : terminalPalette.down,
+                                                                              }
+                                                                            : undefined
+                                                                    }
+                                                                >
+                                                                    {typeof rangeReturn === 'number'
+                                                                        ? `${rangeReturn >= 0 ? '+' : ''}${rangeReturn.toFixed(2)}%`
+                                                                        : '--'}
+                                                                </span>
+                                                                <div className="flex justify-end">
+                                                                    <Link href={item.href} className="terminal-mini-btn px-2.5 py-1">
+                                                                        Open
+                                                                    </Link>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                                            {cloneElement(widgetContent[expandedWidgetId], {
+                                                key: `expanded-${expandedWidgetId}`,
+                                            })}
+                                        </div>
+                                    )}
+                                </article>
+                            </div>
+                        </>
+                    ) : null}
+                </DialogContent>
+            </Dialog>
 
             <div ref={gridRef} className="terminal-bento-grid">
                 {order.map((id) => {
@@ -1096,9 +2135,44 @@ const TerminalDashboardClient = () => {
                         >
                             <header className="terminal-widget-head">
                                 <p className="text-sm font-semibold">{WIDGET_TITLES[id]}</p>
-                                <span className="terminal-drag-icon" title="Drag to reorder">
-                                    <GripVertical className="h-3.5 w-3.5" />
-                                </span>
+                                <div className="flex items-center gap-2">
+                                    {WIDGET_VIEW_ALL_HREFS[id] ? (
+                                        <Link
+                                            href={WIDGET_VIEW_ALL_HREFS[id]}
+                                            onClick={(event) => event.stopPropagation()}
+                                            className="terminal-mini-btn px-2 py-1 text-xs"
+                                        >
+                                            View all
+                                        </Link>
+                                    ) : null}
+                                    <button
+                                        type="button"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            setExpandedWidgetId(id);
+                                        }}
+                                        className="terminal-mini-btn px-2 py-1"
+                                        title={`Open ${WIDGET_TITLES[id]} in full view`}
+                                        aria-label={`Open ${WIDGET_TITLES[id]} in full view`}
+                                    >
+                                        <Expand className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            toggleWidgetVisibility(id);
+                                        }}
+                                        className="terminal-mini-btn px-2 py-1"
+                                        title={`Remove ${WIDGET_TITLES[id]}`}
+                                        aria-label={`Remove ${WIDGET_TITLES[id]}`}
+                                    >
+                                        <X className="h-3.5 w-3.5" />
+                                    </button>
+                                    <span className="terminal-drag-icon" title="Drag to reorder">
+                                        <GripVertical className="h-3.5 w-3.5" />
+                                    </span>
+                                </div>
                             </header>
                             <div className="min-h-0 flex-1">{widgetContent[id]}</div>
                             <button

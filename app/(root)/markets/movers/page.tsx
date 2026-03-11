@@ -3,9 +3,15 @@ import { getUsTopMovers } from '@/lib/market/movers';
 
 type MoversTab = 'gainers' | 'losers';
 type MoversView = 'table' | 'heatmap';
+type SearchParamsRecord = Record<string, string | string[] | undefined>;
 
 type PageProps = {
-    searchParams?: Promise<ReadonlyURLSearchParams | { tab?: string; view?: string } | undefined>;
+    searchParams?: Promise<SearchParamsRecord | undefined>;
+};
+
+const getSearchParam = (searchParams: SearchParamsRecord | undefined, key: string) => {
+    const value = searchParams?.[key];
+    return Array.isArray(value) ? value[0] : value;
 };
 
 const parseTab = (tabParam?: string | null): MoversTab => (tabParam?.toLowerCase() === 'losers' ? 'losers' : 'gainers');
@@ -14,10 +20,8 @@ const parseView = (viewParam?: string | null): MoversView => (viewParam?.toLower
 
 const MoversPage = async ({ searchParams }: PageProps) => {
     const resolvedSearchParams = await searchParams;
-    const tabParam =
-        typeof resolvedSearchParams?.get === 'function' ? resolvedSearchParams.get('tab') : resolvedSearchParams?.tab;
-    const viewParam =
-        typeof resolvedSearchParams?.get === 'function' ? resolvedSearchParams.get('view') : resolvedSearchParams?.view;
+    const tabParam = getSearchParam(resolvedSearchParams, 'tab');
+    const viewParam = getSearchParam(resolvedSearchParams, 'view');
 
     const initialTab = parseTab(tabParam);
     const initialView = parseView(viewParam);

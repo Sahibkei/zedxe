@@ -1,7 +1,7 @@
-import NewsTerminalPageContent from '@/components/terminal/NewsTerminalPageContent';
+import { redirect } from 'next/navigation';
 
 const NewsTerminalPage = () => {
-    return <NewsTerminalPageContent />;
+    redirect('/terminal/news-terminal');
 };
 
 export default NewsTerminalPage;

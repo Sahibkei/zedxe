@@ -1,12 +1,13 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { CalendarDays, Command, Moon, PanelLeft, Sun, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const resolveTitle = (pathname: string) => {
     if (pathname.startsWith('/terminal/news-terminal')) return 'Market News';
+    if (pathname.startsWith('/terminal/movers')) return 'Top Movers';
     if (pathname.startsWith('/terminal/chart')) return 'Chart';
     if (pathname.startsWith('/terminal/constituents')) return 'Constituents';
     return "Today's Markets";
@@ -21,7 +22,13 @@ type Props = {
 
 const TerminalTopBar = ({ theme, sidebarHidden, onToggleTheme, onToggleSidebar }: Props) => {
     const pathname = usePathname();
+    const searchParams = useSearchParams();
     const title = resolveTitle(pathname);
+    const classicHref = pathname.startsWith('/terminal/news-terminal')
+        ? '/news'
+        : pathname.startsWith('/terminal/movers')
+          ? `/markets/movers?tab=${searchParams.get('tab') === 'losers' ? 'losers' : 'gainers'}`
+          : '/dashboard';
     const now = new Date();
     const dateLabel = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     const timeLabel = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -62,7 +69,7 @@ const TerminalTopBar = ({ theme, sidebarHidden, onToggleTheme, onToggleSidebar }
                     {theme === 'dark' ? 'Light' : 'Dark'}
                 </button>
                 <Link
-                    href="/news/terminal"
+                    href={classicHref}
                     className="terminal-top-chip"
                 >
                     Classic

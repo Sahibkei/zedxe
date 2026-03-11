@@ -146,6 +146,8 @@ const formatCompact = (value: number | null | undefined) => {
     }).format(value);
 };
 
+const asNullableNumber = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+
 const formatPerformanceLabel = (summary: PerformanceSummary | null) => {
     if (!summary) return "--";
     const yearsLabel = summary.years >= 1 ? `${summary.years.toFixed(1)}Y` : "YTD";
@@ -335,11 +337,12 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
         () => RISK_RANGE_OPTIONS.find((option) => option.key === riskRangeKey) ?? RISK_RANGE_OPTIONS[3],
         [riskRangeKey]
     );
+    const riskMatrix = payload?.riskMatrix;
 
     const sectorHeatmapData = useMemo(() => {
-        const sectorSeries = payload?.riskMatrix?.sectorSeries ?? [];
+        const sectorSeries = riskMatrix?.sectorSeries ?? [];
         const correlationMap = new Map(
-            (payload?.riskMatrix?.sectors ?? []).map((sector) => [sector.symbol, sector.correlationToBenchmark])
+            (riskMatrix?.sectors ?? []).map((sector) => [sector.symbol, sector.correlationToBenchmark])
         );
 
         return sectorSeries
@@ -354,7 +357,7 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
                 };
             })
             .sort((left, right) => right.returnPct - left.returnPct);
-    }, [payload?.riskMatrix?.sectorSeries, payload?.riskMatrix?.sectors, riskRange.tradingDays]);
+    }, [riskMatrix?.sectorSeries, riskMatrix?.sectors, riskRange.tradingDays]);
 
     const latestSensitivityPoint = useMemo(() => {
         const points = payload?.benchmarkSensitivity?.points ?? [];
@@ -430,7 +433,7 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
                                 <CartesianGrid stroke={palette.grid} strokeDasharray="3 3" />
                                 <XAxis dataKey="t" tickFormatter={formatDateTick} tick={{ fill: palette.muted, fontSize: 11 }} stroke="var(--terminal-border-strong)" minTickGap={24} />
                                 <YAxis tickFormatter={(value) => `${Number(value).toFixed(0)}%`} tick={{ fill: palette.muted, fontSize: 11 }} stroke="var(--terminal-border-strong)" width={42} />
-                                <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => formatDateTooltip(Number(value))} formatter={(value: number | null, name) => [formatNullable(value, 2, "%"), String(name).toUpperCase()]} />
+                                <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => formatDateTooltip(Number(value))} formatter={(value, name) => [formatNullable(asNullableNumber(value), 2, "%"), String(name).toUpperCase()]} />
                                 <Line type="monotone" dataKey="vol20" stroke={palette.vol20} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="20D" />
                                 <Line type="monotone" dataKey="vol60" stroke={palette.vol60} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="60D" />
                                 <Line type="monotone" dataKey="vol120" stroke={palette.vol120} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="120D" />
@@ -457,7 +460,7 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
                                 <CartesianGrid stroke={palette.grid} strokeDasharray="3 3" />
                                 <XAxis dataKey="t" tickFormatter={formatDateTick} tick={{ fill: palette.muted, fontSize: 11 }} stroke="var(--terminal-border-strong)" minTickGap={24} />
                                 <YAxis tickFormatter={(value) => `${Number(value).toFixed(0)}%`} tick={{ fill: palette.muted, fontSize: 11 }} stroke="var(--terminal-border-strong)" width={48} />
-                                <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => formatDateTooltip(Number(value))} formatter={(value: number | null) => [formatNullable(value, 2, "%"), "Drawdown"]} />
+                                <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => formatDateTooltip(Number(value))} formatter={(value) => [formatNullable(asNullableNumber(value), 2, "%"), "Drawdown"]} />
                                 <Area type="monotone" dataKey="drawdown" stroke={palette.drawdown} fill={palette.drawdown} fillOpacity={0.18} strokeWidth={2} dot={false} isAnimationActive={false} />
                             </AreaChart>
                         </ResponsiveContainer>
@@ -481,7 +484,7 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
                                 <CartesianGrid stroke={palette.grid} strokeDasharray="3 3" />
                                 <XAxis dataKey="t" tickFormatter={formatDateTick} tick={{ fill: palette.muted, fontSize: 11 }} stroke="var(--terminal-border-strong)" minTickGap={24} />
                                 <YAxis tick={{ fill: palette.muted, fontSize: 11 }} stroke="var(--terminal-border-strong)" width={42} />
-                                <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => formatDateTooltip(Number(value))} formatter={(value: number | null, name) => [formatNullable(value), String(name).toUpperCase()]} />
+                                <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => formatDateTooltip(Number(value))} formatter={(value, name) => [formatNullable(asNullableNumber(value)), String(name).toUpperCase()]} />
                                 <Line type="monotone" dataKey="sharpe20" stroke={palette.sharpe20} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="20D" />
                                 <Line type="monotone" dataKey="sharpe60" stroke={palette.sharpe60} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="60D" />
                                 <Line type="monotone" dataKey="sharpe120" stroke={palette.sharpe120} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="120D" />
@@ -534,7 +537,7 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
                                     <Tooltip
                                         contentStyle={tooltipStyle}
                                         labelFormatter={(value) => formatDateTooltip(Number(value))}
-                                        formatter={(value: number | null, name) => [formatNullable(value), String(name)]}
+                                        formatter={(value, name) => [formatNullable(asNullableNumber(value)), String(name)]}
                                     />
                                     <Line yAxisId="beta" type="monotone" dataKey="beta60" stroke="#7c8cff" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="60D Beta" />
                                     <Line yAxisId="beta" type="monotone" dataKey="beta120" stroke="#38d39f" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="120D Beta" />
@@ -553,13 +556,13 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
                 <MetricCard
                     title="Index Sector Risk Matrix"
                     subtitle={
-                        payload?.riskMatrix
-                            ? `${riskRange.label} sector heatmap and 1Y correlation matrix vs ${payload.riskMatrix.benchmarkName}`
+                        riskMatrix
+                            ? `${riskRange.label} sector heatmap and 1Y correlation matrix vs ${riskMatrix.benchmarkName}`
                             : "Available for major U.S. equity indices"
                     }
                     className="lg:col-span-2"
                     action={
-                        payload?.riskMatrix ? (
+                        riskMatrix ? (
                             <div className="flex flex-wrap items-center gap-1">
                                 {RISK_RANGE_OPTIONS.map((option) => (
                                     <button
@@ -575,19 +578,19 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
                         ) : null
                     }
                     footer={
-                        payload?.riskMatrix ? (
+                        riskMatrix ? (
                             <div className="flex flex-wrap items-center gap-3">
-                                <span>Benchmark {payload.riskMatrix.benchmarkSymbol}</span>
-                                <span>Sectors {payload.riskMatrix.sectorSeries.length}</span>
+                                <span>Benchmark {riskMatrix.benchmarkSymbol}</span>
+                                <span>Sectors {riskMatrix.sectorSeries.length}</span>
                                 <span>Heatmap {riskRange.label}</span>
-                                <span>{payload.riskMatrix.benchmarkSummary ? `Benchmark CAGR ${formatSignedPercent(payload.riskMatrix.benchmarkSummary.annualizedReturnPct, 1)}` : "Benchmark CAGR --"}</span>
+                                <span>{riskMatrix.benchmarkSummary ? `Benchmark CAGR ${formatSignedPercent(riskMatrix.benchmarkSummary.annualizedReturnPct, 1)}` : "Benchmark CAGR --"}</span>
                             </div>
                         ) : (
                             "Sector risk view is currently limited to ^GSPC, ^NDX, ^DJI, and ^RUT."
                         )
                     }
                 >
-                    {payload?.riskMatrix ? (
+                    {riskMatrix ? (
                         <div className="grid gap-4 2xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
                             <div className="grid min-h-0 gap-3">
                                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -609,27 +612,27 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
                                 <div
                                     className="grid gap-1"
                                     style={{
-                                        gridTemplateColumns: `72px repeat(${payload.riskMatrix.correlations.labels.length}, minmax(40px, 1fr))`,
+                                        gridTemplateColumns: `72px repeat(${riskMatrix.correlations.labels.length}, minmax(40px, 1fr))`,
                                     }}
                                 >
                                     <div />
-                                    {payload.riskMatrix.correlations.labels.map((label) => (
+                                    {riskMatrix.correlations.labels.map((label) => (
                                         <div key={`header-${label}`} className="px-0.5 text-center text-[10px] font-semibold terminal-muted">
                                             {CORRELATION_LABEL_ALIAS[label] ?? label}
                                         </div>
                                     ))}
-                                    {payload.riskMatrix.correlations.values.map((row, rowIndex) => (
-                                        <div key={`row-${payload.riskMatrix.correlations.labels[rowIndex]}`} className="contents">
+                                    {riskMatrix.correlations.values.map((row, rowIndex) => (
+                                        <div key={`row-${riskMatrix.correlations.labels[rowIndex]}`} className="contents">
                                             <div className="flex items-center text-[10px] font-semibold terminal-muted">
-                                                {CORRELATION_LABEL_ALIAS[payload.riskMatrix.correlations.labels[rowIndex]] ??
-                                                    payload.riskMatrix.correlations.labels[rowIndex]}
+                                                {CORRELATION_LABEL_ALIAS[riskMatrix.correlations.labels[rowIndex]] ??
+                                                    riskMatrix.correlations.labels[rowIndex]}
                                             </div>
                                             {row.map((value, columnIndex) => (
                                                 <div
                                                     key={`${rowIndex}-${columnIndex}`}
                                                     className="flex min-h-9 items-center justify-center rounded-md border border-[var(--terminal-border)] text-[10px] font-semibold"
                                                     style={{ background: getCorrelationBackground(value, theme) }}
-                                                    title={`${payload.riskMatrix.correlations.labels[rowIndex]} / ${payload.riskMatrix.correlations.labels[columnIndex]}: ${value.toFixed(2)}`}
+                                                    title={`${riskMatrix.correlations.labels[rowIndex]} / ${riskMatrix.correlations.labels[columnIndex]}: ${value.toFixed(2)}`}
                                                 >
                                                     {value.toFixed(2)}
                                                 </div>

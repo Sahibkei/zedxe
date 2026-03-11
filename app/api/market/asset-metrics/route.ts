@@ -128,6 +128,12 @@ type HistorySeries = {
     points: PricePoint[];
 };
 
+type SectorSeriesEntry = {
+    symbol: string;
+    label: string;
+    series: HistorySeries;
+};
+
 const cache = new Map<string, { expiresAt: number; payload: AssetMetricsResponse }>();
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
@@ -425,19 +431,16 @@ const buildRiskMatrix = async (symbol: string, name: string) => {
         SECTOR_BASKET.map((sector) => fetchYahooSeries(sector.symbol, RISK_RANGE, RISK_INTERVAL))
     );
 
-    const sectors = sectorSeriesResults
-        .map((result, index) => {
+    const sectors = sectorSeriesResults.reduce<SectorSeriesEntry[]>((acc, result, index) => {
             const meta = SECTOR_BASKET[index];
-            if (result.status !== "fulfilled" || !result.value) return null;
-            return {
+            if (result.status !== "fulfilled" || !result.value) return acc;
+            acc.push({
                 symbol: meta.symbol,
                 label: meta.label,
                 series: result.value,
-            };
-        })
-        .filter(
-            (entry): entry is { symbol: string; label: string; series: HistorySeries } => Boolean(entry)
-        );
+            });
+            return acc;
+        }, []);
 
     if (!sectors.length) return null;
 
