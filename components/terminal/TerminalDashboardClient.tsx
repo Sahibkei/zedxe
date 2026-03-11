@@ -218,6 +218,11 @@ const WIDGET_TITLES: Record<WidgetId, string> = {
     liveStream: 'Live News Stream',
 };
 
+const WIDGET_VIEW_ALL_HREFS: Partial<Record<WidgetId, string>> = {
+    topGainers: '/terminal/movers?tab=gainers',
+    topLosers: '/terminal/movers?tab=losers',
+};
+
 const US_INDEXES = [
     { symbol: '^GSPC', label: 'S&P 500' },
     { symbol: '^NDX', label: 'Nasdaq 100' },
@@ -2130,6 +2135,15 @@ const TerminalDashboardClient = () => {
                             <header className="terminal-widget-head">
                                 <p className="text-sm font-semibold">{WIDGET_TITLES[id]}</p>
                                 <div className="flex items-center gap-2">
+                                    {WIDGET_VIEW_ALL_HREFS[id] ? (
+                                        <Link
+                                            href={WIDGET_VIEW_ALL_HREFS[id]}
+                                            onClick={(event) => event.stopPropagation()}
+                                            className="terminal-mini-btn px-2 py-1 text-xs"
+                                        >
+                                            View all
+                                        </Link>
+                                    ) : null}
                                     <button
                                         type="button"
                                         onClick={(event) => {
