@@ -347,9 +347,11 @@ const toTableQuoteMap = (payload: IndicesApiResponse | QuotesApiResponse): Recor
     (payload.quotes ?? []).reduce<Record<string, TerminalQuote>>((acc, item) => {
         const key = (item.symbol ?? '').toUpperCase();
         if (!key) return acc;
+        const maybeNamedItem = item as { name?: unknown };
+        const name = typeof maybeNamedItem.name === 'string' ? maybeNamedItem.name : key;
         acc[key] = {
             symbol: key,
-            name: 'name' in item && item.name ? item.name : key,
+            name,
             price: item.price,
             change: item.change,
             changePercent: item.changePercent,
@@ -818,9 +820,8 @@ const TerminalDashboardClient = () => {
 
     const activeChannel = LIVE_CHANNELS.find((item) => item.key === selectedChannel) ?? LIVE_CHANNELS[0];
     const terminalPalette = useMemo(() => getTerminalPalette(terminalTheme), [terminalTheme]);
-    const dialogSurfaceStyle = useMemo(
-        () =>
-            ({
+    const dialogSurfaceStyle = useMemo(() => {
+        const style = {
                 background: terminalPalette.panel,
                 backgroundColor: terminalPalette.panel,
                 backgroundImage: 'none',
@@ -837,9 +838,9 @@ const TerminalDashboardClient = () => {
                 '--terminal-text': terminalPalette.text,
                 '--terminal-muted': terminalPalette.muted,
                 '--terminal-accent': terminalPalette.accent,
-            }) satisfies CSSProperties,
-        [terminalPalette, terminalTheme]
-    );
+            };
+        return style as unknown as CSSProperties & Record<string, string>;
+    }, [terminalPalette, terminalTheme]);
 
     const expandedTickerItems = useMemo<ExpandedTickerItem[]>(() => {
         if (!expandedWidgetId) return [];
@@ -1763,7 +1764,7 @@ const TerminalDashboardClient = () => {
         ),
         news: (
             <div className="terminal-table">
-                {headlines.slice(0, 12).map((item) => (
+                {(headlines ?? []).slice(0, 12).map((item) => (
                     <a key={`${item.url}-${item.datetime}`} href={item.url} target="_blank" rel="noreferrer" className="terminal-news-row">
                         <p className="line-clamp-1 text-sm font-semibold">{item.headline}</p>
                         <p className="text-xs terminal-muted">{item.source}</p>

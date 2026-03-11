@@ -5,6 +5,8 @@ import { DEFAULT_LIMIT, fetchNews, RESULTS_CAP } from "@/app/(root)/news/data";
 import type { MarketauxArticle, MarketauxMeta } from "@/types/marketaux";
 import Link from "next/link";
 
+type SearchParamsRecord = Record<string, string | string[] | undefined>;
+
 const parsePage = (pageParam?: string): number => {
     const parsed = Number(pageParam ?? "1");
     if (Number.isNaN(parsed) || parsed < 1) return 1;
@@ -17,14 +19,17 @@ const buildTotalPages = (found: number, limit: number): number => {
 };
 
 interface NewsPageProps {
-    searchParams?: Promise<ReadonlyURLSearchParams | { page?: string } | undefined>;
+    searchParams?: Promise<SearchParamsRecord | undefined>;
 }
+
+const getSearchParam = (searchParams: SearchParamsRecord | undefined, key: string) => {
+    const value = searchParams?.[key];
+    return Array.isArray(value) ? value[0] : value;
+};
 
 const NewsPage = async ({ searchParams }: NewsPageProps) => {
     const resolvedSearchParams = await searchParams;
-    const pageParam = typeof resolvedSearchParams?.get === "function"
-        ? resolvedSearchParams.get("page") ?? undefined
-        : resolvedSearchParams?.page;
+    const pageParam = getSearchParam(resolvedSearchParams, "page");
 
     const currentPage = parsePage(pageParam);
 

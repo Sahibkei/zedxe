@@ -176,7 +176,8 @@ const TerminalMoversPageClient = () => {
 
     useEffect(() => {
         const option = UNIVERSE_OPTIONS.find((item) => item.key === universe);
-        if (universe === 'all' || !option?.indexSymbol || constituentMap[universe]) return;
+        const indexSymbol = option?.indexSymbol;
+        if (universe === 'all' || !indexSymbol || constituentMap[universe]) return;
 
         let mounted = true;
         const controller = new AbortController();
@@ -185,7 +186,7 @@ const TerminalMoversPageClient = () => {
             setIsLoadingUniverse(true);
             try {
                 const response = await fetch(
-                    `/api/market/index-constituents?symbol=${encodeURIComponent(option.indexSymbol)}`,
+                    `/api/market/index-constituents?symbol=${encodeURIComponent(indexSymbol)}`,
                     { cache: 'no-store', signal: controller.signal }
                 );
                 if (!response.ok) throw new Error(`Failed to load ${option.label} constituents`);
