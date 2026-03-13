@@ -9,11 +9,15 @@ const MAX_CACHE_ENTRIES = 180;
 const DEFAULT_SYMBOL = "^GSPC";
 const METRIC_RANGE = "3y";
 const METRIC_INTERVAL = "1d";
-const RISK_RANGE = "5y";
-const RISK_INTERVAL = "1d";
 const ANNUALIZATION_FACTOR = Math.sqrt(252);
+const EPSILON = 1e-12;
 
-const SUPPORTED_US_INDEX_RISK = new Set(["^GSPC", "^NDX", "^DJI", "^RUT"]);
+const MARKET_BENCHMARKS = [
+    { symbol: "^GSPC", name: "S&P 500" },
+    { symbol: "^NDX", name: "NASDAQ 100" },
+    { symbol: "^DJI", name: "Dow Jones" },
+    { symbol: "^RUT", name: "Russell 2000" },
+] as const;
 
 const SECTOR_BASKET = [
     { symbol: "XLC", label: "Communication" },
@@ -66,12 +70,17 @@ type MetricPoint = {
     sharpe20: number | null;
     sharpe60: number | null;
     sharpe120: number | null;
+    sortino20: number | null;
+    sortino60: number | null;
+    sortino120: number | null;
 };
 
 type BenchmarkSensitivityPoint = {
     t: number;
+    beta20: number | null;
     beta60: number | null;
     beta120: number | null;
+    corr20: number | null;
     corr60: number | null;
     corr120: number | null;
 };
@@ -84,16 +93,35 @@ type PerformanceSummary = {
     endClose: number;
 };
 
-type SectorRiskPoint = {
+type BenchmarkComparisonPoint = {
+    symbol: string;
+    name: string;
+    returnPct: number;
+    annualizedReturnPct: number | null;
+    relativeReturnPct: number | null;
+    beta120: number | null;
+    correlation120: number | null;
+};
+
+type SectorCorrelationPoint = {
     symbol: string;
     label: string;
     returnPct: number;
-    correlationToBenchmark: number | null;
+    annualizedReturnPct: number | null;
+    correlation1Y: number | null;
 };
 
-type CorrelationMatrix = {
-    labels: string[];
-    values: number[][];
+type RiskAdjustedSummary = {
+    totalReturnPct: number;
+    annualizedReturnPct: number | null;
+    annualizedVolatilityPct: number | null;
+    maxDrawdownPct: number | null;
+    sharpeRatio: number | null;
+    sortinoRatio: number | null;
+    calmarRatio: number | null;
+    returnPerVolatility: number | null;
+    trailingBeta: number | null;
+    marketCorrelation: number | null;
 };
 
 type AssetMetricsResponse = {
@@ -108,30 +136,15 @@ type AssetMetricsResponse = {
         benchmarkName: string;
         points: BenchmarkSensitivityPoint[];
     } | null;
-    riskMatrix: {
-        benchmarkSymbol: string;
-        benchmarkName: string;
-        benchmarkSummary: PerformanceSummary | null;
-        sectors: SectorRiskPoint[];
-        sectorSeries: Array<{
-            symbol: string;
-            label: string;
-            points: PricePoint[];
-        }>;
-        correlations: CorrelationMatrix;
-    } | null;
+    riskAdjustedSummary: RiskAdjustedSummary | null;
+    benchmarkComparisons: BenchmarkComparisonPoint[];
+    sectorCorrelations: SectorCorrelationPoint[];
 };
 
 type HistorySeries = {
     symbol: string;
     name: string;
     points: PricePoint[];
-};
-
-type SectorSeriesEntry = {
-    symbol: string;
-    label: string;
-    series: HistorySeries;
 };
 
 const cache = new Map<string, { expiresAt: number; payload: AssetMetricsResponse }>();
@@ -225,6 +238,15 @@ const standardDeviation = (values: number[]) => {
     return Math.sqrt(variance(values));
 };
 
+const downsideDeviation = (values: number[]) => {
+    if (!values.length) return 0;
+    const squared = values.reduce((sum, value) => {
+        const downside = Math.min(0, value);
+        return sum + downside ** 2;
+    }, 0);
+    return Math.sqrt(squared / values.length);
+};
+
 const correlation = (xs: number[], ys: number[]) => {
     if (xs.length < 2 || ys.length < 2 || xs.length !== ys.length) return null;
     const xMean = mean(xs);
@@ -252,12 +274,17 @@ const buildReturnSeries = (points: PricePoint[]) =>
         value: points[index].close > 0 ? point.close / points[index].close - 1 : 0,
     }));
 
-const rollingMetric = (returns: number[], endIndex: number, window: number, mode: "vol" | "sharpe") => {
+const rollingMetric = (returns: number[], endIndex: number, window: number, mode: "vol" | "sharpe" | "sortino") => {
     if (endIndex + 1 < window) return null;
     const sample = returns.slice(endIndex + 1 - window, endIndex + 1);
     const std = standardDeviation(sample);
     if (mode === "vol") return std * ANNUALIZATION_FACTOR * 100;
-    if (!std) return null;
+    if (mode === "sortino") {
+        const downside = downsideDeviation(sample);
+        if (downside <= EPSILON) return null;
+        return (mean(sample) / downside) * ANNUALIZATION_FACTOR;
+    }
+    if (std <= EPSILON) return null;
     return (mean(sample) / std) * ANNUALIZATION_FACTOR;
 };
 
@@ -281,6 +308,9 @@ const buildMetricSeries = (points: PricePoint[]): MetricPoint[] => {
             sharpe20: returnIndex >= 0 ? rollingMetric(returnValues, returnIndex, 20, "sharpe") : null,
             sharpe60: returnIndex >= 0 ? rollingMetric(returnValues, returnIndex, 60, "sharpe") : null,
             sharpe120: returnIndex >= 0 ? rollingMetric(returnValues, returnIndex, 120, "sharpe") : null,
+            sortino20: returnIndex >= 0 ? rollingMetric(returnValues, returnIndex, 20, "sortino") : null,
+            sortino60: returnIndex >= 0 ? rollingMetric(returnValues, returnIndex, 60, "sortino") : null,
+            sortino120: returnIndex >= 0 ? rollingMetric(returnValues, returnIndex, 120, "sortino") : null,
         };
     });
 };
@@ -394,8 +424,13 @@ const buildBenchmarkSensitivity = (
     }
 
     const points = alignedPairs.map((pair, index) => {
+        const window20 = alignedPairs.slice(Math.max(0, index - 19), index + 1);
         const window60 = alignedPairs.slice(Math.max(0, index - 59), index + 1);
         const window120 = alignedPairs.slice(Math.max(0, index - 119), index + 1);
+        const corr20 = correlation(
+            window20.map((item) => item.asset),
+            window20.map((item) => item.benchmark)
+        );
         const corr60 = correlation(
             window60.map((item) => item.asset),
             window60.map((item) => item.benchmark)
@@ -407,8 +442,10 @@ const buildBenchmarkSensitivity = (
 
         return {
             t: pair.t,
+            beta20: window20.length >= 20 ? rollingBeta(window20) : null,
             beta60: window60.length >= 60 ? rollingBeta(window60) : null,
             beta120: window120.length >= 120 ? rollingBeta(window120) : null,
+            corr20: window20.length >= 20 ? corr20 : null,
             corr60: window60.length >= 60 ? corr60 : null,
             corr120: window120.length >= 120 ? corr120 : null,
         };
@@ -421,67 +458,84 @@ const buildBenchmarkSensitivity = (
     };
 };
 
-const buildRiskMatrix = async (symbol: string, name: string) => {
-    if (!SUPPORTED_US_INDEX_RISK.has(symbol)) return null;
-
-    const benchmarkSeries = await fetchYahooSeries(symbol, RISK_RANGE, RISK_INTERVAL);
-    if (!benchmarkSeries) return null;
-
-    const sectorSeriesResults = await Promise.allSettled(
-        SECTOR_BASKET.map((sector) => fetchYahooSeries(sector.symbol, RISK_RANGE, RISK_INTERVAL))
-    );
-
-    const sectors = sectorSeriesResults.reduce<SectorSeriesEntry[]>((acc, result, index) => {
-            const meta = SECTOR_BASKET[index];
-            if (result.status !== "fulfilled" || !result.value) return acc;
-            acc.push({
-                symbol: meta.symbol,
-                label: meta.label,
-                series: result.value,
-            });
-            return acc;
-        }, []);
-
-    if (!sectors.length) return null;
-
-    const correlationBenchmarkPoints = takeTrailingPoints(benchmarkSeries.points, 252);
-    const benchmarkReturns = buildReturnMap(correlationBenchmarkPoints);
-    const labels = [...sectors.map((sector) => sector.label), symbol.replace("^", "")];
-    const returnMaps = [
-        ...sectors.map((sector) => buildReturnMap(takeTrailingPoints(sector.series.points, 252))),
-        benchmarkReturns,
-    ];
-
-    const correlationValues = labels.map((_, rowIndex) =>
-        labels.map((__, colIndex) => {
-            if (rowIndex === colIndex) return 1;
-            const value = computePairwiseCorrelation(returnMaps[rowIndex], returnMaps[colIndex]);
-            return value ?? 0;
-        })
-    );
+const computeTrailingSnapshot = (assetSeries: HistorySeries, benchmarkSeries: HistorySeries, window: number) => {
+    const alignedPairs = buildAlignedReturnPairs(assetSeries.points, benchmarkSeries.points);
+    const sample = alignedPairs.slice(Math.max(0, alignedPairs.length - window));
+    if (sample.length < window) {
+        return { beta: null, correlation: null };
+    }
 
     return {
-        benchmarkSymbol: symbol,
-        benchmarkName: name,
-        benchmarkSummary: summarizePerformance(benchmarkSeries.points),
-        sectors: sectors.map((sector) => ({
-            symbol: sector.symbol,
-            label: sector.label,
-            returnPct: computeTotalReturn(sector.series.points),
-            correlationToBenchmark: computePairwiseCorrelation(
-                buildReturnMap(takeTrailingPoints(sector.series.points, 252)),
-                benchmarkReturns
-            ),
-        })),
-        sectorSeries: sectors.map((sector) => ({
-            symbol: sector.symbol,
-            label: sector.label,
-            points: sector.series.points,
-        })),
-        correlations: {
-            labels,
-            values: correlationValues,
-        },
+        beta: rollingBeta(sample),
+        correlation: correlation(
+            sample.map((point) => point.asset),
+            sample.map((point) => point.benchmark)
+        ),
+    };
+};
+
+const buildBenchmarkComparisons = (assetSeries: HistorySeries, benchmarkSeriesList: HistorySeries[]): BenchmarkComparisonPoint[] =>
+    benchmarkSeriesList.map((benchmarkSeries) => {
+        const benchmarkSummary = summarizePerformance(benchmarkSeries.points);
+        const trailing = computeTrailingSnapshot(assetSeries, benchmarkSeries, 120);
+        const assetSummary = summarizePerformance(assetSeries.points);
+
+        return {
+            symbol: benchmarkSeries.symbol,
+            name: benchmarkSeries.name,
+            returnPct: benchmarkSummary?.totalReturnPct ?? 0,
+            annualizedReturnPct: benchmarkSummary?.annualizedReturnPct ?? null,
+            relativeReturnPct:
+                assetSummary && benchmarkSummary
+                    ? assetSummary.totalReturnPct - benchmarkSummary.totalReturnPct
+                    : null,
+            beta120: trailing.beta,
+            correlation120: trailing.correlation,
+        };
+    });
+
+const buildSectorCorrelations = (assetSeries: HistorySeries, sectorSeriesList: HistorySeries[]): SectorCorrelationPoint[] =>
+    sectorSeriesList.map((sectorSeries, index) => ({
+        symbol: sectorSeries.symbol,
+        label: SECTOR_BASKET[index]?.label ?? sectorSeries.symbol,
+        returnPct: computeTotalReturn(takeTrailingPoints(sectorSeries.points, 252)),
+        annualizedReturnPct: computeAnnualizedReturn(takeTrailingPoints(sectorSeries.points, 252)),
+        correlation1Y: computePairwiseCorrelation(
+            buildReturnMap(takeTrailingPoints(assetSeries.points, 252)),
+            buildReturnMap(takeTrailingPoints(sectorSeries.points, 252))
+        ),
+    }));
+
+const buildRiskAdjustedSummary = (
+    summary: PerformanceSummary | null,
+    metrics: MetricPoint[],
+    benchmarkSensitivity: AssetMetricsResponse["benchmarkSensitivity"]
+): RiskAdjustedSummary | null => {
+    if (!summary || !metrics.length) return null;
+
+    const latestMetric = metrics[metrics.length - 1];
+    const latestSensitivity = benchmarkSensitivity?.points[benchmarkSensitivity.points.length - 1];
+    const maxDrawdownPct = metrics.reduce((lowest, point) => Math.min(lowest, point.drawdown), 0);
+    const annualizedVolatilityPct = latestMetric?.vol120 ?? null;
+    const annualizedReturnPct = summary.annualizedReturnPct;
+    const calmarRatio =
+        annualizedReturnPct != null && Math.abs(maxDrawdownPct) > EPSILON ? annualizedReturnPct / Math.abs(maxDrawdownPct) : null;
+    const returnPerVolatility =
+        annualizedReturnPct != null && annualizedVolatilityPct != null && Math.abs(annualizedVolatilityPct) > EPSILON
+            ? annualizedReturnPct / annualizedVolatilityPct
+            : null;
+
+    return {
+        totalReturnPct: summary.totalReturnPct,
+        annualizedReturnPct,
+        annualizedVolatilityPct,
+        maxDrawdownPct,
+        sharpeRatio: latestMetric?.sharpe120 ?? null,
+        sortinoRatio: latestMetric?.sortino120 ?? null,
+        calmarRatio,
+        returnPerVolatility,
+        trailingBeta: latestSensitivity?.beta120 ?? null,
+        marketCorrelation: latestSensitivity?.corr120 ?? null,
     };
 };
 
@@ -505,28 +559,51 @@ export async function GET(request: Request) {
                 summary: null,
                 metrics: [],
                 benchmarkSensitivity: null,
-                riskMatrix: null,
+                riskAdjustedSummary: null,
+                benchmarkComparisons: [],
+                sectorCorrelations: [],
             } satisfies AssetMetricsResponse
         );
     }
 
-    const benchmarkSeries =
-        baseSeries.symbol === "^GSPC"
-            ? baseSeries
-            : await fetchYahooSeries("^GSPC", METRIC_RANGE, METRIC_INTERVAL);
+    const marketSeriesResults = await Promise.allSettled(
+        MARKET_BENCHMARKS.map((benchmark) =>
+            benchmark.symbol === baseSeries.symbol
+                ? Promise.resolve(baseSeries)
+                : fetchYahooSeries(benchmark.symbol, METRIC_RANGE, METRIC_INTERVAL)
+        )
+    );
+
+    const marketSeries = marketSeriesResults
+        .map((result) => (result.status === "fulfilled" ? result.value : null))
+        .filter((entry): entry is HistorySeries => Boolean(entry));
+
+    const benchmarkSeries = marketSeries.find((entry) => entry.symbol === "^GSPC") ?? null;
+    const sectorSeriesResults = await Promise.allSettled(
+        SECTOR_BASKET.map((sector) => fetchYahooSeries(sector.symbol, METRIC_RANGE, METRIC_INTERVAL))
+    );
+    const sectorSeries = sectorSeriesResults
+        .map((result) => (result.status === "fulfilled" ? result.value : null))
+        .filter((entry): entry is HistorySeries => Boolean(entry));
+
+    const metrics = buildMetricSeries(baseSeries.points);
+    const benchmarkSensitivity =
+        benchmarkSeries && benchmarkSeries.points.length >= 120
+            ? buildBenchmarkSensitivity(baseSeries, benchmarkSeries)
+            : null;
+    const summary = summarizePerformance(baseSeries.points);
 
     const payload: AssetMetricsResponse = {
         updatedAt: new Date().toISOString(),
         source: "yahoo",
         symbol: baseSeries.symbol,
         name: baseSeries.name,
-        summary: summarizePerformance(baseSeries.points),
-        metrics: buildMetricSeries(baseSeries.points),
-        benchmarkSensitivity:
-            benchmarkSeries && benchmarkSeries.points.length >= 120
-                ? buildBenchmarkSensitivity(baseSeries, benchmarkSeries)
-                : null,
-        riskMatrix: await buildRiskMatrix(baseSeries.symbol, baseSeries.name),
+        summary,
+        metrics,
+        benchmarkSensitivity,
+        riskAdjustedSummary: buildRiskAdjustedSummary(summary, metrics, benchmarkSensitivity),
+        benchmarkComparisons: buildBenchmarkComparisons(baseSeries, marketSeries),
+        sectorCorrelations: buildSectorCorrelations(baseSeries, sectorSeries),
     };
 
     setCachedPayload(cacheKey, payload);

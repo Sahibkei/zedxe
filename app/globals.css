@@ -938,6 +938,23 @@
     gap: 0.45rem;
 }
 
+.terminal-market-chart-live {
+    align-self: flex-end;
+    border: 1px solid color-mix(in srgb, var(--terminal-border-strong) 85%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--terminal-panel-soft) 92%, transparent);
+    padding: 0.28rem 0.65rem;
+    font-size: 0.74rem;
+    font-weight: 800;
+    color: var(--terminal-text);
+}
+
+.terminal-market-chart-live-dark {
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.07);
+}
+
 .terminal-market-chart-symbols,
 .terminal-market-chart-metrics {
     display: flex;
@@ -1246,6 +1263,187 @@
     background: #eef2f7;
 }
 
+.terminal-analytics-theme-bridge {
+    --card: var(--terminal-panel);
+    --card-foreground: var(--terminal-text);
+    --popover: var(--terminal-panel);
+    --popover-foreground: var(--terminal-text);
+    --foreground: var(--terminal-text);
+    --muted: var(--terminal-panel-soft);
+    --muted-foreground: var(--terminal-muted);
+    --border: var(--terminal-border);
+    --input: var(--terminal-border);
+    --primary: var(--terminal-accent);
+    --primary-foreground: var(--terminal-text);
+}
+
+.terminal-analytics-page {
+    position: relative;
+    isolation: isolate;
+}
+
+.terminal-analytics-backdrop {
+    display: none;
+}
+
+.terminal-analytics-hero {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+    border: 1px solid color-mix(in srgb, var(--terminal-border) 88%, transparent);
+    border-radius: 18px;
+    padding: 1.15rem;
+    background:
+        linear-gradient(135deg, color-mix(in srgb, var(--terminal-panel) 92%, transparent), color-mix(in srgb, var(--terminal-panel-soft) 86%, transparent)),
+        radial-gradient(circle at top right, color-mix(in srgb, var(--terminal-accent) 18%, transparent), transparent 30%);
+    box-shadow: 0 18px 44px rgba(4, 12, 23, 0.16);
+}
+
+.terminal-analytics-hero-copy h2 {
+    margin-top: 0.35rem;
+    font-size: clamp(1.5rem, 2.4vw, 2.25rem);
+    line-height: 1.05;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+}
+
+.terminal-analytics-hero-copy p:last-child {
+    margin-top: 0.85rem;
+    max-width: 60ch;
+    color: var(--terminal-muted);
+    font-size: 0.95rem;
+    line-height: 1.7;
+}
+
+.terminal-analytics-hero-kicker {
+    color: color-mix(in srgb, var(--terminal-accent) 88%, white 10%);
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.terminal-analytics-search-panel {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    border: 1px solid color-mix(in srgb, var(--terminal-border-strong) 78%, transparent);
+    border-radius: 16px;
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--terminal-panel-soft) 92%, transparent), color-mix(in srgb, var(--terminal-panel) 96%, transparent));
+    backdrop-filter: blur(22px);
+}
+
+.terminal-analytics-search {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-height: 48px;
+    padding: 0.75rem 0.85rem;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--terminal-border-strong) 72%, transparent);
+    background: color-mix(in srgb, var(--terminal-panel) 75%, transparent);
+}
+
+.terminal-analytics-search input {
+    width: 100%;
+    color: var(--terminal-text);
+}
+
+.terminal-analytics-search input::placeholder {
+    color: var(--terminal-muted);
+}
+
+.terminal-analytics-nav-wrap {
+    position: sticky;
+    top: 0.35rem;
+    z-index: 20;
+    display: flex;
+    justify-content: center;
+}
+
+.terminal-analytics-nav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.55rem;
+    border: 1px solid color-mix(in srgb, var(--terminal-border-strong) 82%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--terminal-panel) 74%, transparent);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 18px 44px rgba(6, 12, 21, 0.18);
+}
+
+.terminal-analytics-nav-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 40px;
+    padding: 0.65rem 0.95rem;
+    border-radius: 999px;
+    color: var(--terminal-muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+    transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.terminal-analytics-nav-item:hover {
+    color: var(--terminal-text);
+    background: color-mix(in srgb, var(--terminal-panel-soft) 85%, transparent);
+}
+
+.terminal-analytics-nav-item-active {
+    color: #fff;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--terminal-accent) 85%, #7d6bff 15%), color-mix(in srgb, var(--terminal-accent) 72%, #111827 28%));
+    box-shadow: 0 14px 30px color-mix(in srgb, var(--terminal-accent) 26%, transparent);
+}
+
+.terminal-shell[data-terminal-theme='light'] .terminal-analytics-nav-item-active {
+    color: #f8fbff;
+}
+
+.terminal-analytics-flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0.75rem;
+    min-width: max-content;
+}
+
+.terminal-analytics-flow-step {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.terminal-analytics-flow-node {
+    min-width: 168px;
+    padding: 0.85rem;
+    border-radius: 14px;
+    border: 1px solid var(--terminal-border);
+    background: var(--terminal-panel-soft);
+}
+
+.terminal-analytics-flow-node-up {
+    border-color: color-mix(in srgb, var(--terminal-up) 52%, var(--terminal-border));
+    background: color-mix(in srgb, var(--terminal-up) 12%, var(--terminal-panel-soft));
+}
+
+.terminal-analytics-flow-node-down {
+    border-color: color-mix(in srgb, var(--terminal-down) 52%, var(--terminal-border));
+    background: color-mix(in srgb, var(--terminal-down) 10%, var(--terminal-panel-soft));
+}
+
+.terminal-analytics-flow-link {
+    width: 34px;
+    min-width: 34px;
+    align-self: center;
+    height: 2px;
+    background: linear-gradient(90deg, var(--terminal-border-strong), color-mix(in srgb, var(--terminal-accent) 55%, var(--terminal-border)));
+}
+
 @media (max-width: 1023px) {
     .indices-marquee-track {
         animation-duration: 44s;
@@ -1305,6 +1503,10 @@
     .terminal-bento-grid {
         grid-template-columns: repeat(6, minmax(0, 1fr));
     }
+
+    .terminal-analytics-hero {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 767px) {
@@ -1318,6 +1520,15 @@
 
     .terminal-topbar {
         padding: 0 0.65rem;
+    }
+
+    .terminal-analytics-nav {
+        border-radius: 18px;
+    }
+
+    .terminal-analytics-nav-item {
+        width: 100%;
+        justify-content: center;
     }
 }
 
