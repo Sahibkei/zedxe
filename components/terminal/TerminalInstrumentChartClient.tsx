@@ -126,7 +126,7 @@ const TerminalInstrumentChartClient = () => {
             <div className="terminal-banner">
                 <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                        <Link href="/terminal/dashboard" className="terminal-mini-btn">
+                        <Link href="/terminal/dashboard" prefetch={false} className="terminal-mini-btn">
                             <ArrowLeft className="h-4 w-4" />
                             Back
                         </Link>

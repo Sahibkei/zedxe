@@ -399,6 +399,9 @@ export default function TerminalTradingChart({
                         </div>
                     </div>
                     <div className="terminal-market-chart-actions">
+                        <div className={cn("terminal-market-chart-live", theme === "dark" && "terminal-market-chart-live-dark")}>
+                            Live {latestSnapshot ? formatAxisValue(latestSnapshot.close, "candles") : "--"}
+                        </div>
                         <div className="terminal-market-chart-hint">Drag to pan, wheel to zoom, double-click price/time scale to reset</div>
                         <button
                             type="button"

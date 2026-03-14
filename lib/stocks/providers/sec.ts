@@ -75,7 +75,11 @@ let tickerMapPromise: Promise<Map<string, string>> | null = null;
 
 const TICKER_MAP_TTL_MS = 24 * 60 * 60 * 1000;
 
-async function secFetch<T>(path: string, ttlSeconds = 1800): Promise<T> {
+async function secFetch<T>(
+    path: string,
+    ttlSeconds = 1800,
+    cacheMode: RequestCache = 'force-cache'
+): Promise<T> {
     if (!SEC_USER_AGENT) {
         throw new Error('SEC_USER_AGENT is not configured');
     }
@@ -86,7 +90,8 @@ async function secFetch<T>(path: string, ttlSeconds = 1800): Promise<T> {
             'User-Agent': SEC_USER_AGENT,
             Accept: 'application/json',
         },
-        next: { revalidate: ttlSeconds },
+        cache: cacheMode,
+        ...(cacheMode === 'no-store' ? {} : { next: { revalidate: ttlSeconds } }),
         signal: AbortSignal.timeout(10_000),
     });
 
@@ -116,7 +121,7 @@ async function getTickerToCikMap(): Promise<Map<string, string>> {
 
         try {
             data = await secFetch<Record<string, SecTickerEntry>>('/files/company_tickers.json', 86400);
-        } catch (err) {
+        } catch {
             // Fallback to canonical SEC files host if the data subdomain path fails.
             data = await secFetch<Record<string, SecTickerEntry>>(
                 `${SEC_FILES_FALLBACK}/files/company_tickers.json`,
@@ -204,10 +209,10 @@ export async function getSecCompanyFacts(ticker: string): Promise<SecCompanyFact
     if (!cik) return undefined;
 
     try {
-        return await secFetch<SecCompanyFacts>(`/api/xbrl/companyfacts/CIK${cik}.json`, 10_800);
-    } catch (err) {
+        return await secFetch<SecCompanyFacts>(`/api/xbrl/companyfacts/CIK${cik}.json`, 10_800, 'no-store');
+    } catch {
         // As a fallback, try the legacy host in case of CDN hiccups.
-        return secFetch<SecCompanyFacts>(`${SEC_FILES_FALLBACK}/api/xbrl/companyfacts/CIK${cik}.json`, 10_800).catch(
+        return secFetch<SecCompanyFacts>(`${SEC_FILES_FALLBACK}/api/xbrl/companyfacts/CIK${cik}.json`, 10_800, 'no-store').catch(
             () => undefined
         );
     }

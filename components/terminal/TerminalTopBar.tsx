@@ -70,6 +70,7 @@ const TerminalTopBar = ({ theme, sidebarHidden, onToggleTheme, onToggleSidebar }
                 </button>
                 <Link
                     href={classicHref}
+                    prefetch={false}
                     className="terminal-top-chip"
                 >
                     Classic

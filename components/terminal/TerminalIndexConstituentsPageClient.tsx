@@ -89,7 +89,7 @@ const TerminalIndexConstituentsPageClient = () => {
             <div className="terminal-banner">
                 <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                        <Link href={buildChartHref(symbol, label)} className="terminal-mini-btn">
+                        <Link href={buildChartHref(symbol, label)} prefetch={false} className="terminal-mini-btn">
                             <ArrowLeft className="h-4 w-4" />
                             Back
                         </Link>

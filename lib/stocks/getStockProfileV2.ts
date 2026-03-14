@@ -564,7 +564,11 @@ const createStatementGrid = ({
             ? quarterlyColumns
             : [...annualColumns, { key: 'ttm', label: 'TTM', type: 'ttm' as const }];
 
-    const columns = columnsWithSource.map(({ source, ...col }) => col);
+    const columns = columnsWithSource.map((column) => {
+        const col = { ...column } as typeof column & { source?: unknown };
+        delete col.source;
+        return col;
+    });
 
     const valueFromReport = (report: any, concepts?: string[]) => {
         if (!report || !concepts || concepts.length === 0) return undefined;
@@ -876,6 +880,10 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
         financials: {
             annual,
             quarterly,
+            rawReports: {
+                annual: annualRes?.data,
+                quarterly: quarterlyRes?.data,
+            },
             statements,
         },
         filings,
