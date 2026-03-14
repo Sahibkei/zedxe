@@ -217,7 +217,6 @@ export default function TerminalPriceTargetsPanel({ symbol, theme, className }: 
 
             try {
                 const response = await fetch(`/api/market/price-targets?symbol=${encodeURIComponent(symbol)}`, {
-                    cache: "no-store",
                     signal: controller.signal,
                 });
                 const data = (await response.json()) as PriceTargetsResponse;

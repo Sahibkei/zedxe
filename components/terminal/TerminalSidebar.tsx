@@ -43,6 +43,7 @@ const TerminalSidebar = ({ collapsed }: Props) => {
                             <Link
                                 key={item.href}
                                 href={item.href}
+                                prefetch={false}
                                 className={cn(
                                     'terminal-side-link',
                                     active
@@ -67,6 +68,7 @@ const TerminalSidebar = ({ collapsed }: Props) => {
             <div className="space-y-3">
                 <Link
                     href="/app"
+                    prefetch={false}
                     className={cn('terminal-side-back', collapsed && 'terminal-side-back-collapsed')}
                     aria-label="Back To Main App"
                     title="Back To Main App"

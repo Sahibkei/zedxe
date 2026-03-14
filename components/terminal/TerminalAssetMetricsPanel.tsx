@@ -282,7 +282,6 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
 
             try {
                 const response = await fetch(`/api/market/asset-metrics?symbol=${encodeURIComponent(symbol)}`, {
-                    cache: "no-store",
                     signal: controller.signal,
                 });
                 const data = (await response.json()) as AssetMetricsResponse;

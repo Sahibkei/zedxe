@@ -5,6 +5,9 @@ export const revalidate = 0;
 
 const DEFAULT_SYMBOL = "AAPL";
 const STOCK_ANALYSIS_BASE_URL = "https://stockanalysis.com/stocks";
+const CACHE_TTL_MS = 15 * 60_000;
+const MAX_CACHE_ENTRIES = 180;
+const RESPONSE_CACHE_CONTROL = "public, s-maxage=900, stale-while-revalidate=3600";
 
 type TargetSummary = {
     low: number;
@@ -59,6 +62,8 @@ type StockAnalysisTargets = {
         t?: string;
     }>;
 };
+
+const cache = new Map<string, { expiresAt: number; payload: PriceTargetsResponse }>();
 
 const parseSymbol = (raw: string | null) => (raw ?? DEFAULT_SYMBOL).trim().toUpperCase() || DEFAULT_SYMBOL;
 
@@ -207,9 +212,53 @@ const buildEmptyPayload = (symbol: string): PriceTargetsResponse => ({
     ratings: [],
 });
 
+const pruneExpiredCacheEntries = (now: number) => {
+    for (const [key, entry] of cache) {
+        if (entry.expiresAt <= now) cache.delete(key);
+    }
+};
+
+const getCachedPayload = (cacheKey: string) => {
+    const now = Date.now();
+    const cached = cache.get(cacheKey);
+    if (!cached) return null;
+    if (cached.expiresAt <= now) {
+        cache.delete(cacheKey);
+        return null;
+    }
+
+    cache.delete(cacheKey);
+    cache.set(cacheKey, cached);
+    return cached.payload;
+};
+
+const setCachedPayload = (cacheKey: string, payload: PriceTargetsResponse) => {
+    const now = Date.now();
+    pruneExpiredCacheEntries(now);
+    cache.delete(cacheKey);
+    cache.set(cacheKey, { expiresAt: now + CACHE_TTL_MS, payload });
+
+    while (cache.size > MAX_CACHE_ENTRIES) {
+        const oldestKey = cache.keys().next().value as string | undefined;
+        if (!oldestKey) break;
+        cache.delete(oldestKey);
+    }
+};
+
+const jsonResponse = (payload: PriceTargetsResponse) =>
+    NextResponse.json(payload, {
+        headers: {
+            "Cache-Control": RESPONSE_CACHE_CONTROL,
+        },
+    });
+
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const symbol = parseSymbol(searchParams.get("symbol"));
+    const cachedPayload = getCachedPayload(symbol);
+    if (cachedPayload) {
+        return jsonResponse(cachedPayload);
+    }
     const sourceUrl = buildSourceUrl(symbol);
     const ratingsUrl = buildRatingsUrl(symbol);
 
@@ -220,19 +269,23 @@ export async function GET(request: Request) {
         };
         const [forecastResponse, ratingsResponse] = await Promise.all([
             fetch(sourceUrl, {
-                cache: "no-store",
+                cache: "force-cache",
+                next: { revalidate: 900 },
                 headers,
                 signal: AbortSignal.timeout(10_000),
             }),
             fetch(ratingsUrl, {
-                cache: "no-store",
+                cache: "force-cache",
+                next: { revalidate: 900 },
                 headers,
                 signal: AbortSignal.timeout(10_000),
             }),
         ]);
 
         if (!forecastResponse.ok) {
-            return NextResponse.json(buildEmptyPayload(symbol));
+            const emptyPayload = buildEmptyPayload(symbol);
+            setCachedPayload(symbol, emptyPayload);
+            return jsonResponse(emptyPayload);
         }
 
         const forecastHtml = await forecastResponse.text();
@@ -240,7 +293,9 @@ export async function GET(request: Request) {
         const targets = parseJsLiteral<StockAnalysisTargets>(extractBalancedLiteral(forecastHtml, "targets:", "{", "}"));
 
         if (!targets?.count || !Array.isArray(targets.chart) || !targets.chart.length) {
-            return NextResponse.json(buildEmptyPayload(symbol));
+            const emptyPayload = buildEmptyPayload(symbol);
+            setCachedPayload(symbol, emptyPayload);
+            return jsonResponse(emptyPayload);
         }
 
         const chart = targets.chart
@@ -281,10 +336,12 @@ export async function GET(request: Request) {
                 : null;
 
         if (!summary) {
-            return NextResponse.json(buildEmptyPayload(symbol));
+            const emptyPayload = buildEmptyPayload(symbol);
+            setCachedPayload(symbol, emptyPayload);
+            return jsonResponse(emptyPayload);
         }
 
-        return NextResponse.json({
+        const payload = {
             updatedAt: new Date().toISOString(),
             symbol,
             status: "ok",
@@ -303,8 +360,13 @@ export async function GET(request: Request) {
             summary,
             chart,
             ratings: normalizedRatings,
-        } satisfies PriceTargetsResponse);
+        } satisfies PriceTargetsResponse;
+
+        setCachedPayload(symbol, payload);
+        return jsonResponse(payload);
     } catch {
-        return NextResponse.json(buildEmptyPayload(symbol));
+        const emptyPayload = buildEmptyPayload(symbol);
+        setCachedPayload(symbol, emptyPayload);
+        return jsonResponse(emptyPayload);
     }
 }

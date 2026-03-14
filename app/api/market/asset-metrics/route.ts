@@ -6,6 +6,7 @@ export const revalidate = 0;
 
 const CACHE_TTL_MS = 60_000;
 const MAX_CACHE_ENTRIES = 180;
+const RESPONSE_CACHE_CONTROL = "public, s-maxage=60, stale-while-revalidate=300";
 const DEFAULT_SYMBOL = "^GSPC";
 const METRIC_RANGE = "3y";
 const METRIC_INTERVAL = "1d";
@@ -186,12 +187,20 @@ const setCachedPayload = (cacheKey: string, payload: AssetMetricsResponse) => {
     }
 };
 
+const jsonResponse = (payload: AssetMetricsResponse) =>
+    NextResponse.json(payload, {
+        headers: {
+            "Cache-Control": RESPONSE_CACHE_CONTROL,
+        },
+    });
+
 const fetchYahooSeries = async (symbol: string, range: string, interval: string): Promise<HistorySeries | null> => {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`;
     const result = await fetchJsonWithTimeout<YahooChartResponse>(
         url,
         {
-            cache: "no-store",
+            cache: "force-cache",
+            next: { revalidate: 60 },
             headers: {
                 Accept: "application/json",
                 "User-Agent": "Mozilla/5.0",
@@ -545,12 +554,12 @@ export async function GET(request: Request) {
     const cacheKey = symbol;
     const cachedPayload = getCachedPayload(cacheKey);
     if (cachedPayload) {
-        return NextResponse.json(cachedPayload);
+        return jsonResponse(cachedPayload);
     }
 
     const baseSeries = await fetchYahooSeries(symbol, METRIC_RANGE, METRIC_INTERVAL);
     if (!baseSeries) {
-        return NextResponse.json(
+        return jsonResponse(
             {
                 updatedAt: new Date().toISOString(),
                 source: "yahoo",
@@ -607,5 +616,5 @@ export async function GET(request: Request) {
     };
 
     setCachedPayload(cacheKey, payload);
-    return NextResponse.json(payload);
+    return jsonResponse(payload);
 }
