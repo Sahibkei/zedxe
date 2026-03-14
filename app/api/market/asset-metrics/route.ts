@@ -483,11 +483,22 @@ const computeTrailingSnapshot = (assetSeries: HistorySeries, benchmarkSeries: Hi
     };
 };
 
+const restrictPointsToRange = (points: PricePoint[], startTime?: number, endTime?: number) => {
+    if (!points.length || !isFiniteNumber(startTime) || !isFiniteNumber(endTime)) return points;
+    const filtered = points.filter((point) => point.t >= startTime && point.t <= endTime);
+    return filtered.length >= 2 ? filtered : points;
+};
+
 const buildBenchmarkComparisons = (assetSeries: HistorySeries, benchmarkSeriesList: HistorySeries[]): BenchmarkComparisonPoint[] =>
     benchmarkSeriesList.map((benchmarkSeries) => {
-        const benchmarkSummary = summarizePerformance(benchmarkSeries.points);
-        const trailing = computeTrailingSnapshot(assetSeries, benchmarkSeries, 120);
         const assetSummary = summarizePerformance(assetSeries.points);
+        const benchmarkWindowPoints = restrictPointsToRange(
+            benchmarkSeries.points,
+            assetSeries.points[0]?.t,
+            assetSeries.points[assetSeries.points.length - 1]?.t
+        );
+        const benchmarkSummary = summarizePerformance(benchmarkWindowPoints);
+        const trailing = computeTrailingSnapshot(assetSeries, benchmarkSeries, 120);
 
         return {
             symbol: benchmarkSeries.symbol,

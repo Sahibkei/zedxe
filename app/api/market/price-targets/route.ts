@@ -86,6 +86,7 @@ const extractBalancedLiteral = (source: string, token: string, openChar: "{" | "
     let depth = 0;
     let inString = false;
     let isEscaped = false;
+    let stringQuoteChar: "\"" | "'" | null = null;
 
     for (let index = startIndex; index < source.length; index += 1) {
         const char = source[index];
@@ -99,12 +100,16 @@ const extractBalancedLiteral = (source: string, token: string, openChar: "{" | "
                 isEscaped = true;
                 continue;
             }
-            if (char === "\"") inString = false;
+            if (char === stringQuoteChar) {
+                inString = false;
+                stringQuoteChar = null;
+            }
             continue;
         }
 
-        if (char === "\"") {
+        if (char === "\"" || char === "'") {
             inString = true;
+            stringQuoteChar = char;
             continue;
         }
 

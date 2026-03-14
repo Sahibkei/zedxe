@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
 import {
     CartesianGrid,
     Line,
@@ -11,6 +10,7 @@ import {
     XAxis,
     YAxis,
 } from "recharts";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 type PriceTargetSummary = {
@@ -219,6 +219,9 @@ export default function TerminalPriceTargetsPanel({ symbol, theme, className }: 
                 const response = await fetch(`/api/market/price-targets?symbol=${encodeURIComponent(symbol)}`, {
                     signal: controller.signal,
                 });
+                if (!response.ok) {
+                    throw new Error(`Failed to load price targets (${response.status})`);
+                }
                 const data = (await response.json()) as PriceTargetsResponse;
                 if (!isMounted) return;
                 setPayload(data);
@@ -381,19 +384,19 @@ export default function TerminalPriceTargetsPanel({ symbol, theme, className }: 
                 )}
             </article>
 
-            {detailsOpen && payload?.summary ? (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
-                    <div className="max-h-[80vh] w-full max-w-2xl overflow-hidden rounded-2xl border border-[var(--terminal-border)] bg-[var(--terminal-panel)] shadow-2xl">
-                        <div className="flex items-center justify-between gap-3 border-b border-[var(--terminal-border)] px-4 py-3">
-                            <div>
-                                <p className="text-lg font-semibold">Price Target Details</p>
-                                <p className="text-xs terminal-muted">Consensus summary and recent public analyst revisions</p>
-                            </div>
-                            <button type="button" className="terminal-mini-btn" onClick={() => setDetailsOpen(false)}>
-                                <X className="h-4 w-4" />
-                            </button>
-                        </div>
+            <Dialog open={detailsOpen && Boolean(payload?.summary)} onOpenChange={setDetailsOpen}>
+                <DialogContent
+                    className="max-h-[80vh] w-full max-w-2xl overflow-hidden border-[var(--terminal-border)] !bg-[var(--terminal-panel)] p-0 text-[var(--terminal-text)] shadow-2xl"
+                >
+                    <DialogHeader className="border-b border-[var(--terminal-border)] px-4 py-3 pr-12">
+                        <DialogTitle>Price Target Details</DialogTitle>
+                        <DialogDescription className="text-[var(--terminal-muted)]">
+                            Consensus summary and recent public analyst revisions
+                        </DialogDescription>
+                    </DialogHeader>
 
+                    {payload?.summary ? (
+                        <>
                         <div className="max-h-[60vh] overflow-y-auto p-4">
                             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                                 <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
@@ -449,7 +452,7 @@ export default function TerminalPriceTargetsPanel({ symbol, theme, className }: 
                         </div>
 
                         <div className="border-t border-[var(--terminal-border)] px-4 py-3 text-xs terminal-muted">
-                            {payload?.sources.map((source, index) => (
+                            {payload.sources.map((source, index) => (
                                 <span key={source.url}>
                                     {index > 0 ? " | " : ""}
                                     <a href={source.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
@@ -458,9 +461,10 @@ export default function TerminalPriceTargetsPanel({ symbol, theme, className }: 
                                 </span>
                             ))}
                         </div>
-                    </div>
-                </div>
-            ) : null}
+                        </>
+                    ) : null}
+                </DialogContent>
+            </Dialog>
         </>
     );
 }
