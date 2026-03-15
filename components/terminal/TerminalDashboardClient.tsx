@@ -162,8 +162,8 @@ type ChartDatum = {
 };
 
 const STORAGE_KEY = 'zedxe-terminal-dashboard-layout-v4';
-const DATA_REFRESH_MS = 60_000;
-const CHART_REFRESH_MS = 120_000;
+const DATA_REFRESH_MS = 180_000;
+const CHART_REFRESH_MS = 300_000;
 const CHART_SYMBOL_LIMIT = 6;
 const LAYOUT_SLOT_IDS = ['slot-1', 'slot-2', 'slot-3', 'slot-4', 'slot-5'] as const;
 
@@ -419,7 +419,7 @@ const TableWidget = ({
                                                 onClick={(event) => event.stopPropagation()}
                                             />
                                         ) : row.linkHref && cellIndex === rowLabelIndex ? (
-                                            <Link href={row.linkHref} className="terminal-ticker-link" title={`Open ${cell.value} chart`}>
+                                            <Link href={row.linkHref} prefetch={false} className="terminal-ticker-link" title={`Open ${cell.value} chart`}>
                                                 {cell.value}
                                             </Link>
                                         ) : (
@@ -2041,7 +2041,7 @@ const TerminalDashboardClient = () => {
                                                                     </div>
                                                                 ) : null}
                                                                 <div className="min-w-0">
-                                                                    <Link href={item.href} className="terminal-ticker-link text-sm font-semibold">
+                                                                    <Link href={item.href} prefetch={false} className="terminal-ticker-link text-sm font-semibold">
                                                                         {item.ticker}
                                                                     </Link>
                                                                     <p className="mt-1 truncate text-xs terminal-muted">{item.symbol}</p>
@@ -2094,7 +2094,7 @@ const TerminalDashboardClient = () => {
                                                                         : '--'}
                                                                 </span>
                                                                 <div className="flex justify-end">
-                                                                    <Link href={item.href} className="terminal-mini-btn px-2.5 py-1">
+                                                                    <Link href={item.href} prefetch={false} className="terminal-mini-btn px-2.5 py-1">
                                                                         Open
                                                                     </Link>
                                                                 </div>
@@ -2139,6 +2139,7 @@ const TerminalDashboardClient = () => {
                                     {WIDGET_VIEW_ALL_HREFS[id] ? (
                                         <Link
                                             href={WIDGET_VIEW_ALL_HREFS[id]}
+                                            prefetch={false}
                                             onClick={(event) => event.stopPropagation()}
                                             className="terminal-mini-btn px-2 py-1 text-xs"
                                         >

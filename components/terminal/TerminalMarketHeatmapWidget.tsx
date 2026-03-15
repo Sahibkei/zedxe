@@ -111,7 +111,7 @@ const TerminalMarketHeatmapWidget = ({ groups }: { groups: TerminalHeatmapGroup[
                         );
 
                         return item.href ? (
-                            <Link key={item.key} href={item.href} className={cn('block', spanClass)}>
+                            <Link key={item.key} href={item.href} prefetch={false} className={cn('block', spanClass)}>
                                 {tileContent}
                             </Link>
                         ) : (

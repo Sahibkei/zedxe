@@ -13,12 +13,8 @@ import {
     XAxis,
     YAxis,
 } from "recharts";
+import TerminalPriceTargetsPanel from "@/components/terminal/TerminalPriceTargetsPanel";
 import { cn } from "@/lib/utils";
-
-type PricePoint = {
-    t: number;
-    close: number;
-};
 
 type MetricPoint = {
     t: number;
@@ -30,12 +26,17 @@ type MetricPoint = {
     sharpe20: number | null;
     sharpe60: number | null;
     sharpe120: number | null;
+    sortino20: number | null;
+    sortino60: number | null;
+    sortino120: number | null;
 };
 
 type BenchmarkSensitivityPoint = {
     t: number;
+    beta20: number | null;
     beta60: number | null;
     beta120: number | null;
+    corr20: number | null;
     corr60: number | null;
     corr120: number | null;
 };
@@ -48,16 +49,35 @@ type PerformanceSummary = {
     endClose: number;
 };
 
-type SectorRiskPoint = {
+type BenchmarkComparisonPoint = {
+    symbol: string;
+    name: string;
+    returnPct: number;
+    annualizedReturnPct: number | null;
+    relativeReturnPct: number | null;
+    beta120: number | null;
+    correlation120: number | null;
+};
+
+type SectorCorrelationPoint = {
     symbol: string;
     label: string;
     returnPct: number;
-    correlationToBenchmark: number | null;
+    annualizedReturnPct: number | null;
+    correlation1Y: number | null;
 };
 
-type CorrelationMatrix = {
-    labels: string[];
-    values: number[][];
+type RiskAdjustedSummary = {
+    totalReturnPct: number;
+    annualizedReturnPct: number | null;
+    annualizedVolatilityPct: number | null;
+    maxDrawdownPct: number | null;
+    sharpeRatio: number | null;
+    sortinoRatio: number | null;
+    calmarRatio: number | null;
+    returnPerVolatility: number | null;
+    trailingBeta: number | null;
+    marketCorrelation: number | null;
 };
 
 type AssetMetricsResponse = {
@@ -72,34 +92,15 @@ type AssetMetricsResponse = {
         benchmarkName: string;
         points: BenchmarkSensitivityPoint[];
     } | null;
-    riskMatrix: {
-        benchmarkSymbol: string;
-        benchmarkName: string;
-        benchmarkSummary: PerformanceSummary | null;
-        sectors: SectorRiskPoint[];
-        sectorSeries: Array<{
-            symbol: string;
-            label: string;
-            points: PricePoint[];
-        }>;
-        correlations: CorrelationMatrix;
-    } | null;
+    riskAdjustedSummary: RiskAdjustedSummary | null;
+    benchmarkComparisons: BenchmarkComparisonPoint[];
+    sectorCorrelations: SectorCorrelationPoint[];
 };
 
 type TerminalAssetMetricsPanelProps = {
     symbol: string;
     theme: "dark" | "light";
 };
-
-type RiskRangeKey = "1D" | "1W" | "1M" | "1Y" | "5Y";
-
-const RISK_RANGE_OPTIONS: Array<{ key: RiskRangeKey; label: string; tradingDays: number }> = [
-    { key: "1D", label: "1D", tradingDays: 1 },
-    { key: "1W", label: "1W", tradingDays: 5 },
-    { key: "1M", label: "1M", tradingDays: 21 },
-    { key: "1Y", label: "1Y", tradingDays: 252 },
-    { key: "5Y", label: "5Y", tradingDays: 1260 },
-];
 
 const CORRELATION_LABEL_ALIAS: Record<string, string> = {
     Communication: "Comm",
@@ -154,40 +155,6 @@ const formatPerformanceLabel = (summary: PerformanceSummary | null) => {
     return `${yearsLabel} CAGR ${formatSignedPercent(summary.annualizedReturnPct)}`;
 };
 
-const getPerformanceSummary = (points: PricePoint[], tradingDays: number): PerformanceSummary | null => {
-    if (points.length < 2) return null;
-
-    const end = points[points.length - 1];
-    const startIndex = Math.max(0, points.length - 1 - tradingDays);
-    const start = points[startIndex];
-    if (!start || start.close <= 0 || end.close <= 0) return null;
-
-    const years = Math.max((end.t - start.t) / (365.25 * 24 * 60 * 60), 0);
-    const totalReturnPct = ((end.close / start.close) - 1) * 100;
-    const annualizedReturnPct =
-        years >= 1 ? (Math.pow(end.close / start.close, 1 / years) - 1) * 100 : null;
-
-    return {
-        totalReturnPct,
-        annualizedReturnPct,
-        years,
-        startClose: start.close,
-        endClose: end.close,
-    };
-};
-
-const getHeatmapBackground = (value: number, theme: "dark" | "light") => {
-    const intensity = Math.min(Math.abs(value) / 40, 1);
-    if (value >= 0) {
-        return theme === "dark"
-            ? `rgba(34, 197, 94, ${0.12 + intensity * 0.45})`
-            : `rgba(15, 159, 99, ${0.10 + intensity * 0.38})`;
-    }
-    return theme === "dark"
-        ? `rgba(239, 83, 80, ${0.14 + intensity * 0.42})`
-        : `rgba(208, 74, 60, ${0.12 + intensity * 0.36})`;
-};
-
 const getCorrelationBackground = (value: number, theme: "dark" | "light") => {
     const clamped = Math.max(-1, Math.min(1, value));
     const opacity = Math.abs(clamped);
@@ -229,46 +196,81 @@ const MetricCard = ({
     </article>
 );
 
-const HeatmapTile = ({
+const SummaryMetricTile = ({
+    label,
+    value,
+}: {
+    label: string;
+    value: string;
+}) => (
+    <div className="rounded-lg border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-3">
+        <p className="text-[11px] uppercase tracking-[0.12em] terminal-muted">{label}</p>
+        <p className="mt-2 text-lg font-semibold">{value}</p>
+    </div>
+);
+
+const ComparisonTile = ({ item }: { item: BenchmarkComparisonPoint }) => (
+    <div className="rounded-lg border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-3">
+        <div className="flex items-start justify-between gap-3">
+            <div>
+                <p className="text-sm font-semibold">{CORRELATION_LABEL_ALIAS[item.symbol.replace("^", "")] ?? item.name}</p>
+                <p className="text-[11px] terminal-muted">{item.symbol}</p>
+            </div>
+            <div className={cn("text-right text-sm font-semibold", (item.relativeReturnPct ?? 0) >= 0 ? "terminal-up" : "terminal-down")}>
+                {formatSignedPercent(item.relativeReturnPct, 1)}
+            </div>
+        </div>
+        <div className="mt-3 grid gap-1 text-[11px] terminal-muted">
+            <span>Index Return {formatSignedPercent(item.returnPct, 1)}</span>
+            <span>Index CAGR {formatNullable(item.annualizedReturnPct, 1, "%")}</span>
+            <span>Beta {formatNullable(item.beta120, 2)}</span>
+            <span>Corr {formatNullable(item.correlation120, 2)}</span>
+        </div>
+    </div>
+);
+
+const CorrelationBar = ({
     label,
     symbol,
+    correlation,
     returnPct,
     annualizedReturnPct,
-    correlationToBenchmark,
     theme,
 }: {
     label: string;
     symbol: string;
+    correlation: number | null;
     returnPct: number;
     annualizedReturnPct: number | null;
-    correlationToBenchmark: number | null;
     theme: "dark" | "light";
-}) => (
-    <div
-        className="rounded-lg border border-[var(--terminal-border)] p-3"
-        style={{ background: getHeatmapBackground(returnPct, theme) }}
-    >
-        <div className="flex items-start justify-between gap-3">
-            <div>
-                <p className="text-sm font-semibold">{label}</p>
-                <p className="text-[11px] terminal-muted">{symbol}</p>
+}) => {
+    const normalized = correlation == null ? 0 : Math.max(-1, Math.min(1, correlation));
+    const width = `${Math.abs(normalized) * 100}%`;
+
+    return (
+        <div className="rounded-lg border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-3">
+            <div className="flex items-center justify-between gap-3">
+                <div>
+                    <p className="text-sm font-semibold">{label}</p>
+                    <p className="text-[11px] terminal-muted">{symbol}</p>
+                </div>
+                <div className="text-right text-sm font-semibold">{formatNullable(correlation, 2)}</div>
             </div>
-            <div className={cn("text-right text-sm font-semibold", returnPct >= 0 ? "terminal-up" : "terminal-down")}>
-                {formatSignedPercent(returnPct, 1)}
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--terminal-border)]">
+                <div className="h-full rounded-full" style={{ width, background: getCorrelationBackground(normalized, theme) }} />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-3 text-[11px] terminal-muted">
+                <span>1Y Return {formatSignedPercent(returnPct, 1)}</span>
+                <span>1Y CAGR {formatNullable(annualizedReturnPct, 1, "%")}</span>
             </div>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2 text-[11px] terminal-muted">
-            <span>CAGR {formatNullable(annualizedReturnPct, 1, "%")}</span>
-            <span>Corr {formatNullable(correlationToBenchmark, 2)}</span>
-        </div>
-    </div>
-);
+    );
+};
 
 export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAssetMetricsPanelProps) {
     const [payload, setPayload] = useState<AssetMetricsResponse | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [riskRangeKey, setRiskRangeKey] = useState<RiskRangeKey>("1Y");
 
     useEffect(() => {
         let isMounted = true;
@@ -280,7 +282,6 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
 
             try {
                 const response = await fetch(`/api/market/asset-metrics?symbol=${encodeURIComponent(symbol)}`, {
-                    cache: "no-store",
                     signal: controller.signal,
                 });
                 const data = (await response.json()) as AssetMetricsResponse;
@@ -314,6 +315,9 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
                       sharpe20: "#a78bfa",
                       sharpe60: "#38bdf8",
                       sharpe120: "#22c55e",
+                      sortino20: "#c084fc",
+                      sortino60: "#60a5fa",
+                      sortino120: "#34d399",
                   }
                 : {
                       grid: "rgba(81, 101, 126, 0.12)",
@@ -325,6 +329,9 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
                       sharpe20: "#7c3aed",
                       sharpe60: "#0284c7",
                       sharpe120: "#16a34a",
+                      sortino20: "#9333ea",
+                      sortino60: "#2563eb",
+                      sortino120: "#059669",
                   },
         [theme]
     );
@@ -333,36 +340,14 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
     const latest = metrics[metrics.length - 1];
     const maxDrawdown = metrics.reduce((lowest, point) => Math.min(lowest, point.drawdown), 0);
 
-    const riskRange = useMemo(
-        () => RISK_RANGE_OPTIONS.find((option) => option.key === riskRangeKey) ?? RISK_RANGE_OPTIONS[3],
-        [riskRangeKey]
-    );
-    const riskMatrix = payload?.riskMatrix;
-
-    const sectorHeatmapData = useMemo(() => {
-        const sectorSeries = riskMatrix?.sectorSeries ?? [];
-        const correlationMap = new Map(
-            (riskMatrix?.sectors ?? []).map((sector) => [sector.symbol, sector.correlationToBenchmark])
-        );
-
-        return sectorSeries
-            .map((sector) => {
-                const summary = getPerformanceSummary(sector.points, riskRange.tradingDays);
-                return {
-                    symbol: sector.symbol,
-                    label: sector.label,
-                    returnPct: summary?.totalReturnPct ?? 0,
-                    annualizedReturnPct: summary?.annualizedReturnPct ?? null,
-                    correlationToBenchmark: correlationMap.get(sector.symbol) ?? null,
-                };
-            })
-            .sort((left, right) => right.returnPct - left.returnPct);
-    }, [riskMatrix?.sectorSeries, riskMatrix?.sectors, riskRange.tradingDays]);
-
     const latestSensitivityPoint = useMemo(() => {
         const points = payload?.benchmarkSensitivity?.points ?? [];
         return points[points.length - 1];
     }, [payload?.benchmarkSensitivity?.points]);
+    const sectorCorrelations = useMemo(
+        () => [...(payload?.sectorCorrelations ?? [])].sort((left, right) => Math.abs(right.correlation1Y ?? 0) - Math.abs(left.correlation1Y ?? 0)),
+        [payload?.sectorCorrelations]
+    );
 
     const tooltipStyle = useMemo(
         () => ({
@@ -494,22 +479,50 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
                 </MetricCard>
 
                 <MetricCard
-                    title="Benchmark Sensitivity"
+                    title="Sortino Ratio"
+                    subtitle="Rolling annualized Sortino using downside deviation"
+                    footer={
+                        <div className="flex flex-wrap items-center gap-3">
+                            <span>20D {formatNullable(latest?.sortino20)}</span>
+                            <span>60D {formatNullable(latest?.sortino60)}</span>
+                            <span>120D {formatNullable(latest?.sortino120)}</span>
+                        </div>
+                    }
+                >
+                    <div className="h-[260px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={metrics} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                                <CartesianGrid stroke={palette.grid} strokeDasharray="3 3" />
+                                <XAxis dataKey="t" tickFormatter={formatDateTick} tick={{ fill: palette.muted, fontSize: 11 }} stroke="var(--terminal-border-strong)" minTickGap={24} />
+                                <YAxis tick={{ fill: palette.muted, fontSize: 11 }} stroke="var(--terminal-border-strong)" width={42} />
+                                <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => formatDateTooltip(Number(value))} formatter={(value, name) => [formatNullable(asNullableNumber(value)), String(name).toUpperCase()]} />
+                                <Line type="monotone" dataKey="sortino20" stroke={palette.sortino20} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="20D" />
+                                <Line type="monotone" dataKey="sortino60" stroke={palette.sortino60} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="60D" />
+                                <Line type="monotone" dataKey="sortino120" stroke={palette.sortino120} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="120D" />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                </MetricCard>
+
+                <MetricCard
+                    title="Trailing Beta & Correlation"
                     subtitle={
                         payload?.benchmarkSensitivity
-                            ? `60D and 120D rolling beta and correlation vs ${payload.benchmarkSensitivity.benchmarkName}`
+                            ? `20D, 60D and 120D rolling beta and correlation vs ${payload.benchmarkSensitivity.benchmarkName}`
                             : "Rolling beta and correlation vs benchmark"
                     }
                     footer={
                         payload?.benchmarkSensitivity ? (
                             <div className="flex flex-wrap items-center gap-3">
+                                <span>20D Beta {formatNullable(latestSensitivityPoint?.beta20)}</span>
                                 <span>60D Beta {formatNullable(latestSensitivityPoint?.beta60)}</span>
                                 <span>120D Beta {formatNullable(latestSensitivityPoint?.beta120)}</span>
+                                <span>20D Corr {formatNullable(latestSensitivityPoint?.corr20)}</span>
                                 <span>60D Corr {formatNullable(latestSensitivityPoint?.corr60)}</span>
                                 <span>120D Corr {formatNullable(latestSensitivityPoint?.corr120)}</span>
                             </div>
                         ) : (
-                            "Benchmark sensitivity needs enough overlapping daily history to calculate 60D and 120D windows."
+                            "Benchmark sensitivity needs enough overlapping daily history to calculate 20D, 60D and 120D windows."
                         )
                     }
                 >
@@ -539,8 +552,10 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
                                         labelFormatter={(value) => formatDateTooltip(Number(value))}
                                         formatter={(value, name) => [formatNullable(asNullableNumber(value)), String(name)]}
                                     />
+                                    <Line yAxisId="beta" type="monotone" dataKey="beta20" stroke="#93c5fd" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="20D Beta" />
                                     <Line yAxisId="beta" type="monotone" dataKey="beta60" stroke="#7c8cff" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="60D Beta" />
                                     <Line yAxisId="beta" type="monotone" dataKey="beta120" stroke="#38d39f" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="120D Beta" />
+                                    <Line yAxisId="corr" type="monotone" dataKey="corr20" stroke="#fbbf24" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="20D Corr" />
                                     <Line yAxisId="corr" type="monotone" dataKey="corr60" stroke="#6bc7ff" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="60D Corr" />
                                     <Line yAxisId="corr" type="monotone" dataKey="corr120" stroke="#ffca3a" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} name="120D Corr" />
                                 </LineChart>
@@ -553,100 +568,114 @@ export default function TerminalAssetMetricsPanel({ symbol, theme }: TerminalAss
                     )}
                 </MetricCard>
 
+                <TerminalPriceTargetsPanel symbol={symbol} theme={theme} />
+
                 <MetricCard
-                    title="Index Sector Risk Matrix"
-                    subtitle={
-                        riskMatrix
-                            ? `${riskRange.label} sector heatmap and 1Y correlation matrix vs ${riskMatrix.benchmarkName}`
-                            : "Available for major U.S. equity indices"
-                    }
+                    title="Risk-Adjusted Return Metrics"
+                    subtitle="Snapshot of return, downside and benchmark-relative efficiency"
                     className="lg:col-span-2"
-                    action={
-                        riskMatrix ? (
-                            <div className="flex flex-wrap items-center gap-1">
-                                {RISK_RANGE_OPTIONS.map((option) => (
-                                    <button
-                                        key={option.key}
-                                        type="button"
-                                        onClick={() => setRiskRangeKey(option.key)}
-                                        className={cn("terminal-mini-btn", riskRangeKey === option.key && "terminal-mini-btn-active")}
-                                    >
-                                        {option.label}
-                                    </button>
-                                ))}
-                            </div>
-                        ) : null
-                    }
                     footer={
-                        riskMatrix ? (
+                        payload?.riskAdjustedSummary ? (
                             <div className="flex flex-wrap items-center gap-3">
-                                <span>Benchmark {riskMatrix.benchmarkSymbol}</span>
-                                <span>Sectors {riskMatrix.sectorSeries.length}</span>
-                                <span>Heatmap {riskRange.label}</span>
-                                <span>{riskMatrix.benchmarkSummary ? `Benchmark CAGR ${formatSignedPercent(riskMatrix.benchmarkSummary.annualizedReturnPct, 1)}` : "Benchmark CAGR --"}</span>
+                                <span>Total Return {formatSignedPercent(payload.riskAdjustedSummary.totalReturnPct, 1)}</span>
+                                <span>Volatility {formatNullable(payload.riskAdjustedSummary.annualizedVolatilityPct, 1, "%")}</span>
+                                <span>Max Drawdown {formatNullable(payload.riskAdjustedSummary.maxDrawdownPct, 1, "%")}</span>
+                                <span>Market Corr {formatNullable(payload.riskAdjustedSummary.marketCorrelation, 2)}</span>
                             </div>
                         ) : (
-                            "Sector risk view is currently limited to ^GSPC, ^NDX, ^DJI, and ^RUT."
+                            "Risk-adjusted metrics need enough daily history to estimate 120D volatility, beta and downside statistics."
                         )
                     }
                 >
-                    {riskMatrix ? (
-                        <div className="grid gap-4 2xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-                            <div className="grid min-h-0 gap-3">
-                                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                                    {sectorHeatmapData.map((sector) => (
-                                        <HeatmapTile
-                                            key={sector.symbol}
-                                            label={sector.label}
-                                            symbol={sector.symbol}
-                                            returnPct={sector.returnPct}
-                                            annualizedReturnPct={sector.annualizedReturnPct}
-                                            correlationToBenchmark={sector.correlationToBenchmark}
-                                            theme={theme}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="min-w-0 rounded-lg border border-[var(--terminal-border)] p-3">
-                                <div
-                                    className="grid gap-1"
-                                    style={{
-                                        gridTemplateColumns: `72px repeat(${riskMatrix.correlations.labels.length}, minmax(40px, 1fr))`,
-                                    }}
-                                >
-                                    <div />
-                                    {riskMatrix.correlations.labels.map((label) => (
-                                        <div key={`header-${label}`} className="px-0.5 text-center text-[10px] font-semibold terminal-muted">
-                                            {CORRELATION_LABEL_ALIAS[label] ?? label}
-                                        </div>
-                                    ))}
-                                    {riskMatrix.correlations.values.map((row, rowIndex) => (
-                                        <div key={`row-${riskMatrix.correlations.labels[rowIndex]}`} className="contents">
-                                            <div className="flex items-center text-[10px] font-semibold terminal-muted">
-                                                {CORRELATION_LABEL_ALIAS[riskMatrix.correlations.labels[rowIndex]] ??
-                                                    riskMatrix.correlations.labels[rowIndex]}
-                                            </div>
-                                            {row.map((value, columnIndex) => (
-                                                <div
-                                                    key={`${rowIndex}-${columnIndex}`}
-                                                    className="flex min-h-9 items-center justify-center rounded-md border border-[var(--terminal-border)] text-[10px] font-semibold"
-                                                    style={{ background: getCorrelationBackground(value, theme) }}
-                                                    title={`${riskMatrix.correlations.labels[rowIndex]} / ${riskMatrix.correlations.labels[columnIndex]}: ${value.toFixed(2)}`}
-                                                >
-                                                    {value.toFixed(2)}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
+                    {payload?.riskAdjustedSummary ? (
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                            <SummaryMetricTile label="Total Return" value={formatSignedPercent(payload.riskAdjustedSummary.totalReturnPct, 1)} />
+                            <SummaryMetricTile label="CAGR" value={formatSignedPercent(payload.riskAdjustedSummary.annualizedReturnPct, 1)} />
+                            <SummaryMetricTile label="Ann. Volatility" value={formatNullable(payload.riskAdjustedSummary.annualizedVolatilityPct, 1, "%")} />
+                            <SummaryMetricTile label="Sharpe Ratio" value={formatNullable(payload.riskAdjustedSummary.sharpeRatio, 2)} />
+                            <SummaryMetricTile label="Sortino Ratio" value={formatNullable(payload.riskAdjustedSummary.sortinoRatio, 2)} />
+                            <SummaryMetricTile label="Calmar Ratio" value={formatNullable(payload.riskAdjustedSummary.calmarRatio, 2)} />
+                            <SummaryMetricTile label="Return / Volatility" value={formatNullable(payload.riskAdjustedSummary.returnPerVolatility, 2)} />
+                            <SummaryMetricTile label="Trailing Beta" value={formatNullable(payload.riskAdjustedSummary.trailingBeta, 2)} />
+                            <SummaryMetricTile label="Market Correlation" value={formatNullable(payload.riskAdjustedSummary.marketCorrelation, 2)} />
                         </div>
                     ) : (
-                        <div className="flex min-h-[260px] items-center justify-center text-center text-sm terminal-muted">
-                            Sector return and correlation analytics are shown for major U.S. equity indices only.
+                        <div className="flex min-h-[220px] items-center justify-center text-center text-sm terminal-muted">
+                            Risk-adjusted metrics are unavailable for this instrument.
                         </div>
                     )}
+                </MetricCard>
+
+                <MetricCard
+                    title="Return vs Major Indexes"
+                    subtitle="Relative performance versus the major U.S. benchmarks"
+                    className="lg:col-span-2"
+                    footer={
+                        <div className="flex flex-wrap items-center gap-3">
+                            <span>Benchmarks {payload?.benchmarkComparisons.length ?? 0}</span>
+                            <span>Relative return compares the stock total return against each index</span>
+                        </div>
+                    }
+                >
+                    {payload?.benchmarkComparisons.length ? (
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                            {payload.benchmarkComparisons.map((item) => (
+                                <ComparisonTile key={item.symbol} item={item} />
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex min-h-[220px] items-center justify-center text-center text-sm terminal-muted">
+                            Benchmark-relative return metrics are unavailable for this instrument.
+                        </div>
+                    )}
+                </MetricCard>
+
+                <MetricCard
+                    title="Market & Sector Correlations"
+                    subtitle="Rolling market sensitivity and one-year sector correlation snapshot"
+                    className="lg:col-span-2"
+                    footer={
+                        <div className="flex flex-wrap items-center gap-3">
+                            <span>Market comparisons {payload?.benchmarkComparisons.length ?? 0}</span>
+                            <span>Sectors {sectorCorrelations.length}</span>
+                        </div>
+                    }
+                >
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            {(payload?.benchmarkComparisons ?? []).map((item) => (
+                                <div key={`market-${item.symbol}`} className="rounded-lg border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-3">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <p className="text-sm font-semibold">{CORRELATION_LABEL_ALIAS[item.symbol.replace("^", "")] ?? item.name}</p>
+                                            <p className="text-[11px] terminal-muted">{item.symbol}</p>
+                                        </div>
+                                        <div className={cn("text-right text-sm font-semibold", (item.correlation120 ?? 0) >= 0 ? "terminal-up" : "terminal-down")}>
+                                            {formatNullable(item.correlation120, 2)}
+                                        </div>
+                                    </div>
+                                    <div className="mt-3 flex flex-wrap gap-3 text-[11px] terminal-muted">
+                                        <span>Beta {formatNullable(item.beta120, 2)}</span>
+                                        <span>Rel Return {formatSignedPercent(item.relativeReturnPct, 1)}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                            {sectorCorrelations.map((sector) => (
+                                <CorrelationBar
+                                    key={sector.symbol}
+                                    label={sector.label}
+                                    symbol={sector.symbol}
+                                    correlation={sector.correlation1Y}
+                                    returnPct={sector.returnPct}
+                                    annualizedReturnPct={sector.annualizedReturnPct}
+                                    theme={theme}
+                                />
+                            ))}
+                        </div>
+                    </div>
                 </MetricCard>
             </div>
         </article>

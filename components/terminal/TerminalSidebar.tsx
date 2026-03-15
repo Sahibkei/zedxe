@@ -3,11 +3,12 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Newspaper, ArrowLeftToLine } from 'lucide-react';
+import { LayoutDashboard, Newspaper, ArrowLeftToLine, FileBarChart2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const TERMINAL_ITEMS = [
     { href: '/terminal/dashboard', label: "Today's Markets", icon: LayoutDashboard, code: 'NOW' },
+    { href: '/terminal/advance-analytics?symbol=NVDA', label: 'Advance Analytics', icon: FileBarChart2, code: 'ANL' },
     { href: '/terminal/news-terminal', label: 'Market News', icon: Newspaper, code: 'TOP' },
 ];
 
@@ -35,12 +36,14 @@ const TerminalSidebar = ({ collapsed }: Props) => {
 
                 <nav className="space-y-2">
                     {TERMINAL_ITEMS.map((item) => {
-                        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                        const itemPath = item.href.split('?')[0];
+                        const active = pathname === itemPath || pathname.startsWith(`${itemPath}/`);
                         const Icon = item.icon;
                         return (
                             <Link
                                 key={item.href}
                                 href={item.href}
+                                prefetch={false}
                                 className={cn(
                                     'terminal-side-link',
                                     active
@@ -65,6 +68,7 @@ const TerminalSidebar = ({ collapsed }: Props) => {
             <div className="space-y-3">
                 <Link
                     href="/app"
+                    prefetch={false}
                     className={cn('terminal-side-back', collapsed && 'terminal-side-back-collapsed')}
                     aria-label="Back To Main App"
                     title="Back To Main App"

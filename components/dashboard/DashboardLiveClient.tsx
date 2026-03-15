@@ -41,7 +41,7 @@ type IndicesApiResponse = {
     }>;
 };
 
-const REFRESH_INTERVAL_MS = 30000;
+const REFRESH_INTERVAL_MS = 60000;
 
 const toMarketQuoteMap = (data: QuotesApiResponse): Record<string, MarketQuote | null> => {
     const quoteEntries =

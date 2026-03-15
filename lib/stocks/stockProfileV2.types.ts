@@ -86,6 +86,10 @@ export type StockProfileV2Model = {
     financials: {
         annual: StockFinancialRow[];
         quarterly: StockFinancialRow[];
+        rawReports?: {
+            annual?: FinnhubFinancialReport[];
+            quarterly?: FinnhubFinancialReport[];
+        };
         statements?: {
             income?: StatementGrid;
             balanceSheet?: StatementGrid;
