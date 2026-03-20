@@ -2,6 +2,7 @@ import 'server-only';
 
 import { getFinnhubFinancials, getFinnhubMetrics, getFinnhubProfile, getFinnhubQuote } from './providers/finnhub';
 import { getRecentSecFilings, getSecCompanyFacts } from './providers/sec';
+import { getZapiFinancials, inferZapiRequestContext, isZapiConfigured } from './zapi';
 import type { SecCompanyFacts } from './providers/sec';
 import type {
     FinancialsMapperFn,
@@ -627,8 +628,11 @@ const createStatementGrid = ({
             };
         });
 
+    const annualCurrencyCandidate = annualColumns.find((col) => col.currency)?.currency;
+    const quarterlyCurrencyCandidate = quarterlyColumns.find((col) => col.currency)?.currency;
     const currencyCandidate =
-        columnsWithSource.find((col) => 'currency' in col && col.currency)?.currency ||
+        annualCurrencyCandidate ||
+        quarterlyCurrencyCandidate ||
         fallbackCurrency ||
         sortedAnnual[0]?.currency ||
         sortedQuarterly[0]?.currency;
@@ -791,10 +795,10 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
     const quarterlyPrimary = mapFinancials({ financials: quarterlyRes, limit: 10, frequency: 'quarterly' });
     const secAnnual = mapSecFinancials(secFacts || {}, 'annual', 10);
     const secQuarterly = mapSecFinancials(secFacts || {}, 'quarterly', 10);
-    const annual = mergeFinancialRows(annualPrimary, secAnnual, 10);
-    const quarterly = mergeFinancialRows(quarterlyPrimary, secQuarterly, 10);
     const filings = mapFilings(filingsRes);
-    const statements = {
+    const fallbackAnnual = mergeFinancialRows(annualPrimary, secAnnual, 10);
+    const fallbackQuarterly = mergeFinancialRows(quarterlyPrimary, secQuarterly, 10);
+    const fallbackStatements = {
         income: createStatementGrid({
             annualReports: annualRes?.data,
             quarterlyReports: quarterlyRes?.data,
@@ -850,6 +854,40 @@ export async function getStockProfileV2(symbolInput: string): Promise<StockProfi
                 defaultAggregation: 'flow',
                 mode: 'quarterly',
             }),
+        },
+    } satisfies StockProfileV2Model['financials']['statements'];
+
+    let zapiFinancials: Awaited<ReturnType<typeof getZapiFinancials>> | undefined;
+    if (isZapiConfigured()) {
+        const zapiContext = inferZapiRequestContext({
+            symbolRaw,
+            finnhubSymbol,
+            secTicker,
+            company,
+        });
+
+        try {
+            zapiFinancials = await getZapiFinancials(zapiContext, 10);
+            status.push(...zapiFinancials.status);
+        } catch (error) {
+            status.push({
+                source: 'zapi',
+                level: 'warning',
+                message: error instanceof Error ? error.message : 'Zapi financial statement fetch failed.',
+            });
+        }
+    }
+
+    const annual = zapiFinancials?.annual?.length ? zapiFinancials.annual : fallbackAnnual;
+    const quarterly = zapiFinancials?.quarterly?.length ? zapiFinancials.quarterly : fallbackQuarterly;
+    const statements = {
+        income: zapiFinancials?.statements?.income ?? fallbackStatements.income,
+        balanceSheet: zapiFinancials?.statements?.balanceSheet ?? fallbackStatements.balanceSheet,
+        cashFlow: zapiFinancials?.statements?.cashFlow ?? fallbackStatements.cashFlow,
+        quarterly: {
+            income: zapiFinancials?.statements?.quarterly?.income ?? fallbackStatements.quarterly?.income,
+            balanceSheet: zapiFinancials?.statements?.quarterly?.balanceSheet ?? fallbackStatements.quarterly?.balanceSheet,
+            cashFlow: zapiFinancials?.statements?.quarterly?.cashFlow ?? fallbackStatements.quarterly?.cashFlow,
         },
     } satisfies StockProfileV2Model['financials']['statements'];
 

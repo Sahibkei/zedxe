@@ -45,6 +45,18 @@ export const formatCurrencyShort = (value?: number | null, currency = "USD") => 
     return `${sign}${prefix}${abs.toFixed(2)}`;
 };
 
+export const formatStatementMillions = (value?: number | null) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return DASH;
+
+    const scaled = value / 1e6;
+    const abs = Math.abs(scaled);
+    const formatted = new Intl.NumberFormat("en-US", {
+        maximumFractionDigits: abs >= 100 ? 0 : abs >= 10 ? 1 : 2,
+    }).format(abs);
+
+    return scaled < 0 ? `(${formatted})` : formatted;
+};
+
 export const formatCurrency = (value?: number | null, currency = "USD") => {
     if (typeof value !== "number" || Number.isNaN(value)) return DASH;
     try {
@@ -85,7 +97,7 @@ export const formatStatementValue = (value: number | undefined, valueType: State
         return formatInteger(value);
     }
 
-    return formatCurrencyShort(value, currency || "USD");
+    return formatStatementMillions(value);
 };
 
 export const calculateCagr = (current?: number, previous?: number, years?: number) => {

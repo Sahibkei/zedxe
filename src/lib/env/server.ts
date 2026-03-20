@@ -11,6 +11,8 @@ const rawEnv = {
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
   UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
+  ZAPI_BASE_URL: process.env.ZAPI_BASE_URL,
+  ZAPI_INTERNAL_API_KEY: process.env.ZAPI_INTERNAL_API_KEY,
   NODE_ENV: process.env.NODE_ENV,
 };
 
@@ -36,6 +38,8 @@ const serverSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
+  ZAPI_BASE_URL: z.string().url().optional(),
+  ZAPI_INTERNAL_API_KEY: z.string().min(1).optional(),
   NODE_ENV: z.string().optional(),
 });
 
@@ -44,6 +48,8 @@ const parsed = serverSchema.safeParse({
   SUPABASE_SERVICE_ROLE_KEY: rawEnv.SUPABASE_SERVICE_ROLE_KEY,
   UPSTASH_REDIS_REST_URL: rawEnv.UPSTASH_REDIS_REST_URL,
   UPSTASH_REDIS_REST_TOKEN: rawEnv.UPSTASH_REDIS_REST_TOKEN,
+  ZAPI_BASE_URL: rawEnv.ZAPI_BASE_URL,
+  ZAPI_INTERNAL_API_KEY: rawEnv.ZAPI_INTERNAL_API_KEY,
   NODE_ENV: rawEnv.NODE_ENV,
 });
 
@@ -65,5 +71,7 @@ export const envServer = {
   SUPABASE_SERVICE_ROLE_KEY: parsed.data.SUPABASE_SERVICE_ROLE_KEY,
   UPSTASH_REDIS_REST_URL: parsed.data.UPSTASH_REDIS_REST_URL,
   UPSTASH_REDIS_REST_TOKEN: parsed.data.UPSTASH_REDIS_REST_TOKEN,
+  ZAPI_BASE_URL: parsed.data.ZAPI_BASE_URL,
+  ZAPI_INTERNAL_API_KEY: parsed.data.ZAPI_INTERNAL_API_KEY,
   NODE_ENV: parsed.data.NODE_ENV,
 };

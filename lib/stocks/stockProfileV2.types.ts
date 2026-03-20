@@ -1,4 +1,4 @@
-import { FinnhubFinancialsReportedResponse, FinnhubProfile2Response } from './providers/finnhub';
+import { FinnhubFinancialReport, FinnhubFinancialsReportedResponse, FinnhubProfile2Response } from './providers/finnhub';
 import { SecFiling, SecRecentFilings } from './providers/sec';
 
 type StatusLevel = 'info' | 'warning' | 'error';
@@ -29,7 +29,7 @@ export type StatementGrid = {
 };
 
 export type ProviderStatus = {
-    source: 'finnhub' | 'sec';
+    source: 'finnhub' | 'sec' | 'zapi';
     level: StatusLevel;
     message: string;
 };
