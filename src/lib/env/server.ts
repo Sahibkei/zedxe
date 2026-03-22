@@ -13,6 +13,12 @@ const rawEnv = {
   UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
   ZAPI_BASE_URL: process.env.ZAPI_BASE_URL,
   ZAPI_INTERNAL_API_KEY: process.env.ZAPI_INTERNAL_API_KEY,
+  ZAPI_JWT_SECRET: process.env.ZAPI_JWT_SECRET,
+  ZAPI_JWT_ISSUER: process.env.ZAPI_JWT_ISSUER,
+  ZAPI_JWT_AUDIENCE: process.env.ZAPI_JWT_AUDIENCE,
+  ZAPI_DEFAULT_SIGNED_PLAN: process.env.ZAPI_DEFAULT_SIGNED_PLAN,
+  ZAPI_PLUS_EMAILS: process.env.ZAPI_PLUS_EMAILS,
+  ZAPI_PRO_EMAILS: process.env.ZAPI_PRO_EMAILS,
   NODE_ENV: process.env.NODE_ENV,
 };
 
@@ -40,6 +46,12 @@ const serverSchema = z.object({
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
   ZAPI_BASE_URL: z.string().url().optional(),
   ZAPI_INTERNAL_API_KEY: z.string().min(1).optional(),
+  ZAPI_JWT_SECRET: z.string().min(1).optional(),
+  ZAPI_JWT_ISSUER: z.string().min(1).optional(),
+  ZAPI_JWT_AUDIENCE: z.string().min(1).optional(),
+  ZAPI_DEFAULT_SIGNED_PLAN: z.string().min(1).optional(),
+  ZAPI_PLUS_EMAILS: z.string().min(1).optional(),
+  ZAPI_PRO_EMAILS: z.string().min(1).optional(),
   NODE_ENV: z.string().optional(),
 });
 
@@ -50,6 +62,12 @@ const parsed = serverSchema.safeParse({
   UPSTASH_REDIS_REST_TOKEN: rawEnv.UPSTASH_REDIS_REST_TOKEN,
   ZAPI_BASE_URL: rawEnv.ZAPI_BASE_URL,
   ZAPI_INTERNAL_API_KEY: rawEnv.ZAPI_INTERNAL_API_KEY,
+  ZAPI_JWT_SECRET: rawEnv.ZAPI_JWT_SECRET,
+  ZAPI_JWT_ISSUER: rawEnv.ZAPI_JWT_ISSUER,
+  ZAPI_JWT_AUDIENCE: rawEnv.ZAPI_JWT_AUDIENCE,
+  ZAPI_DEFAULT_SIGNED_PLAN: rawEnv.ZAPI_DEFAULT_SIGNED_PLAN,
+  ZAPI_PLUS_EMAILS: rawEnv.ZAPI_PLUS_EMAILS,
+  ZAPI_PRO_EMAILS: rawEnv.ZAPI_PRO_EMAILS,
   NODE_ENV: rawEnv.NODE_ENV,
 });
 
@@ -73,5 +91,11 @@ export const envServer = {
   UPSTASH_REDIS_REST_TOKEN: parsed.data.UPSTASH_REDIS_REST_TOKEN,
   ZAPI_BASE_URL: parsed.data.ZAPI_BASE_URL,
   ZAPI_INTERNAL_API_KEY: parsed.data.ZAPI_INTERNAL_API_KEY,
+  ZAPI_JWT_SECRET: parsed.data.ZAPI_JWT_SECRET,
+  ZAPI_JWT_ISSUER: parsed.data.ZAPI_JWT_ISSUER,
+  ZAPI_JWT_AUDIENCE: parsed.data.ZAPI_JWT_AUDIENCE,
+  ZAPI_DEFAULT_SIGNED_PLAN: parsed.data.ZAPI_DEFAULT_SIGNED_PLAN,
+  ZAPI_PLUS_EMAILS: parsed.data.ZAPI_PLUS_EMAILS,
+  ZAPI_PRO_EMAILS: parsed.data.ZAPI_PRO_EMAILS,
   NODE_ENV: parsed.data.NODE_ENV,
 };
