@@ -125,7 +125,10 @@ const formatTooltipValue = (value: number, valueType: StatementValueType | undef
 const getNumericValues = (values: Array<number | undefined>) => values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 
 const getYearSpan = (columns: StatementColumn[]) => {
-    const dated = columns.map((column) => (column.date ? Date.parse(column.date) : Number.NaN)).filter((value) => Number.isFinite(value));
+    const dated = columns
+        .map((column) => parseStatementColumnTime(column))
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
     if (dated.length >= 2) {
         const spanYears = (dated[dated.length - 1] - dated[0]) / (1000 * 60 * 60 * 24 * 365.25);
         if (spanYears > 0) return spanYears;
@@ -179,7 +182,7 @@ export default function ChartBuilder({
             return withTime.sort((a, b) => a.time - b.time).map((entry) => entry.column);
         }
 
-        return [...visibleColumns].reverse();
+        return visibleColumns;
     }, [columns]);
 
     const palette = useMemo(

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ArrowRight, Globe2, LockKeyhole, Orbit, Server } from "lucide-react";
 import { headers } from "next/headers";
 import ApiMarketingShell from "@/app/(marketing)/api/components/ApiMarketingShell";
-import { apiCoverage, apiEndpoints, apiPlans, curlExample, normalizedExample } from "@/app/(marketing)/api/content";
+import { apiCoverage, apiEndpoints, apiHighlights, apiPlans, curlExample, normalizedExample } from "@/app/(marketing)/api/content";
 import { auth } from "@/lib/better-auth/auth";
 
 export const metadata: Metadata = {
@@ -20,28 +20,12 @@ const tabs = [
     { label: "Live Swagger", href: "https://api.zedxe.com/docs", external: true },
 ];
 
-const highlights = [
-    {
-        icon: Server,
-        title: "Statement-first API",
-        body: "Fetch canonical income statement, balance sheet, and cash flow data through a single contract across regimes.",
-    },
-    {
-        icon: LockKeyhole,
-        title: "Site-owned signup and billing",
-        body: "The main ZedXe site owns plans, signup, and future token management while the API stays focused on data delivery.",
-    },
-    {
-        icon: Globe2,
-        title: "Region-aware coverage",
-        body: "US is official today. UK and India are partially live. Japan stays pending until the EDINET production key is available.",
-    },
-    {
-        icon: Orbit,
-        title: "Built for product integration",
-        body: "Terminal tables, charts, and later account dashboards can all read from the same Zapi response model.",
-    },
-];
+const highlightIcons = {
+    server: Server,
+    lock: LockKeyhole,
+    globe: Globe2,
+    orbit: Orbit,
+} as const;
 
 export default async function ApiLandingPage() {
     const session = await auth.api.getSession({ headers: await headers() });
@@ -59,7 +43,9 @@ export default async function ApiLandingPage() {
             tabs={tabs}
         >
             <section id="overview" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {highlights.map(({ icon: Icon, title, body }) => (
+                {apiHighlights.map(({ icon, title, body }) => {
+                    const Icon = highlightIcons[icon];
+                    return (
                     <article
                         key={title}
                         className="rounded-[1.75rem] border border-white/10 bg-white/5 p-6 shadow-[0_20px_60px_-32px_rgba(15,237,190,0.3)] backdrop-blur-md"
@@ -70,7 +56,8 @@ export default async function ApiLandingPage() {
                         <h2 className="mt-5 text-xl font-semibold text-white">{title}</h2>
                         <p className="mt-3 text-sm leading-7 text-gray-300">{body}</p>
                     </article>
-                ))}
+                    );
+                })}
             </section>
 
             <section id="coverage" className="rounded-[2rem] border border-white/10 bg-white/5 p-7 backdrop-blur-xl md:p-9">

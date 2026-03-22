@@ -78,6 +78,8 @@ const SUMMARY_METRIC_PRIORITY = {
     operatingCashFlow: ["operating_cash_flow"] as const,
 };
 
+const ZAPI_REQUEST_TIMEOUT_MS = 15_000;
+
 function pickMetric(
     period: Record<string, number | null> | undefined,
     metricCodes: readonly string[]
@@ -305,6 +307,7 @@ async function fetchZapiStatement({
             "x-zapi-api-key": envServer.ZAPI_INTERNAL_API_KEY,
         },
         cache: "no-store",
+        signal: AbortSignal.timeout(ZAPI_REQUEST_TIMEOUT_MS),
     });
 
     if (!response.ok) {

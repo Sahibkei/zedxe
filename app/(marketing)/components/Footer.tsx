@@ -16,7 +16,7 @@ const Footer = () => {
                         Docs
                     </Link>
                 </div>
-                <span>(c) {new Date().getFullYear()} ZedXe. All rights reserved.</span>
+                <span>&copy; {new Date().getFullYear()} ZedXe. All rights reserved.</span>
             </div>
         </footer>
     );

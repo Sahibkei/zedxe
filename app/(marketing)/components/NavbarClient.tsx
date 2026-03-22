@@ -11,6 +11,47 @@ type NavbarClientProps = {
     isSignedIn: boolean;
 };
 
+const getNavLinks = (pathname: string | null) => {
+    if (pathname?.startsWith("/api/docs")) {
+        return [
+            { href: "/api", label: "API" },
+            { href: "#endpoints", label: "Endpoints" },
+            { href: "#auth", label: "Auth" },
+        ];
+    }
+
+    if (pathname?.startsWith("/api/pricing")) {
+        return [
+            { href: "/api", label: "API" },
+            { href: "#plans", label: "Plans" },
+            { href: "/api/docs", label: "Docs" },
+        ];
+    }
+
+    if (pathname?.startsWith("/api")) {
+        return [
+            { href: "#overview", label: "Overview" },
+            { href: "#coverage", label: "Coverage" },
+            { href: "/api/pricing", label: "Pricing" },
+            { href: "/api/docs", label: "Docs" },
+        ];
+    }
+
+    if (pathname === "/waitlist") {
+        return [
+            { href: "/", label: "Home" },
+            { href: "/api", label: "API" },
+            { href: "/api/docs", label: "Docs" },
+        ];
+    }
+
+    return [
+        { href: "#product", label: "Product" },
+        { href: "#features", label: "Features" },
+        { href: "/api", label: "API" },
+    ];
+};
+
 const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
     const [isOpen, setIsOpen] = useState(false);
     const [isSigningOut, setIsSigningOut] = useState(false);
@@ -18,36 +59,7 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
     const router = useRouter();
     const pathname = usePathname();
 
-    const navLinks = pathname?.startsWith("/api/docs")
-        ? [
-              { href: "/api", label: "API" },
-              { href: "#endpoints", label: "Endpoints" },
-              { href: "#auth", label: "Auth" },
-          ]
-        : pathname?.startsWith("/api/pricing")
-          ? [
-                { href: "/api", label: "API" },
-                { href: "#plans", label: "Plans" },
-                { href: "/api/docs", label: "Docs" },
-            ]
-        : pathname?.startsWith("/api")
-          ? [
-                { href: "#overview", label: "Overview" },
-                { href: "#coverage", label: "Coverage" },
-                { href: "/api/pricing", label: "Pricing" },
-                { href: "/api/docs", label: "Docs" },
-            ]
-          : pathname === "/waitlist"
-            ? [
-                  { href: "/", label: "Home" },
-                  { href: "/api", label: "API" },
-                  { href: "/api/docs", label: "Docs" },
-              ]
-            : [
-                  { href: "#product", label: "Product" },
-                  { href: "#features", label: "Features" },
-                  { href: "/api", label: "API" },
-              ];
+    const navLinks = getNavLinks(pathname);
 
     const waitlistHref = pathname?.startsWith("/api") ? `/waitlist?from=${encodeURIComponent(pathname)}` : "/waitlist";
     const waitlistLabel = pathname?.startsWith("/api") ? "Request API Access" : "Join Waitlist";

@@ -25,6 +25,12 @@ export type ApiEndpointItem = {
     auth: string;
 };
 
+export type ApiHighlightItem = {
+    icon: "server" | "lock" | "globe" | "orbit";
+    title: string;
+    body: string;
+};
+
 export const apiCoverage: ApiCoverageItem[] = [
     {
         region: "United States",
@@ -167,6 +173,29 @@ export const apiPricingNotes = [
     "India currently has official annual coverage, while quarterly and TTM depth still depend on broader parser work.",
     "Japan remains pending until the production EDINET key is available.",
     "The Excel plugin is planned for Plus and Pro, but it is not available yet.",
+];
+
+export const apiHighlights: ApiHighlightItem[] = [
+    {
+        icon: "server",
+        title: "Statement-first API",
+        body: "Fetch canonical income statement, balance sheet, and cash flow data through a single contract across regimes.",
+    },
+    {
+        icon: "lock",
+        title: "Site-owned signup and billing",
+        body: "The main ZedXe site owns plans, signup, and future token management while the API stays focused on data delivery.",
+    },
+    {
+        icon: "globe",
+        title: "Region-aware coverage",
+        body: "US is official today. UK and India are partially live. Japan stays pending until the EDINET production key is available.",
+    },
+    {
+        icon: "orbit",
+        title: "Built for product integration",
+        body: "Terminal tables, charts, and later account dashboards can all read from the same Zapi response model.",
+    },
 ];
 
 export const apiEndpoints: ApiEndpointItem[] = [

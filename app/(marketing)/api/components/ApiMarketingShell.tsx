@@ -22,7 +22,7 @@ type ApiMarketingShellProps = {
 
 const linkProps = (external?: boolean) => (external ? { target: "_blank", rel: "noreferrer" } : {});
 
-const ApiMarketingShell = async ({
+const ApiMarketingShell = ({
     eyebrow,
     title,
     description,

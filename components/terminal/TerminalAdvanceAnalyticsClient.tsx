@@ -239,10 +239,7 @@ const readStatementValue = (grid: StatementGrid | undefined, rowId: string, colu
     const requestedKey = columnKey ?? grid.columns[grid.columns.length - 1]?.key;
     if (!requestedKey) return undefined;
 
-    const newestVisibleKey = grid.columns.find((column) => column.type !== 'ttm')?.key ?? grid.columns[0]?.key;
-    const resolvedKey =
-        grid.columns.find((column) => column.key === requestedKey)?.key ||
-        (requestedKey === 'ttm' ? newestVisibleKey : undefined);
+    const resolvedKey = grid.columns.find((column) => column.key === requestedKey)?.key;
 
     if (!resolvedKey) return undefined;
     return findRowById(grid.rows, rowId)?.valuesByColumnKey[resolvedKey];

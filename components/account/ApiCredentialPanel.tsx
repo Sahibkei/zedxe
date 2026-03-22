@@ -16,13 +16,20 @@ function maskToken(token: string): string {
 const ApiCredentialPanel = ({ token, curlExample }: ApiCredentialPanelProps) => {
     const [revealed, setRevealed] = useState(false);
     const [copiedField, setCopiedField] = useState<"token" | "curl" | null>(null);
+    const [copyError, setCopyError] = useState<string | null>(null);
 
     const displayToken = useMemo(() => (revealed ? token : maskToken(token)), [revealed, token]);
 
     const copyValue = async (value: string, field: "token" | "curl") => {
-        await navigator.clipboard.writeText(value);
-        setCopiedField(field);
-        window.setTimeout(() => setCopiedField((current) => (current === field ? null : current)), 1800);
+        try {
+            await navigator.clipboard.writeText(value);
+            setCopyError(null);
+            setCopiedField(field);
+            window.setTimeout(() => setCopiedField((current) => (current === field ? null : current)), 1800);
+        } catch {
+            setCopyError("Clipboard access was blocked. Reveal the token and copy it manually.");
+            setCopiedField(null);
+        }
     };
 
     return (
@@ -55,7 +62,8 @@ const ApiCredentialPanel = ({ token, curlExample }: ApiCredentialPanelProps) => 
                     </div>
                 </div>
                 <pre className="mt-4 overflow-x-auto rounded-2xl border border-white/10 bg-[#050c15] p-4 text-xs leading-7 text-slate-200">
-                    <code>{displayToken}</code>
+                    <code aria-hidden={!revealed}>{displayToken}</code>
+                    {!revealed ? <span className="sr-only">Masked personal token. Use Reveal to expose it or Copy token to copy it.</span> : null}
                 </pre>
             </div>
 
@@ -80,6 +88,7 @@ const ApiCredentialPanel = ({ token, curlExample }: ApiCredentialPanelProps) => 
                     <code>{curlExample}</code>
                 </pre>
             </div>
+            {copyError ? <p className="text-sm text-amber-200">{copyError}</p> : null}
         </div>
     );
 };
