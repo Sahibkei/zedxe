@@ -191,20 +191,56 @@ const resolveTradingViewSymbol = (profile: StockProfileV2Model) => {
     return explicitSymbol || `NASDAQ:${ticker}`;
 };
 
-const findRowById = (rows: StatementRow[], targetId: string): StatementRow | undefined => {
+const STATEMENT_ROW_ID_ALIASES: Record<string, string[]> = {
+    revenue: ['revenue_total', 'business_revenue'],
+    'cost-of-revenue': ['cost_of_revenue', 'cost_of_goods_and_services'],
+    'gross-profit': ['gross_profit'],
+    'operating-expenses': ['operating_income_expenses', 'operating_expenses'],
+    rnd: ['research_and_development_expenses', 'research_development'],
+    sga: ['selling_general_and_administrative_expenses', 'selling_general_admin'],
+    'operating-income': ['operating_income', 'total_operating_profit_loss'],
+    'pretax-income': ['pretax_income'],
+    'tax-provision': ['provision_for_income_tax', 'income_tax_provision'],
+    'net-income': ['net_income_available_to_common_stockholders', 'net_income_after_non_controlling_interests', 'net_income_after_non_controlling', 'net_income'],
+    'interest-income': ['interest_income', 'interest_income_net'],
+    'interest-expense': ['interest_expense', 'finance_costs'],
+    'operating-cash-flow': ['cash_flow_operating_indirect', 'operating_cash_flow'],
+    'investing-cash-flow': ['cash_flow_investing_activities', 'investing_cash_flow'],
+    'financing-cash-flow': ['cash_flow_financing_activities', 'financing_cash_flow'],
+    capex: ['purchase_property_plant_equipment', 'capital_expenditures', 'purchase_sale_ppe_net'],
+    depreciation: ['depreciation_and_amortization_non_cash_adjustment', 'depreciation_amortization', 'depreciation_amortization_non_cash_adjustment'],
+    sbc: ['stock_based_compensation_non_cash_adjustment', 'stock_based_compensation'],
+    'total-assets': ['total_assets'],
+    cash: ['cash', 'cash_and_equivalents', 'cash_cash_equivalents', 'cash_cash_equivalents_and_short_term_investments'],
+    'debt-current': ['current_debt'],
+    'debt-long': ['long_term_debt'],
+    'total-equity': ['total_equity', 'stockholders_equity'],
+};
+
+const resolveStatementRowIds = (rowId: string) => Array.from(new Set([rowId, ...(STATEMENT_ROW_ID_ALIASES[rowId] || [])]));
+
+const findRowByIds = (rows: StatementRow[], targetIds: string[]): StatementRow | undefined => {
     for (const row of rows) {
-        if (row.id === targetId) return row;
+        if (targetIds.includes(row.id)) return row;
         if (row.children?.length) {
-            const nested = findRowById(row.children, targetId);
+            const nested = findRowByIds(row.children, targetIds);
             if (nested) return nested;
         }
     }
     return undefined;
 };
 
+const findRowById = (rows: StatementRow[], targetId: string): StatementRow | undefined =>
+    findRowByIds(rows, resolveStatementRowIds(targetId));
+
 const readStatementValue = (grid: StatementGrid | undefined, rowId: string, columnKey?: string) => {
     if (!grid?.rows?.length) return undefined;
-    const resolvedKey = columnKey ?? grid.columns[grid.columns.length - 1]?.key;
+
+    const requestedKey = columnKey ?? grid.columns[grid.columns.length - 1]?.key;
+    if (!requestedKey) return undefined;
+
+    const resolvedKey = grid.columns.find((column) => column.key === requestedKey)?.key;
+
     if (!resolvedKey) return undefined;
     return findRowById(grid.rows, rowId)?.valuesByColumnKey[resolvedKey];
 };
@@ -1088,7 +1124,7 @@ const FinancialsTab = ({ profile, theme }: { profile: StockProfileV2Model; theme
     const effectivePeriodMode: PeriodMode = periodMode === 'quarterly' && !hasQuarterly ? 'annual' : periodMode;
     const activeSummaryGrid = effectivePeriodMode === 'quarterly' ? quarterlyStatements?.[statement] : annualStatements?.[statement];
     const activeGrid = useMemo(
-        () => buildDetailedStatementGrid(profile, statement, effectivePeriodMode) || activeSummaryGrid,
+        () => activeSummaryGrid ?? buildDetailedStatementGrid(profile, statement, effectivePeriodMode),
         [activeSummaryGrid, effectivePeriodMode, profile, statement]
     );
     const periodKey = `${statement}-${effectivePeriodMode}`;
@@ -1142,16 +1178,12 @@ const FinancialsTab = ({ profile, theme }: { profile: StockProfileV2Model; theme
 
     const ratioCards = (() => {
         const income = activeSummaryGrid;
-        const revenueRow = income ? findRowById(income.rows, 'revenue') : undefined;
-        const grossRow = income ? findRowById(income.rows, 'gross-profit') : undefined;
-        const opRow = income ? findRowById(income.rows, 'operating-income') : undefined;
-        const netRow = income ? findRowById(income.rows, 'net-income') : undefined;
-        const lastColumn = income?.columns[income.columns.length - 1]?.key;
+        const latestColumn = income?.columns.find((column) => column.type !== 'ttm')?.key ?? income?.columns[0]?.key;
 
-        const revenue = lastColumn && revenueRow ? revenueRow.valuesByColumnKey[lastColumn] : undefined;
-        const gross = lastColumn && grossRow ? grossRow.valuesByColumnKey[lastColumn] : undefined;
-        const opIncome = lastColumn && opRow ? opRow.valuesByColumnKey[lastColumn] : undefined;
-        const netIncome = lastColumn && netRow ? netRow.valuesByColumnKey[lastColumn] : undefined;
+        const revenue = income ? readStatementValue(income, 'revenue', latestColumn) : undefined;
+        const gross = income ? readStatementValue(income, 'gross-profit', latestColumn) : undefined;
+        const opIncome = income ? readStatementValue(income, 'operating-income', latestColumn) : undefined;
+        const netIncome = income ? readStatementValue(income, 'net-income', latestColumn) : undefined;
 
         const grossMargin = isFiniteNumber(revenue) && revenue !== 0 && isFiniteNumber(gross) ? (gross / revenue) * 100 : undefined;
         const opMargin = isFiniteNumber(revenue) && revenue !== 0 && isFiniteNumber(opIncome) ? (opIncome / revenue) * 100 : undefined;
@@ -2002,3 +2034,4 @@ const TerminalAdvanceAnalyticsClient = ({ profile, newsItems }: ClientProps) => 
 };
 
 export default TerminalAdvanceAnalyticsClient;
+

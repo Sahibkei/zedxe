@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowUpRight, Menu, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { signOut } from "@/lib/actions/auth.actions";
 
@@ -11,11 +11,58 @@ type NavbarClientProps = {
     isSignedIn: boolean;
 };
 
+const getNavLinks = (pathname: string | null) => {
+    if (pathname?.startsWith("/api/docs")) {
+        return [
+            { href: "/api", label: "API" },
+            { href: "#endpoints", label: "Endpoints" },
+            { href: "#auth", label: "Auth" },
+        ];
+    }
+
+    if (pathname?.startsWith("/api/pricing")) {
+        return [
+            { href: "/api", label: "API" },
+            { href: "#plans", label: "Plans" },
+            { href: "/api/docs", label: "Docs" },
+        ];
+    }
+
+    if (pathname?.startsWith("/api")) {
+        return [
+            { href: "#overview", label: "Overview" },
+            { href: "#coverage", label: "Coverage" },
+            { href: "/api/pricing", label: "Pricing" },
+            { href: "/api/docs", label: "Docs" },
+        ];
+    }
+
+    if (pathname === "/waitlist") {
+        return [
+            { href: "/", label: "Home" },
+            { href: "/api", label: "API" },
+            { href: "/api/docs", label: "Docs" },
+        ];
+    }
+
+    return [
+        { href: "#product", label: "Product" },
+        { href: "#features", label: "Features" },
+        { href: "/api", label: "API" },
+    ];
+};
+
 const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
     const [isOpen, setIsOpen] = useState(false);
     const [isSigningOut, setIsSigningOut] = useState(false);
     const [signOutError, setSignOutError] = useState<string | null>(null);
     const router = useRouter();
+    const pathname = usePathname();
+
+    const navLinks = getNavLinks(pathname);
+
+    const waitlistHref = pathname?.startsWith("/api") ? `/waitlist?from=${encodeURIComponent(pathname)}` : "/waitlist";
+    const waitlistLabel = pathname?.startsWith("/api") ? "Request API Access" : "Join Waitlist";
 
     const handleLogout = async () => {
         if (isSigningOut) {
@@ -50,12 +97,11 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                         />
                     </Link>
                     <nav className="hidden items-center gap-6 text-sm text-gray-300 md:flex">
-                        <Link href="#product" className="transition hover:text-white">
-                            Product
-                        </Link>
-                        <Link href="#features" className="transition hover:text-white">
-                            Features
-                        </Link>
+                        {navLinks.map((item) => (
+                            <Link key={item.label} href={item.href} className="transition hover:text-white">
+                                {item.label}
+                            </Link>
+                        ))}
                     </nav>
                     <div className="flex items-center gap-3">
                         {isSignedIn ? (
@@ -84,10 +130,10 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                                     Login
                                 </Link>
                                 <Link
-                                    href="/waitlist"
+                                    href={waitlistHref}
                                     className="btn-glow inline-flex items-center gap-2 rounded-full bg-teal-400 px-4 py-2 text-sm font-semibold text-gray-900"
                                 >
-                                    Join Waitlist
+                                    {waitlistLabel}
                                     <ArrowUpRight className="h-4 w-4" />
                                 </Link>
                             </>
@@ -106,12 +152,11 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                 {isOpen ? (
                     <div className="mt-3 rounded-2xl px-4 py-3 glass-nav md:hidden">
                         <div className="flex flex-col gap-3 text-sm text-gray-200">
-                            <Link href="#product" onClick={() => setIsOpen(false)} className="transition hover:text-white">
-                                Product
-                            </Link>
-                            <Link href="#features" onClick={() => setIsOpen(false)} className="transition hover:text-white">
-                                Features
-                            </Link>
+                            {navLinks.map((item) => (
+                                <Link key={item.label} href={item.href} onClick={() => setIsOpen(false)} className="transition hover:text-white">
+                                    {item.label}
+                                </Link>
+                            ))}
                             {isSignedIn ? (
                                 <>
                                     <Link href="/dashboard" onClick={() => setIsOpen(false)} className="transition hover:text-white">
@@ -138,8 +183,8 @@ const NavbarClient = ({ isSignedIn }: NavbarClientProps) => {
                                     >
                                         Login
                                     </Link>
-                                    <Link href="/waitlist" onClick={() => setIsOpen(false)} className="transition hover:text-white">
-                                        Join Waitlist
+                                    <Link href={waitlistHref} onClick={() => setIsOpen(false)} className="transition hover:text-white">
+                                        {waitlistLabel}
                                     </Link>
                                 </>
                             )}

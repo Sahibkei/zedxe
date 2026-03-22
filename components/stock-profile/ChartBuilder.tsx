@@ -86,6 +86,25 @@ const formatPeriodTick = (column: StatementColumn) => {
     return `${month} '${year}`;
 };
 
+const parseStatementColumnTime = (column: StatementColumn) => {
+    if (column.date) {
+        const parsed = Date.parse(column.date);
+        if (Number.isFinite(parsed)) return parsed;
+    }
+
+    const annualMatch = column.label.match(/FY\s+(\d{4})/i);
+    if (annualMatch) return Date.UTC(Number(annualMatch[1]), 11, 31);
+
+    const quarterMatch = column.label.match(/Q([1-4])\s+(\d{4})/i);
+    if (quarterMatch) {
+        const quarter = Number(quarterMatch[1]);
+        const year = Number(quarterMatch[2]);
+        return Date.UTC(year, quarter * 3 - 1, 1);
+    }
+
+    return Number.NaN;
+};
+
 const formatPlotValue = (value: number, valueType?: StatementValueType, normalize = false) => {
     if (!Number.isFinite(value)) return "--";
     if (normalize) return `${value.toFixed(0)}%`;
@@ -106,7 +125,10 @@ const formatTooltipValue = (value: number, valueType: StatementValueType | undef
 const getNumericValues = (values: Array<number | undefined>) => values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 
 const getYearSpan = (columns: StatementColumn[]) => {
-    const dated = columns.map((column) => (column.date ? Date.parse(column.date) : Number.NaN)).filter((value) => Number.isFinite(value));
+    const dated = columns
+        .map((column) => parseStatementColumnTime(column))
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
     if (dated.length >= 2) {
         const spanYears = (dated[dated.length - 1] - dated[0]) / (1000 * 60 * 60 * 24 * 365.25);
         if (spanYears > 0) return spanYears;
@@ -151,8 +173,16 @@ export default function ChartBuilder({
     const tokens = useMemo(() => getThemeTokens(theme), [theme]);
 
     const orderedColumns = useMemo(() => {
-        const dated = columns.filter((column) => column.type !== "ttm" && column.date);
-        return [...dated].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+        const visibleColumns = columns.filter((column) => column.type !== "ttm");
+        const withTime = visibleColumns
+            .map((column) => ({ column, time: parseStatementColumnTime(column) }))
+            .filter((entry) => Number.isFinite(entry.time));
+
+        if (withTime.length === visibleColumns.length && withTime.length > 0) {
+            return withTime.sort((a, b) => a.time - b.time).map((entry) => entry.column);
+        }
+
+        return visibleColumns;
     }, [columns]);
 
     const palette = useMemo(

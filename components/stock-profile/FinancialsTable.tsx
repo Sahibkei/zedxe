@@ -151,6 +151,9 @@ export default function FinancialsTable({
             <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
                 Click numeric rows to add/remove from chart.
             </div>
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                Currency rows are shown in millions. Per-share and share-count rows keep their native units.
+            </div>
             <div className="overflow-hidden rounded-2xl border border-border/80 bg-card">
                 <div className="overflow-x-auto">
                     <table
