@@ -175,9 +175,7 @@ const readThemeFromShell = () => {
 
 const resolveTradingViewSymbol = (profile: StockProfileV2Model) => {
     const explicitSymbol = (profile.tvSymbol || '').trim().toUpperCase();
-    if (explicitSymbol.includes(':')) return explicitSymbol;
-
-    const ticker = (profile.finnhubSymbol || profile.symbolRaw || '').trim().toUpperCase();
+    const ticker = (profile.finnhubSymbol || profile.symbolRaw || explicitSymbol.replace(/^.*:/, '')).trim().toUpperCase();
     if (!ticker) return 'NASDAQ:NVDA';
 
     const exchange = (profile.company.exchange || '').trim().toUpperCase();
@@ -188,20 +186,22 @@ const resolveTradingViewSymbol = (profile: StockProfileV2Model) => {
     if (exchange.includes('LSE')) return `LSE:${ticker}`;
     if (exchange.includes('TSX')) return `TSX:${ticker}`;
 
+    if (explicitSymbol.includes(':')) return explicitSymbol;
+
     return explicitSymbol || `NASDAQ:${ticker}`;
 };
 
 const STATEMENT_ROW_ID_ALIASES: Record<string, string[]> = {
     revenue: ['revenue_total', 'total_revenue', 'business_revenue'],
-    'cost-of-revenue': ['cost_of_revenue', 'cost_of_goods_and_services'],
+    'cost-of-revenue': ['cost_of_revenue', 'cost_of_sales', 'cost_of_goods_and_services'],
     'gross-profit': ['gross_profit'],
     'operating-expenses': ['operating_income_expenses', 'operating_expenses'],
     rnd: ['research_and_development_expenses', 'research_development'],
     sga: ['selling_general_and_administrative_expenses', 'selling_general_admin'],
-    'operating-income': ['operating_income', 'total_operating_profit_loss'],
-    'pretax-income': ['pretax_income'],
+    'operating-income': ['operating_income', 'operating_profit_loss', 'total_operating_profit_loss'],
+    'pretax-income': ['pretax_income', 'income_before_income_taxes'],
     'tax-provision': ['provision_for_income_tax', 'income_tax_provision'],
-    'net-income': ['net_income_available_to_common_stockholders', 'net_income_after_non_controlling_interests', 'net_income_after_non_controlling', 'net_income'],
+    'net-income': ['net_income_available_to_common_stockholders', 'net_income_after_non_controlling_interests', 'net_income_after_non_controlling', 'net_income', 'net_loss'],
     'interest-income': ['interest_income', 'interest_income_net'],
     'interest-expense': ['interest_expense', 'finance_costs'],
     'operating-cash-flow': ['cash_flow_operating_indirect', 'operating_cash_flow'],
@@ -217,7 +217,38 @@ const STATEMENT_ROW_ID_ALIASES: Record<string, string[]> = {
     'total-equity': ['total_equity', 'stockholders_equity'],
 };
 
+const STATEMENT_ROW_TEXT_MATCHERS: Record<string, string[]> = {
+    revenue: ['total revenue', 'total revenues', 'revenue', 'net sales', 'sales revenue'],
+    'cost-of-revenue': ['cost of revenue', 'cost of revenues', 'cost of sales', 'cost of goods', 'cost of goods sold'],
+    'gross-profit': ['gross profit', 'gross income'],
+    'operating-expenses': ['total operating expenses', 'operating expenses'],
+    rnd: ['research and development'],
+    sga: ['selling general and administrative', 'selling, general and administrative', 'general and administrative', 'sg&a'],
+    'operating-income': ['income from operations', 'loss from operations', 'operating income', 'operating loss', 'operating profit'],
+    'pretax-income': ['income before income taxes', 'loss before income taxes', 'income before tax', 'pretax income', 'pre-tax income'],
+    'tax-provision': ['income tax expense', 'income tax benefit', 'provision for income tax', 'tax provision'],
+    'net-income': ['net income', 'net loss', 'profit loss', 'profit attributable'],
+    'operating-cash-flow': ['net cash from operating activities', 'net cash provided by operating activities', 'operating cash flow'],
+    'investing-cash-flow': ['net cash from investing activities', 'net cash used in investing activities', 'investing cash flow'],
+    'financing-cash-flow': ['net cash from financing activities', 'net cash provided by financing activities', 'financing cash flow'],
+    capex: ['capital expenditures', 'purchase of property and equipment', 'payments to acquire property plant and equipment'],
+    depreciation: ['depreciation and amortization', 'depreciation'],
+    sbc: ['share based compensation', 'stock based compensation', 'stock-based compensation'],
+    cash: ['cash and cash equivalents', 'cash cash equivalents and short term investments'],
+};
+
 const resolveStatementRowIds = (rowId: string) => Array.from(new Set([rowId, ...(STATEMENT_ROW_ID_ALIASES[rowId] || [])]));
+
+const normalizeStatementLookupText = (value: string | undefined) =>
+    (value || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
+
+const statementRowMatchesText = (row: StatementRow, targetId: string) => {
+    const matchers = STATEMENT_ROW_TEXT_MATCHERS[targetId];
+    if (!matchers?.length) return false;
+
+    const lookup = `${normalizeStatementLookupText(row.label)} ${normalizeStatementLookupText(row.concept)}`;
+    return matchers.some((matcher) => lookup.includes(normalizeStatementLookupText(matcher)));
+};
 
 const findRowByIds = (rows: StatementRow[], targetIds: string[]): StatementRow | undefined => {
     for (const row of rows) {
@@ -231,17 +262,28 @@ const findRowByIds = (rows: StatementRow[], targetIds: string[]): StatementRow |
 };
 
 const findRowById = (rows: StatementRow[], targetId: string): StatementRow | undefined =>
-    findRowByIds(rows, resolveStatementRowIds(targetId));
+    findRowByIds(rows, resolveStatementRowIds(targetId)) || findRowByText(rows, targetId);
+
+const findRowByText = (rows: StatementRow[], targetId: string): StatementRow | undefined => {
+    for (const row of rows) {
+        if (statementRowMatchesText(row, targetId)) return row;
+        if (row.children?.length) {
+            const nested = findRowByText(row.children, targetId);
+            if (nested) return nested;
+        }
+    }
+    return undefined;
+};
 
 const parseStatementColumnRank = (label: string) => {
-    const yearMatch = label.match(/(?:FY\s*)?(\d{4})(?:\s*Q([1-4]))?/i);
-    if (yearMatch) {
-        return Number(yearMatch[1]) * 10 + Number(yearMatch[2] || 4);
-    }
-
-    const quarterFirstMatch = label.match(/Q([1-4])\s*(\d{4})/i);
+    const quarterFirstMatch = label.match(/^Q([1-4])\s*(\d{4})$/i);
     if (quarterFirstMatch) {
         return Number(quarterFirstMatch[2]) * 10 + Number(quarterFirstMatch[1]);
+    }
+
+    const yearMatch = label.match(/^(?:FY\s*)?(\d{4})(?:\s*Q([1-4]))?$/i);
+    if (yearMatch) {
+        return Number(yearMatch[1]) * 10 + Number(yearMatch[2] || 4);
     }
 
     return Number.NEGATIVE_INFINITY;

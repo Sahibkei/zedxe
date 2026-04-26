@@ -263,6 +263,11 @@ export default function TerminalPriceTargetsPanel({ symbol, theme, className }: 
                   },
         [theme]
     );
+    const dialogSurfaceClass =
+        theme === "light"
+            ? "!bg-[#f3f5f8] text-[#111827] shadow-[0_24px_80px_rgba(15,23,42,0.22)]"
+            : "!bg-[#0f1622] text-[#e4e9f2] shadow-[0_24px_80px_rgba(0,0,0,0.55)]";
+    const dialogSoftSurfaceClass = theme === "light" ? "bg-[#e8ecf2]" : "bg-[#111b2a]";
 
     const hasData = payload?.status === "ok" && payload.summary && payload.chart.length > 0;
     const chartSeries = useMemo(() => buildForecastSeries(payload), [payload]);
@@ -386,7 +391,10 @@ export default function TerminalPriceTargetsPanel({ symbol, theme, className }: 
 
             <Dialog open={detailsOpen && Boolean(payload?.summary)} onOpenChange={setDetailsOpen}>
                 <DialogContent
-                    className="max-h-[80vh] w-full max-w-2xl overflow-hidden border-[var(--terminal-border)] !bg-[var(--terminal-panel)] p-0 text-[var(--terminal-text)] shadow-2xl"
+                    className={cn(
+                        "max-h-[80vh] w-full max-w-2xl overflow-hidden border border-[var(--terminal-border)] p-0",
+                        dialogSurfaceClass
+                    )}
                 >
                     <DialogHeader className="border-b border-[var(--terminal-border)] px-4 py-3 pr-12">
                         <DialogTitle>Price Target Details</DialogTitle>
@@ -399,27 +407,27 @@ export default function TerminalPriceTargetsPanel({ symbol, theme, className }: 
                         <>
                         <div className="max-h-[60vh] overflow-y-auto p-4">
                             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
+                                <div className={cn("rounded-xl border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
                                     <p className="text-[11px] uppercase tracking-[0.12em] terminal-muted">Average Target</p>
                                     <p className="mt-2 text-3xl font-semibold terminal-up">{formatPrice(payload.summary.average)}</p>
                                 </div>
-                                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
+                                <div className={cn("rounded-xl border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
                                     <p className="text-[11px] uppercase tracking-[0.12em] terminal-muted">Median Target</p>
                                     <p className="mt-2 text-3xl font-semibold">{formatPrice(payload.summary.median)}</p>
                                 </div>
-                                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
+                                <div className={cn("rounded-xl border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
                                     <p className="text-[11px] uppercase tracking-[0.12em] terminal-muted">Low / High</p>
                                     <p className="mt-2 text-3xl font-semibold">{formatPrice(payload.summary.low)} - {formatPrice(payload.summary.high)}</p>
                                 </div>
-                                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
+                                <div className={cn("rounded-xl border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
                                     <p className="text-[11px] uppercase tracking-[0.12em] terminal-muted">Implied Upside</p>
                                     <p className={cn("mt-2 text-3xl font-semibold", (payload.summary.upsidePct ?? 0) >= 0 ? "terminal-up" : "terminal-down")}>{formatSignedPercent(payload.summary.upsidePct)}</p>
                                 </div>
-                                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
+                                <div className={cn("rounded-xl border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
                                     <p className="text-[11px] uppercase tracking-[0.12em] terminal-muted">Current Price</p>
                                     <p className="mt-2 text-3xl font-semibold">{formatPrice(payload.summary.currentPrice)}</p>
                                 </div>
-                                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
+                                <div className={cn("rounded-xl border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
                                     <p className="text-[11px] uppercase tracking-[0.12em] terminal-muted">Analyst Count</p>
                                     <p className="mt-2 text-3xl font-semibold">{payload.summary.count}</p>
                                 </div>
@@ -432,7 +440,7 @@ export default function TerminalPriceTargetsPanel({ symbol, theme, className }: 
 
                             <div className="mt-3 grid gap-3">
                                 {latestRatings.map((rating) => (
-                                    <div key={`${rating.firm}-${rating.date}-${rating.priceTarget}`} className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
+                                    <div key={`${rating.firm}-${rating.date}-${rating.priceTarget}`} className={cn("rounded-xl border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
                                         <div className="flex items-start justify-between gap-3">
                                             <div>
                                                 <p className="text-xl font-semibold">{rating.firm}</p>
