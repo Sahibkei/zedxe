@@ -28,7 +28,7 @@
     "echarts": "^5.6.0",
     "echarts-for-react": "^3.0.2",
     "html-to-image": "^1.11.13",
-    "inngest": "^3.46.0",
+    "inngest": "^3.54.0",
     "lightweight-charts": "4.2.0",
     "lucide-react": "^0.554.0",
     "mongodb": "^7.0.0",
