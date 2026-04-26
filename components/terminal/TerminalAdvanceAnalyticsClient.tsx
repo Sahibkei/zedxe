@@ -192,7 +192,7 @@ const resolveTradingViewSymbol = (profile: StockProfileV2Model) => {
 };
 
 const STATEMENT_ROW_ID_ALIASES: Record<string, string[]> = {
-    revenue: ['revenue_total', 'business_revenue'],
+    revenue: ['revenue_total', 'total_revenue', 'business_revenue'],
     'cost-of-revenue': ['cost_of_revenue', 'cost_of_goods_and_services'],
     'gross-profit': ['gross_profit'],
     'operating-expenses': ['operating_income_expenses', 'operating_expenses'],
@@ -233,13 +233,44 @@ const findRowByIds = (rows: StatementRow[], targetIds: string[]): StatementRow |
 const findRowById = (rows: StatementRow[], targetId: string): StatementRow | undefined =>
     findRowByIds(rows, resolveStatementRowIds(targetId));
 
+const parseStatementColumnRank = (label: string) => {
+    const yearMatch = label.match(/(?:FY\s*)?(\d{4})(?:\s*Q([1-4]))?/i);
+    if (yearMatch) {
+        return Number(yearMatch[1]) * 10 + Number(yearMatch[2] || 4);
+    }
+
+    const quarterFirstMatch = label.match(/Q([1-4])\s*(\d{4})/i);
+    if (quarterFirstMatch) {
+        return Number(quarterFirstMatch[2]) * 10 + Number(quarterFirstMatch[1]);
+    }
+
+    return Number.NEGATIVE_INFINITY;
+};
+
+const resolveStatementColumnKey = (grid: StatementGrid, columnKey?: string) => {
+    if (columnKey) {
+        const exactColumn = grid.columns.find((column) => column.key === columnKey);
+        if (exactColumn) return exactColumn.key;
+    }
+
+    const ttmColumn = grid.columns.find((column) => column.type === 'ttm' || column.key === 'ttm');
+    if (columnKey === 'ttm' && ttmColumn) return ttmColumn.key;
+    if (!columnKey && ttmColumn) return ttmColumn.key;
+
+    const periodColumns = grid.columns.filter((column) => column.type !== 'ttm' && column.key !== 'ttm');
+    if (periodColumns.length === 0) return undefined;
+
+    return periodColumns.reduce((latest, column) => {
+        const latestRank = parseStatementColumnRank(latest.label);
+        const columnRank = parseStatementColumnRank(column.label);
+        return columnRank > latestRank ? column : latest;
+    }, periodColumns[0]).key;
+};
+
 const readStatementValue = (grid: StatementGrid | undefined, rowId: string, columnKey?: string) => {
     if (!grid?.rows?.length) return undefined;
 
-    const requestedKey = columnKey ?? grid.columns[grid.columns.length - 1]?.key;
-    if (!requestedKey) return undefined;
-
-    const resolvedKey = grid.columns.find((column) => column.key === requestedKey)?.key;
+    const resolvedKey = resolveStatementColumnKey(grid, columnKey);
 
     if (!resolvedKey) return undefined;
     return findRowById(grid.rows, rowId)?.valuesByColumnKey[resolvedKey];
@@ -844,6 +875,15 @@ const OverviewTab = ({ profile, theme }: { profile: StockProfileV2Model; theme: 
             })),
         [profile.financials.quarterly]
     );
+    const earningsDomain = useMemo(() => {
+        const values = earningsSeries.flatMap((item) => [item.actual, item.trend]).filter(isFiniteNumber);
+        if (!values.length) return ['auto', 'auto'] as const;
+
+        const min = Math.min(...values, 0);
+        const max = Math.max(...values, 0);
+        const padding = Math.max((max - min) * 0.12, 0.1);
+        return [min - padding, max + padding] as [number, number];
+    }, [earningsSeries]);
 
     const summaryStats = useMemo(() => {
         if (!points.length) return null;
@@ -1030,12 +1070,21 @@ const OverviewTab = ({ profile, theme }: { profile: StockProfileV2Model; theme: 
                                 <ComposedChart data={earningsSeries} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
                                     <CartesianGrid stroke="var(--terminal-border)" strokeDasharray="3 3" />
                                     <XAxis dataKey="label" tick={{ fill: 'var(--terminal-muted)', fontSize: 11 }} stroke="var(--terminal-border-strong)" />
-                                    <YAxis tick={{ fill: 'var(--terminal-muted)', fontSize: 11 }} stroke="var(--terminal-border-strong)" width={44} />
+                                    <YAxis domain={earningsDomain} tick={{ fill: 'var(--terminal-muted)', fontSize: 11 }} stroke="var(--terminal-border-strong)" width={44} />
                                     <Tooltip
                                         contentStyle={tooltipStyle}
                                         formatter={(value, name) => [Number(value).toFixed(2), name === 'actual' ? 'EPS actual' : 'Trailing trend']}
                                     />
-                                    <Bar dataKey="actual" fill="#2ec4b6" radius={[4, 4, 0, 0]} />
+                                    <ReferenceLine y={0} stroke="var(--terminal-border-strong)" />
+                                    <Bar dataKey="actual" minPointSize={3}>
+                                        {earningsSeries.map((item) => (
+                                            <Cell
+                                                key={`eps-${item.label}`}
+                                                fill={isFiniteNumber(item.actual) && item.actual < 0 ? '#f45b78' : '#2ec4b6'}
+                                                radius={isFiniteNumber(item.actual) && item.actual < 0 ? [0, 0, 4, 4] : [4, 4, 0, 0]}
+                                            />
+                                        ))}
+                                    </Bar>
                                     <Line type="monotone" dataKey="trend" stroke="#8cc8ff" strokeDasharray="4 4" strokeWidth={2} dot={false} />
                                 </ComposedChart>
                             </ResponsiveContainer>

@@ -2,7 +2,8 @@
 
 import { usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { CalendarDays, Command, Moon, PanelLeft, Sun, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarDays, Moon, PanelLeft, Sun, ChevronLeft, ChevronRight } from 'lucide-react';
+import SearchCommand from '@/components/SearchCommand';
 import { cn } from '@/lib/utils';
 
 const resolveTitle = (pathname: string) => {
@@ -32,6 +33,10 @@ const TerminalTopBar = ({ theme, sidebarHidden, onToggleTheme, onToggleSidebar }
     const now = new Date();
     const dateLabel = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     const timeLabel = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const buildTerminalSearchHref = (stock: StockWithWatchlistStatus) => {
+        const symbol = stock.symbol.trim().toUpperCase().replace(/^.*:/, '');
+        return `/terminal/advance-analytics?symbol=${encodeURIComponent(symbol)}`;
+    };
 
     return (
         <header className="terminal-topbar">
@@ -46,10 +51,13 @@ const TerminalTopBar = ({ theme, sidebarHidden, onToggleTheme, onToggleSidebar }
                     <PanelLeft className="h-4 w-4" />
                     {sidebarHidden ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
                 </button>
-                <div className="terminal-search">
-                    <Command className="h-4 w-4" />
-                    <span className="truncate">Search for a name, ticker, or function</span>
-                </div>
+                <SearchCommand
+                    renderAs="terminal"
+                    label="Search for a name, ticker, or function"
+                    inputPlaceholder="Search ticker symbol or company name..."
+                    initialStocks={[]}
+                    resultHref={buildTerminalSearchHref}
+                />
             </div>
             <div className="flex items-center gap-2">
                 <span className="terminal-title hidden xl:inline-flex">{title}</span>
