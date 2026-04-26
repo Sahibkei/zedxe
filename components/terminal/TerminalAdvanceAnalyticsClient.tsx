@@ -95,6 +95,8 @@ type SankeyChartData = {
     links: SankeyLinkDatum[];
 };
 
+type FinancialSummaryRow = StockProfileV2Model['financials']['annual'][number];
+
 type StatementGroupTemplate = {
     id: string;
     label: string;
@@ -1484,7 +1486,7 @@ const FinancialsTab = ({ profile, theme }: { profile: StockProfileV2Model; theme
 const addSankeyNode = (nodes: SankeyNodeDatum[], node: Omit<SankeyNodeDatum, 'value'> & { value?: number }) => {
     const resolvedNode: SankeyNodeDatum = {
         name: node.name,
-        value: Math.max(node.value ?? node.displayValue ?? 0, 0),
+        value: Math.max(Math.abs(node.value ?? node.displayValue ?? 0), 0),
         displayValue: node.displayValue,
         tone: node.tone,
         depth: node.depth,
@@ -1499,17 +1501,29 @@ const addSankeyLink = (links: SankeyLinkDatum[], source: SankeyNodeDatum | null 
     links.push({ source: source.name, target: target.name, value, tone });
 };
 
-const buildIncomeSankey = (incomeGrid: StatementGrid | undefined): SankeyChartData | null => {
-    const revenue = readStatementValue(incomeGrid, 'revenue', 'ttm');
+const latestFinancialSummaryRow = (rows: FinancialSummaryRow[]) => {
+    if (!rows.length) return undefined;
+    return rows.reduce((latest, row) => {
+        const latestRank = parseStatementColumnRank(latest.label);
+        const rowRank = parseStatementColumnRank(row.label);
+        return rowRank > latestRank ? row : latest;
+    }, rows[0]);
+};
+
+const coalesceNumber = (...values: Array<number | undefined>) => values.find(isFiniteNumber);
+
+const buildIncomeSankey = (incomeGrid: StatementGrid | undefined, summaryRows: FinancialSummaryRow[] = []): SankeyChartData | null => {
+    const summary = latestFinancialSummaryRow(summaryRows);
+    const revenue = coalesceNumber(readStatementValue(incomeGrid, 'revenue', 'ttm'), summary?.revenue);
     const costOfRevenueRaw = readStatementValue(incomeGrid, 'cost-of-revenue', 'ttm');
-    const grossProfitRaw = readStatementValue(incomeGrid, 'gross-profit', 'ttm');
+    const grossProfitRaw = coalesceNumber(readStatementValue(incomeGrid, 'gross-profit', 'ttm'), summary?.grossProfit);
     const operatingExpensesRaw = readStatementValue(incomeGrid, 'operating-expenses', 'ttm');
     const rnd = readStatementValue(incomeGrid, 'rnd', 'ttm');
     const sga = readStatementValue(incomeGrid, 'sga', 'ttm');
-    const operatingIncomeRaw = readStatementValue(incomeGrid, 'operating-income', 'ttm');
+    const operatingIncomeRaw = coalesceNumber(readStatementValue(incomeGrid, 'operating-income', 'ttm'), summary?.operatingIncome);
     const pretaxIncomeRaw = readStatementValue(incomeGrid, 'pretax-income', 'ttm');
     const taxProvisionRaw = readStatementValue(incomeGrid, 'tax-provision', 'ttm');
-    const netIncomeRaw = readStatementValue(incomeGrid, 'net-income', 'ttm');
+    const netIncomeRaw = coalesceNumber(readStatementValue(incomeGrid, 'net-income', 'ttm'), summary?.netIncome);
 
     if (!isFiniteNumber(revenue) || !isFiniteNumber(netIncomeRaw)) {
         return null;
@@ -1535,7 +1549,7 @@ const buildIncomeSankey = (incomeGrid: StatementGrid | undefined): SankeyChartDa
     const rndExpense = Math.max(isFiniteNumber(rnd) ? Math.abs(rnd) : 0, 0);
     const sgaExpense = Math.max(isFiniteNumber(sga) ? Math.abs(sga) : 0, 0);
     const otherOperatingExpenses = Math.max(totalOperatingExpenses - rndExpense - sgaExpense, 0);
-    const pretaxIncome = isFiniteNumber(pretaxIncomeRaw) ? Math.abs(pretaxIncomeRaw) : Math.max(netIncome + Math.max(taxProvisionRaw ?? 0, 0), 0);
+    const pretaxIncome = isFiniteNumber(pretaxIncomeRaw) ? pretaxIncomeRaw : netIncome + Math.max(taxProvisionRaw ?? 0, 0);
     const taxProvision = Math.max(isFiniteNumber(taxProvisionRaw) ? Math.abs(taxProvisionRaw) : pretaxIncome - netIncome, 0);
     const nonOperatingCharges = Math.max(operatingIncome - pretaxIncome, 0);
     const nonOperatingIncome = Math.max(pretaxIncome - operatingIncome, 0);
@@ -1544,29 +1558,54 @@ const buildIncomeSankey = (incomeGrid: StatementGrid | undefined): SankeyChartDa
     const links: SankeyLinkDatum[] = [];
 
     const revenueNode = addSankeyNode(nodes, { name: 'Revenue', displayValue: revenue, tone: 'up', depth: 0 });
-    const grossNode = addSankeyNode(nodes, { name: 'Gross Profit', displayValue: grossProfit, tone: 'up', depth: 1 });
-    const costNode = addSankeyNode(nodes, { name: 'Cost of Revenue', displayValue: costOfRevenue, tone: 'down', depth: 1 });
+    const costNode = costOfRevenue > 0 ? addSankeyNode(nodes, { name: 'Cost of Revenue', displayValue: costOfRevenue, tone: 'down', depth: 1 }) : null;
+    const grossNode = addSankeyNode(nodes, {
+        name: grossProfit < 0 ? 'Gross Loss' : 'Gross Profit',
+        displayValue: grossProfit,
+        value: Math.abs(grossProfit),
+        tone: grossProfit < 0 ? 'down' : 'up',
+        depth: 1,
+    });
     const rndNode = rndExpense > 0 ? addSankeyNode(nodes, { name: 'R&D', displayValue: rndExpense, tone: 'down', depth: 2 }) : null;
     const sgaNode = sgaExpense > 0 ? addSankeyNode(nodes, { name: 'SG&A', displayValue: sgaExpense, tone: 'down', depth: 2 }) : null;
     const otherOpexNode = otherOperatingExpenses > 0 ? addSankeyNode(nodes, { name: 'Other OpEx', displayValue: otherOperatingExpenses, tone: 'down', depth: 2 }) : null;
-    const opIncomeNode = addSankeyNode(nodes, { name: 'Operating Income', displayValue: operatingIncome, tone: 'up', depth: 2 });
+    const opIncomeNode = addSankeyNode(nodes, {
+        name: operatingIncome < 0 ? 'Operating Loss' : 'Operating Income',
+        displayValue: operatingIncome,
+        value: Math.abs(operatingIncome),
+        tone: operatingIncome < 0 ? 'down' : 'up',
+        depth: 2,
+    });
     const nonOperatingIncomeNode = nonOperatingIncome > 0 ? addSankeyNode(nodes, { name: 'Other Income', displayValue: nonOperatingIncome, tone: 'neutral', depth: 2 }) : null;
     const nonOperatingChargesNode = nonOperatingCharges > 0 ? addSankeyNode(nodes, { name: 'Non-Op Charges', displayValue: nonOperatingCharges, tone: 'down', depth: 3 }) : null;
-    const pretaxNode = addSankeyNode(nodes, { name: 'Pretax Income', displayValue: pretaxIncome, tone: 'up', depth: 3 });
+    const pretaxNode = addSankeyNode(nodes, {
+        name: pretaxIncome < 0 ? 'Pretax Loss' : 'Pretax Income',
+        displayValue: pretaxIncome,
+        value: Math.abs(pretaxIncome),
+        tone: pretaxIncome < 0 ? 'down' : 'up',
+        depth: 3,
+    });
     const taxesNode = taxProvision > 0 ? addSankeyNode(nodes, { name: 'Tax Provision', displayValue: taxProvision, tone: 'down', depth: 4 }) : null;
-    const netIncomeNode = addSankeyNode(nodes, { name: 'Net Income', displayValue: netIncome, tone: 'up', depth: 4 });
+    const netIncomeNode = addSankeyNode(nodes, {
+        name: netIncome < 0 ? 'Net Loss' : 'Net Income',
+        displayValue: netIncome,
+        value: Math.abs(netIncome),
+        tone: netIncome < 0 ? 'down' : 'up',
+        depth: 4,
+    });
 
-    addSankeyLink(links, revenueNode, grossNode, grossProfit, 'up');
+    addSankeyLink(links, revenueNode, grossNode, Math.max(grossProfit, 0), grossProfit < 0 ? 'down' : 'up');
     addSankeyLink(links, revenueNode, costNode, costOfRevenue, 'down');
+    addSankeyLink(links, costNode, grossNode, grossProfit < 0 ? Math.abs(grossProfit) : 0, 'down');
     addSankeyLink(links, grossNode, rndNode, rndExpense, 'down');
     addSankeyLink(links, grossNode, sgaNode, sgaExpense, 'down');
     addSankeyLink(links, grossNode, otherOpexNode, otherOperatingExpenses, 'down');
-    addSankeyLink(links, grossNode, opIncomeNode, operatingIncome, 'up');
+    addSankeyLink(links, grossNode, opIncomeNode, Math.abs(operatingIncome), operatingIncome < 0 ? 'down' : 'up');
     addSankeyLink(links, opIncomeNode, nonOperatingChargesNode, nonOperatingCharges, 'down');
-    addSankeyLink(links, opIncomeNode, pretaxNode, Math.max(operatingIncome - nonOperatingCharges, 0), 'up');
+    addSankeyLink(links, opIncomeNode, pretaxNode, Math.abs(pretaxIncome), pretaxIncome < 0 ? 'down' : 'up');
     addSankeyLink(links, nonOperatingIncomeNode, pretaxNode, nonOperatingIncome, 'neutral');
     addSankeyLink(links, pretaxNode, taxesNode, taxProvision, 'down');
-    addSankeyLink(links, pretaxNode, netIncomeNode, netIncome, 'up');
+    addSankeyLink(links, pretaxNode, netIncomeNode, Math.abs(netIncome), netIncome < 0 ? 'down' : 'up');
 
     return links.length ? { nodes, links } : null;
 };
@@ -1821,7 +1860,7 @@ const TrackerTab = ({ profile, theme }: { profile: StockProfileV2Model; theme: A
     const cashGrid = profile.financials.statements?.cashFlow;
     const balanceGrid = profile.financials.statements?.balanceSheet;
     const currency = profile.company.currency || 'USD';
-    const incomeSankey = useMemo(() => buildIncomeSankey(incomeGrid), [incomeGrid]);
+    const incomeSankey = useMemo(() => buildIncomeSankey(incomeGrid, profile.financials.annual), [incomeGrid, profile.financials.annual]);
     const cashSankey = useMemo(() => buildCashSankey(incomeGrid, cashGrid, balanceGrid), [incomeGrid, cashGrid, balanceGrid]);
 
     return (
