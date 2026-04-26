@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { CommandDialog, CommandEmpty, CommandInput, CommandList } from "@/components/ui/command"
 import {Button} from "@/components/ui/button";
-import {Loader2,  TrendingUp} from "lucide-react";
+import {Command, Loader2,  TrendingUp} from "lucide-react";
 import Link from "next/link";
 import {searchStocks} from "@/lib/actions/finnhub.actions";
 import {useDebounce} from "@/hooks/useDebounce";
@@ -14,6 +14,8 @@ export default function SearchCommand({
     label = 'Add stock',
     textClassName,
     initialStocks,
+    inputPlaceholder = "Search stocks...",
+    resultHref = (stock) => `/stocks/${stock.symbol}`,
 }: SearchCommandProps) {
     const [open, setOpen] = useState(false)
     const [searchTerm, setSearchTerm] = useState("")
@@ -66,6 +68,11 @@ export default function SearchCommand({
                 <button type="button" onClick={() => setOpen(true)} className={cn("search-text", textClassName)}>
                     {label}
                 </button>
+            ) : renderAs === 'terminal' ? (
+                <button type="button" onClick={() => setOpen(true)} className={cn("terminal-search", textClassName)}>
+                    <Command className="h-4 w-4" />
+                    <span className="truncate">{label}</span>
+                </button>
             ): (
                 <Button onClick={() => setOpen(true)} className="search-btn">
                     {label}
@@ -73,7 +80,7 @@ export default function SearchCommand({
             )}
             <CommandDialog open={open} onOpenChange={setOpen} className="search-dialog">
                 <div className="search-field">
-                    <CommandInput value={searchTerm} onValueChange={setSearchTerm} placeholder="Search stocks..." className="search-input" />
+                    <CommandInput value={searchTerm} onValueChange={setSearchTerm} placeholder={inputPlaceholder} className="search-input" />
                     {loading && <Loader2 className="search-loader" />}
                 </div>
                 <CommandList className="search-list">
@@ -92,7 +99,7 @@ export default function SearchCommand({
                             {displayStocks?.map((stock) => (
                                 <li key={stock.symbol} className="search-item">
                                     <Link
-                                        href={`/stocks/${stock.symbol}`}
+                                        href={resultHref(stock)}
                                         onClick={handleSelectStock}
                                         className="search-item-link"
                                     >

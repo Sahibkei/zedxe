@@ -95,6 +95,8 @@ type SankeyChartData = {
     links: SankeyLinkDatum[];
 };
 
+type FinancialSummaryRow = StockProfileV2Model['financials']['annual'][number];
+
 type StatementGroupTemplate = {
     id: string;
     label: string;
@@ -175,9 +177,7 @@ const readThemeFromShell = () => {
 
 const resolveTradingViewSymbol = (profile: StockProfileV2Model) => {
     const explicitSymbol = (profile.tvSymbol || '').trim().toUpperCase();
-    if (explicitSymbol.includes(':')) return explicitSymbol;
-
-    const ticker = (profile.finnhubSymbol || profile.symbolRaw || '').trim().toUpperCase();
+    const ticker = (profile.finnhubSymbol || profile.symbolRaw || explicitSymbol.replace(/^.*:/, '')).trim().toUpperCase();
     if (!ticker) return 'NASDAQ:NVDA';
 
     const exchange = (profile.company.exchange || '').trim().toUpperCase();
@@ -188,20 +188,22 @@ const resolveTradingViewSymbol = (profile: StockProfileV2Model) => {
     if (exchange.includes('LSE')) return `LSE:${ticker}`;
     if (exchange.includes('TSX')) return `TSX:${ticker}`;
 
+    if (explicitSymbol.includes(':')) return explicitSymbol;
+
     return explicitSymbol || `NASDAQ:${ticker}`;
 };
 
 const STATEMENT_ROW_ID_ALIASES: Record<string, string[]> = {
-    revenue: ['revenue_total', 'business_revenue'],
-    'cost-of-revenue': ['cost_of_revenue', 'cost_of_goods_and_services'],
+    revenue: ['revenue_total', 'total_revenue', 'business_revenue'],
+    'cost-of-revenue': ['cost_of_revenue', 'cost_of_sales', 'cost_of_goods_and_services'],
     'gross-profit': ['gross_profit'],
     'operating-expenses': ['operating_income_expenses', 'operating_expenses'],
     rnd: ['research_and_development_expenses', 'research_development'],
     sga: ['selling_general_and_administrative_expenses', 'selling_general_admin'],
-    'operating-income': ['operating_income', 'total_operating_profit_loss'],
-    'pretax-income': ['pretax_income'],
+    'operating-income': ['operating_income', 'operating_profit_loss', 'total_operating_profit_loss'],
+    'pretax-income': ['pretax_income', 'income_before_income_taxes'],
     'tax-provision': ['provision_for_income_tax', 'income_tax_provision'],
-    'net-income': ['net_income_available_to_common_stockholders', 'net_income_after_non_controlling_interests', 'net_income_after_non_controlling', 'net_income'],
+    'net-income': ['net_income_available_to_common_stockholders', 'net_income_after_non_controlling_interests', 'net_income_after_non_controlling', 'net_income', 'net_loss'],
     'interest-income': ['interest_income', 'interest_income_net'],
     'interest-expense': ['interest_expense', 'finance_costs'],
     'operating-cash-flow': ['cash_flow_operating_indirect', 'operating_cash_flow'],
@@ -217,7 +219,38 @@ const STATEMENT_ROW_ID_ALIASES: Record<string, string[]> = {
     'total-equity': ['total_equity', 'stockholders_equity'],
 };
 
+const STATEMENT_ROW_TEXT_MATCHERS: Record<string, string[]> = {
+    revenue: ['total revenue', 'total revenues', 'revenue', 'net sales', 'sales revenue'],
+    'cost-of-revenue': ['cost of revenue', 'cost of revenues', 'cost of sales', 'cost of goods', 'cost of goods sold'],
+    'gross-profit': ['gross profit', 'gross income'],
+    'operating-expenses': ['total operating expenses', 'operating expenses'],
+    rnd: ['research and development'],
+    sga: ['selling general and administrative', 'selling, general and administrative', 'general and administrative', 'sg&a'],
+    'operating-income': ['income from operations', 'loss from operations', 'operating income', 'operating loss', 'operating profit'],
+    'pretax-income': ['income before income taxes', 'loss before income taxes', 'income before tax', 'pretax income', 'pre-tax income'],
+    'tax-provision': ['income tax expense', 'income tax benefit', 'provision for income tax', 'tax provision'],
+    'net-income': ['net income', 'net loss', 'profit loss', 'profit attributable'],
+    'operating-cash-flow': ['net cash from operating activities', 'net cash provided by operating activities', 'operating cash flow'],
+    'investing-cash-flow': ['net cash from investing activities', 'net cash used in investing activities', 'investing cash flow'],
+    'financing-cash-flow': ['net cash from financing activities', 'net cash provided by financing activities', 'financing cash flow'],
+    capex: ['capital expenditures', 'purchase of property and equipment', 'payments to acquire property plant and equipment'],
+    depreciation: ['depreciation and amortization', 'depreciation'],
+    sbc: ['share based compensation', 'stock based compensation', 'stock-based compensation'],
+    cash: ['cash and cash equivalents', 'cash cash equivalents and short term investments'],
+};
+
 const resolveStatementRowIds = (rowId: string) => Array.from(new Set([rowId, ...(STATEMENT_ROW_ID_ALIASES[rowId] || [])]));
+
+const normalizeStatementLookupText = (value: string | undefined) =>
+    (value || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
+
+const statementRowMatchesText = (row: StatementRow, targetId: string) => {
+    const matchers = STATEMENT_ROW_TEXT_MATCHERS[targetId];
+    if (!matchers?.length) return false;
+
+    const lookup = `${normalizeStatementLookupText(row.label)} ${normalizeStatementLookupText(row.concept)}`;
+    return matchers.some((matcher) => lookup.includes(normalizeStatementLookupText(matcher)));
+};
 
 const findRowByIds = (rows: StatementRow[], targetIds: string[]): StatementRow | undefined => {
     for (const row of rows) {
@@ -231,15 +264,57 @@ const findRowByIds = (rows: StatementRow[], targetIds: string[]): StatementRow |
 };
 
 const findRowById = (rows: StatementRow[], targetId: string): StatementRow | undefined =>
-    findRowByIds(rows, resolveStatementRowIds(targetId));
+    findRowByIds(rows, resolveStatementRowIds(targetId)) || findRowByText(rows, targetId);
+
+const findRowByText = (rows: StatementRow[], targetId: string): StatementRow | undefined => {
+    for (const row of rows) {
+        if (statementRowMatchesText(row, targetId)) return row;
+        if (row.children?.length) {
+            const nested = findRowByText(row.children, targetId);
+            if (nested) return nested;
+        }
+    }
+    return undefined;
+};
+
+const parseStatementColumnRank = (label: string) => {
+    const quarterFirstMatch = label.match(/^Q([1-4])\s*(\d{4})$/i);
+    if (quarterFirstMatch) {
+        return Number(quarterFirstMatch[2]) * 10 + Number(quarterFirstMatch[1]);
+    }
+
+    const yearMatch = label.match(/^(?:FY\s*)?(\d{4})(?:\s*Q([1-4]))?$/i);
+    if (yearMatch) {
+        return Number(yearMatch[1]) * 10 + Number(yearMatch[2] || 4);
+    }
+
+    return Number.NEGATIVE_INFINITY;
+};
+
+const resolveStatementColumnKey = (grid: StatementGrid, columnKey?: string) => {
+    if (columnKey) {
+        const exactColumn = grid.columns.find((column) => column.key === columnKey);
+        if (exactColumn) return exactColumn.key;
+    }
+
+    const ttmColumn = grid.columns.find((column) => column.type === 'ttm' || column.key === 'ttm');
+    if (columnKey === 'ttm' && ttmColumn) return ttmColumn.key;
+    if (!columnKey && ttmColumn) return ttmColumn.key;
+
+    const periodColumns = grid.columns.filter((column) => column.type !== 'ttm' && column.key !== 'ttm');
+    if (periodColumns.length === 0) return undefined;
+
+    return periodColumns.reduce((latest, column) => {
+        const latestRank = parseStatementColumnRank(latest.label);
+        const columnRank = parseStatementColumnRank(column.label);
+        return columnRank > latestRank ? column : latest;
+    }, periodColumns[0]).key;
+};
 
 const readStatementValue = (grid: StatementGrid | undefined, rowId: string, columnKey?: string) => {
     if (!grid?.rows?.length) return undefined;
 
-    const requestedKey = columnKey ?? grid.columns[grid.columns.length - 1]?.key;
-    if (!requestedKey) return undefined;
-
-    const resolvedKey = grid.columns.find((column) => column.key === requestedKey)?.key;
+    const resolvedKey = resolveStatementColumnKey(grid, columnKey);
 
     if (!resolvedKey) return undefined;
     return findRowById(grid.rows, rowId)?.valuesByColumnKey[resolvedKey];
@@ -844,6 +919,15 @@ const OverviewTab = ({ profile, theme }: { profile: StockProfileV2Model; theme: 
             })),
         [profile.financials.quarterly]
     );
+    const earningsDomain = useMemo(() => {
+        const values = earningsSeries.flatMap((item) => [item.actual, item.trend]).filter(isFiniteNumber);
+        if (!values.length) return ['auto', 'auto'] as const;
+
+        const min = Math.min(...values, 0);
+        const max = Math.max(...values, 0);
+        const padding = Math.max((max - min) * 0.12, 0.1);
+        return [min - padding, max + padding] as [number, number];
+    }, [earningsSeries]);
 
     const summaryStats = useMemo(() => {
         if (!points.length) return null;
@@ -1030,12 +1114,21 @@ const OverviewTab = ({ profile, theme }: { profile: StockProfileV2Model; theme: 
                                 <ComposedChart data={earningsSeries} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
                                     <CartesianGrid stroke="var(--terminal-border)" strokeDasharray="3 3" />
                                     <XAxis dataKey="label" tick={{ fill: 'var(--terminal-muted)', fontSize: 11 }} stroke="var(--terminal-border-strong)" />
-                                    <YAxis tick={{ fill: 'var(--terminal-muted)', fontSize: 11 }} stroke="var(--terminal-border-strong)" width={44} />
+                                    <YAxis domain={earningsDomain} tick={{ fill: 'var(--terminal-muted)', fontSize: 11 }} stroke="var(--terminal-border-strong)" width={44} />
                                     <Tooltip
                                         contentStyle={tooltipStyle}
                                         formatter={(value, name) => [Number(value).toFixed(2), name === 'actual' ? 'EPS actual' : 'Trailing trend']}
                                     />
-                                    <Bar dataKey="actual" fill="#2ec4b6" radius={[4, 4, 0, 0]} />
+                                    <ReferenceLine y={0} stroke="var(--terminal-border-strong)" />
+                                    <Bar dataKey="actual" minPointSize={3}>
+                                        {earningsSeries.map((item) => (
+                                            <Cell
+                                                key={`eps-${item.label}`}
+                                                fill={isFiniteNumber(item.actual) && item.actual < 0 ? '#f45b78' : '#2ec4b6'}
+                                                radius={isFiniteNumber(item.actual) && item.actual < 0 ? [0, 0, 4, 4] : [4, 4, 0, 0]}
+                                            />
+                                        ))}
+                                    </Bar>
                                     <Line type="monotone" dataKey="trend" stroke="#8cc8ff" strokeDasharray="4 4" strokeWidth={2} dot={false} />
                                 </ComposedChart>
                             </ResponsiveContainer>
@@ -1393,7 +1486,7 @@ const FinancialsTab = ({ profile, theme }: { profile: StockProfileV2Model; theme
 const addSankeyNode = (nodes: SankeyNodeDatum[], node: Omit<SankeyNodeDatum, 'value'> & { value?: number }) => {
     const resolvedNode: SankeyNodeDatum = {
         name: node.name,
-        value: Math.max(node.value ?? node.displayValue ?? 0, 0),
+        value: Math.max(Math.abs(node.value ?? node.displayValue ?? 0), 0),
         displayValue: node.displayValue,
         tone: node.tone,
         depth: node.depth,
@@ -1408,17 +1501,29 @@ const addSankeyLink = (links: SankeyLinkDatum[], source: SankeyNodeDatum | null 
     links.push({ source: source.name, target: target.name, value, tone });
 };
 
-const buildIncomeSankey = (incomeGrid: StatementGrid | undefined): SankeyChartData | null => {
-    const revenue = readStatementValue(incomeGrid, 'revenue', 'ttm');
+const latestFinancialSummaryRow = (rows: FinancialSummaryRow[]) => {
+    if (!rows.length) return undefined;
+    return rows.reduce((latest, row) => {
+        const latestRank = parseStatementColumnRank(latest.label);
+        const rowRank = parseStatementColumnRank(row.label);
+        return rowRank > latestRank ? row : latest;
+    }, rows[0]);
+};
+
+const coalesceNumber = (...values: Array<number | undefined>) => values.find(isFiniteNumber);
+
+const buildIncomeSankey = (incomeGrid: StatementGrid | undefined, summaryRows: FinancialSummaryRow[] = []): SankeyChartData | null => {
+    const summary = latestFinancialSummaryRow(summaryRows);
+    const revenue = coalesceNumber(readStatementValue(incomeGrid, 'revenue', 'ttm'), summary?.revenue);
     const costOfRevenueRaw = readStatementValue(incomeGrid, 'cost-of-revenue', 'ttm');
-    const grossProfitRaw = readStatementValue(incomeGrid, 'gross-profit', 'ttm');
+    const grossProfitRaw = coalesceNumber(readStatementValue(incomeGrid, 'gross-profit', 'ttm'), summary?.grossProfit);
     const operatingExpensesRaw = readStatementValue(incomeGrid, 'operating-expenses', 'ttm');
     const rnd = readStatementValue(incomeGrid, 'rnd', 'ttm');
     const sga = readStatementValue(incomeGrid, 'sga', 'ttm');
-    const operatingIncomeRaw = readStatementValue(incomeGrid, 'operating-income', 'ttm');
+    const operatingIncomeRaw = coalesceNumber(readStatementValue(incomeGrid, 'operating-income', 'ttm'), summary?.operatingIncome);
     const pretaxIncomeRaw = readStatementValue(incomeGrid, 'pretax-income', 'ttm');
     const taxProvisionRaw = readStatementValue(incomeGrid, 'tax-provision', 'ttm');
-    const netIncomeRaw = readStatementValue(incomeGrid, 'net-income', 'ttm');
+    const netIncomeRaw = coalesceNumber(readStatementValue(incomeGrid, 'net-income', 'ttm'), summary?.netIncome);
 
     if (!isFiniteNumber(revenue) || !isFiniteNumber(netIncomeRaw)) {
         return null;
@@ -1444,7 +1549,7 @@ const buildIncomeSankey = (incomeGrid: StatementGrid | undefined): SankeyChartDa
     const rndExpense = Math.max(isFiniteNumber(rnd) ? Math.abs(rnd) : 0, 0);
     const sgaExpense = Math.max(isFiniteNumber(sga) ? Math.abs(sga) : 0, 0);
     const otherOperatingExpenses = Math.max(totalOperatingExpenses - rndExpense - sgaExpense, 0);
-    const pretaxIncome = isFiniteNumber(pretaxIncomeRaw) ? Math.abs(pretaxIncomeRaw) : Math.max(netIncome + Math.max(taxProvisionRaw ?? 0, 0), 0);
+    const pretaxIncome = isFiniteNumber(pretaxIncomeRaw) ? pretaxIncomeRaw : netIncome + Math.max(taxProvisionRaw ?? 0, 0);
     const taxProvision = Math.max(isFiniteNumber(taxProvisionRaw) ? Math.abs(taxProvisionRaw) : pretaxIncome - netIncome, 0);
     const nonOperatingCharges = Math.max(operatingIncome - pretaxIncome, 0);
     const nonOperatingIncome = Math.max(pretaxIncome - operatingIncome, 0);
@@ -1453,29 +1558,54 @@ const buildIncomeSankey = (incomeGrid: StatementGrid | undefined): SankeyChartDa
     const links: SankeyLinkDatum[] = [];
 
     const revenueNode = addSankeyNode(nodes, { name: 'Revenue', displayValue: revenue, tone: 'up', depth: 0 });
-    const grossNode = addSankeyNode(nodes, { name: 'Gross Profit', displayValue: grossProfit, tone: 'up', depth: 1 });
-    const costNode = addSankeyNode(nodes, { name: 'Cost of Revenue', displayValue: costOfRevenue, tone: 'down', depth: 1 });
+    const costNode = costOfRevenue > 0 ? addSankeyNode(nodes, { name: 'Cost of Revenue', displayValue: costOfRevenue, tone: 'down', depth: 1 }) : null;
+    const grossNode = addSankeyNode(nodes, {
+        name: grossProfit < 0 ? 'Gross Loss' : 'Gross Profit',
+        displayValue: grossProfit,
+        value: Math.abs(grossProfit),
+        tone: grossProfit < 0 ? 'down' : 'up',
+        depth: 1,
+    });
     const rndNode = rndExpense > 0 ? addSankeyNode(nodes, { name: 'R&D', displayValue: rndExpense, tone: 'down', depth: 2 }) : null;
     const sgaNode = sgaExpense > 0 ? addSankeyNode(nodes, { name: 'SG&A', displayValue: sgaExpense, tone: 'down', depth: 2 }) : null;
     const otherOpexNode = otherOperatingExpenses > 0 ? addSankeyNode(nodes, { name: 'Other OpEx', displayValue: otherOperatingExpenses, tone: 'down', depth: 2 }) : null;
-    const opIncomeNode = addSankeyNode(nodes, { name: 'Operating Income', displayValue: operatingIncome, tone: 'up', depth: 2 });
+    const opIncomeNode = addSankeyNode(nodes, {
+        name: operatingIncome < 0 ? 'Operating Loss' : 'Operating Income',
+        displayValue: operatingIncome,
+        value: Math.abs(operatingIncome),
+        tone: operatingIncome < 0 ? 'down' : 'up',
+        depth: 2,
+    });
     const nonOperatingIncomeNode = nonOperatingIncome > 0 ? addSankeyNode(nodes, { name: 'Other Income', displayValue: nonOperatingIncome, tone: 'neutral', depth: 2 }) : null;
     const nonOperatingChargesNode = nonOperatingCharges > 0 ? addSankeyNode(nodes, { name: 'Non-Op Charges', displayValue: nonOperatingCharges, tone: 'down', depth: 3 }) : null;
-    const pretaxNode = addSankeyNode(nodes, { name: 'Pretax Income', displayValue: pretaxIncome, tone: 'up', depth: 3 });
+    const pretaxNode = addSankeyNode(nodes, {
+        name: pretaxIncome < 0 ? 'Pretax Loss' : 'Pretax Income',
+        displayValue: pretaxIncome,
+        value: Math.abs(pretaxIncome),
+        tone: pretaxIncome < 0 ? 'down' : 'up',
+        depth: 3,
+    });
     const taxesNode = taxProvision > 0 ? addSankeyNode(nodes, { name: 'Tax Provision', displayValue: taxProvision, tone: 'down', depth: 4 }) : null;
-    const netIncomeNode = addSankeyNode(nodes, { name: 'Net Income', displayValue: netIncome, tone: 'up', depth: 4 });
+    const netIncomeNode = addSankeyNode(nodes, {
+        name: netIncome < 0 ? 'Net Loss' : 'Net Income',
+        displayValue: netIncome,
+        value: Math.abs(netIncome),
+        tone: netIncome < 0 ? 'down' : 'up',
+        depth: 4,
+    });
 
-    addSankeyLink(links, revenueNode, grossNode, grossProfit, 'up');
+    addSankeyLink(links, revenueNode, grossNode, Math.max(grossProfit, 0), grossProfit < 0 ? 'down' : 'up');
     addSankeyLink(links, revenueNode, costNode, costOfRevenue, 'down');
+    addSankeyLink(links, costNode, grossNode, grossProfit < 0 ? Math.abs(grossProfit) : 0, 'down');
     addSankeyLink(links, grossNode, rndNode, rndExpense, 'down');
     addSankeyLink(links, grossNode, sgaNode, sgaExpense, 'down');
     addSankeyLink(links, grossNode, otherOpexNode, otherOperatingExpenses, 'down');
-    addSankeyLink(links, grossNode, opIncomeNode, operatingIncome, 'up');
+    addSankeyLink(links, grossNode, opIncomeNode, Math.abs(operatingIncome), operatingIncome < 0 ? 'down' : 'up');
     addSankeyLink(links, opIncomeNode, nonOperatingChargesNode, nonOperatingCharges, 'down');
-    addSankeyLink(links, opIncomeNode, pretaxNode, Math.max(operatingIncome - nonOperatingCharges, 0), 'up');
+    addSankeyLink(links, opIncomeNode, pretaxNode, Math.abs(pretaxIncome), pretaxIncome < 0 ? 'down' : 'up');
     addSankeyLink(links, nonOperatingIncomeNode, pretaxNode, nonOperatingIncome, 'neutral');
     addSankeyLink(links, pretaxNode, taxesNode, taxProvision, 'down');
-    addSankeyLink(links, pretaxNode, netIncomeNode, netIncome, 'up');
+    addSankeyLink(links, pretaxNode, netIncomeNode, Math.abs(netIncome), netIncome < 0 ? 'down' : 'up');
 
     return links.length ? { nodes, links } : null;
 };
@@ -1730,7 +1860,7 @@ const TrackerTab = ({ profile, theme }: { profile: StockProfileV2Model; theme: A
     const cashGrid = profile.financials.statements?.cashFlow;
     const balanceGrid = profile.financials.statements?.balanceSheet;
     const currency = profile.company.currency || 'USD';
-    const incomeSankey = useMemo(() => buildIncomeSankey(incomeGrid), [incomeGrid]);
+    const incomeSankey = useMemo(() => buildIncomeSankey(incomeGrid, profile.financials.annual), [incomeGrid, profile.financials.annual]);
     const cashSankey = useMemo(() => buildCashSankey(incomeGrid, cashGrid, balanceGrid), [incomeGrid, cashGrid, balanceGrid]);
 
     return (

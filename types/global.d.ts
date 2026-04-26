@@ -58,10 +58,12 @@ declare global {
     };
 
     type SearchCommandProps = {
-        renderAs?: 'button' | 'text';
+        renderAs?: 'button' | 'text' | 'terminal';
         label?: string;
         textClassName?: string;
         initialStocks: StockWithWatchlistStatus[];
+        inputPlaceholder?: string;
+        resultHref?: (stock: StockWithWatchlistStatus) => string;
     };
 
     type WelcomeEmailData = {

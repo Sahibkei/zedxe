@@ -10,7 +10,8 @@ import {
     XAxis,
     YAxis,
 } from "recharts";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { X } from "lucide-react";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 type PriceTargetSummary = {
@@ -263,6 +264,22 @@ export default function TerminalPriceTargetsPanel({ symbol, theme, className }: 
                   },
         [theme]
     );
+    const dialogSurfaceClass =
+        theme === "light"
+            ? "!bg-[#f3f5f8] text-[#111827] shadow-[0_24px_80px_rgba(15,23,42,0.22)]"
+            : "!bg-[#101824] text-[#e4e9f2] shadow-[0_24px_90px_rgba(0,0,0,0.62)]";
+    const dialogSoftSurfaceClass = theme === "light" ? "bg-[#e8ecf2]" : "bg-[#141f2f]";
+    const dialogVars = {
+        "--terminal-border": theme === "light" ? "#bac3d1" : "#2b3445",
+        "--terminal-border-strong": theme === "light" ? "#a8b4c7" : "#3b475d",
+        "--terminal-panel": theme === "light" ? "#f3f5f8" : "#101824",
+        "--terminal-panel-soft": theme === "light" ? "#e8ecf2" : "#141f2f",
+        "--terminal-text": theme === "light" ? "#111827" : "#e4e9f2",
+        "--terminal-muted": theme === "light" ? "#556277" : "#9ea8b8",
+        "--terminal-accent": theme === "light" ? "#1f6fd1" : "#2f8ee8",
+        "--terminal-up": theme === "light" ? "#0d8f5d" : "#00a86b",
+        "--terminal-down": theme === "light" ? "#c43e34" : "#d94f45",
+    } as React.CSSProperties;
 
     const hasData = payload?.status === "ok" && payload.summary && payload.chart.length > 0;
     const chartSeries = useMemo(() => buildForecastSeries(payload), [payload]);
@@ -386,61 +403,70 @@ export default function TerminalPriceTargetsPanel({ symbol, theme, className }: 
 
             <Dialog open={detailsOpen && Boolean(payload?.summary)} onOpenChange={setDetailsOpen}>
                 <DialogContent
-                    className="max-h-[80vh] w-full max-w-2xl overflow-hidden border-[var(--terminal-border)] !bg-[var(--terminal-panel)] p-0 text-[var(--terminal-text)] shadow-2xl"
+                    className={cn(
+                        "max-h-[82vh] w-full max-w-2xl gap-0 overflow-hidden rounded-xl border border-[var(--terminal-border)] p-0",
+                        dialogSurfaceClass
+                    )}
+                    showCloseButton={false}
+                    style={dialogVars}
                 >
-                    <DialogHeader className="border-b border-[var(--terminal-border)] px-4 py-3 pr-12">
-                        <DialogTitle>Price Target Details</DialogTitle>
+                    <DialogHeader className="relative border-b border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-5 py-4 pr-14">
+                        <DialogTitle className="text-lg font-semibold tracking-tight">Price Target Details</DialogTitle>
                         <DialogDescription className="text-[var(--terminal-muted)]">
                             Consensus summary and recent public analyst revisions
                         </DialogDescription>
+                        <DialogClose className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--terminal-border-strong)] bg-[var(--terminal-panel)] text-[var(--terminal-muted)] transition hover:border-[var(--terminal-accent)] hover:text-[var(--terminal-text)] focus:outline-none focus:ring-2 focus:ring-[var(--terminal-accent)]">
+                            <X className="h-4 w-4" />
+                            <span className="sr-only">Close</span>
+                        </DialogClose>
                     </DialogHeader>
 
                     {payload?.summary ? (
                         <>
-                        <div className="max-h-[60vh] overflow-y-auto p-4">
+                        <div className="max-h-[62vh] overflow-y-auto p-5 [scrollbar-color:#3b475d_#101824]">
                             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
-                                    <p className="text-[11px] uppercase tracking-[0.12em] terminal-muted">Average Target</p>
-                                    <p className="mt-2 text-3xl font-semibold terminal-up">{formatPrice(payload.summary.average)}</p>
+                                <div className={cn("rounded-lg border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
+                                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--terminal-muted)]">Average Target</p>
+                                    <p className="mt-2 text-2xl font-semibold text-[var(--terminal-up)]">{formatPrice(payload.summary.average)}</p>
                                 </div>
-                                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
-                                    <p className="text-[11px] uppercase tracking-[0.12em] terminal-muted">Median Target</p>
-                                    <p className="mt-2 text-3xl font-semibold">{formatPrice(payload.summary.median)}</p>
+                                <div className={cn("rounded-lg border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
+                                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--terminal-muted)]">Median Target</p>
+                                    <p className="mt-2 text-2xl font-semibold">{formatPrice(payload.summary.median)}</p>
                                 </div>
-                                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
-                                    <p className="text-[11px] uppercase tracking-[0.12em] terminal-muted">Low / High</p>
-                                    <p className="mt-2 text-3xl font-semibold">{formatPrice(payload.summary.low)} - {formatPrice(payload.summary.high)}</p>
+                                <div className={cn("rounded-lg border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
+                                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--terminal-muted)]">Low / High</p>
+                                    <p className="mt-2 text-2xl font-semibold">{formatPrice(payload.summary.low)} - {formatPrice(payload.summary.high)}</p>
                                 </div>
-                                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
-                                    <p className="text-[11px] uppercase tracking-[0.12em] terminal-muted">Implied Upside</p>
-                                    <p className={cn("mt-2 text-3xl font-semibold", (payload.summary.upsidePct ?? 0) >= 0 ? "terminal-up" : "terminal-down")}>{formatSignedPercent(payload.summary.upsidePct)}</p>
+                                <div className={cn("rounded-lg border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
+                                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--terminal-muted)]">Implied Upside</p>
+                                    <p className={cn("mt-2 text-2xl font-semibold", (payload.summary.upsidePct ?? 0) >= 0 ? "text-[var(--terminal-up)]" : "text-[var(--terminal-down)]")}>{formatSignedPercent(payload.summary.upsidePct)}</p>
                                 </div>
-                                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
-                                    <p className="text-[11px] uppercase tracking-[0.12em] terminal-muted">Current Price</p>
-                                    <p className="mt-2 text-3xl font-semibold">{formatPrice(payload.summary.currentPrice)}</p>
+                                <div className={cn("rounded-lg border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
+                                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--terminal-muted)]">Current Price</p>
+                                    <p className="mt-2 text-2xl font-semibold">{formatPrice(payload.summary.currentPrice)}</p>
                                 </div>
-                                <div className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
-                                    <p className="text-[11px] uppercase tracking-[0.12em] terminal-muted">Analyst Count</p>
-                                    <p className="mt-2 text-3xl font-semibold">{payload.summary.count}</p>
+                                <div className={cn("rounded-lg border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
+                                    <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--terminal-muted)]">Analyst Count</p>
+                                    <p className="mt-2 text-2xl font-semibold">{payload.summary.count}</p>
                                 </div>
                             </div>
 
                             <div className="mt-5 flex items-center justify-between gap-3">
                                 <p className="text-lg font-semibold">Recent Target Sources</p>
-                                <p className="text-xs terminal-muted">{latestRatings.length} updates</p>
+                                <p className="text-xs text-[var(--terminal-muted)]">{latestRatings.length} updates</p>
                             </div>
 
                             <div className="mt-3 grid gap-3">
                                 {latestRatings.map((rating) => (
-                                    <div key={`${rating.firm}-${rating.date}-${rating.priceTarget}`} className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-4 py-3">
+                                    <div key={`${rating.firm}-${rating.date}-${rating.priceTarget}`} className={cn("rounded-lg border border-[var(--terminal-border)] px-4 py-3", dialogSoftSurfaceClass)}>
                                         <div className="flex items-start justify-between gap-3">
                                             <div>
-                                                <p className="text-xl font-semibold">{rating.firm}</p>
-                                                <p className="text-sm terminal-muted">{rating.analyst}</p>
+                                                <p className="text-lg font-semibold">{rating.firm}</p>
+                                                <p className="text-sm text-[var(--terminal-muted)]">{rating.analyst}</p>
                                             </div>
-                                            <div className="text-right text-2xl font-semibold">{formatPrice(rating.priceTarget)}</div>
+                                            <div className="text-right text-xl font-semibold">{formatPrice(rating.priceTarget)}</div>
                                         </div>
-                                        <div className="mt-3 flex flex-wrap gap-4 text-sm terminal-muted">
+                                        <div className="mt-3 flex flex-wrap gap-4 text-sm text-[var(--terminal-muted)]">
                                             <span>{new Date(rating.date).toLocaleDateString("en-US")}</span>
                                             <span>{rating.action}</span>
                                             <span>{rating.rating}</span>
@@ -451,7 +477,7 @@ export default function TerminalPriceTargetsPanel({ symbol, theme, className }: 
                             </div>
                         </div>
 
-                        <div className="border-t border-[var(--terminal-border)] px-4 py-3 text-xs terminal-muted">
+                        <div className="border-t border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-5 py-3 text-xs text-[var(--terminal-muted)]">
                             {payload.sources.map((source, index) => (
                                 <span key={source.url}>
                                     {index > 0 ? " | " : ""}

@@ -152,17 +152,19 @@ function toStatementRows(
     const stack: Array<{ depth: number; row: StatementRow }> = [];
 
     for (const sourceRow of rows) {
+        const valuesByColumnKey: Record<string, number | undefined> = {};
+        orderedEntries.forEach((entry, orderedIndex) => {
+            const value = sourceRow.values[entry.index];
+            valuesByColumnKey[columns[orderedIndex]?.key ?? `zapi-${orderedIndex}`] =
+                typeof value === "number" ? value : undefined;
+        });
+
         const mappedRow: StatementRow = {
             id: sourceRow.metricCode,
             label: sourceRow.label,
             concept: sourceRow.metricCode,
             valueType: toStatementValueType(sourceRow.unit),
-            valuesByColumnKey: Object.fromEntries(
-                orderedEntries.map((entry, orderedIndex) => [
-                    columns[orderedIndex]?.key ?? `zapi-${orderedIndex}`,
-                    typeof sourceRow.values[entry.index] === "number" ? sourceRow.values[entry.index] : undefined,
-                ])
-            ),
+            valuesByColumnKey,
         };
 
         while (stack.length > 0 && sourceRow.depth <= stack[stack.length - 1].depth) {
