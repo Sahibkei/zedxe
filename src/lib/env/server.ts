@@ -26,6 +26,10 @@ const rawEnv = {
 
 const missingRequired: string[] = [];
 const supabaseUrl = rawEnv.SUPABASE_URL ?? rawEnv.NEXT_PUBLIC_SUPABASE_URL;
+const optionalUrl = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().url().optional(),
+);
 
 if (!supabaseUrl) {
   missingRequired.push("SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)");
@@ -54,8 +58,8 @@ const serverSchema = z.object({
   ZAPI_DEFAULT_SIGNED_PLAN: z.string().min(1).optional(),
   ZAPI_PLUS_EMAILS: z.string().min(1).optional(),
   ZAPI_PRO_EMAILS: z.string().min(1).optional(),
-  ZAPI_PLUS_CHECKOUT_URL: z.string().url().optional(),
-  ZAPI_PRO_CHECKOUT_URL: z.string().url().optional(),
+  ZAPI_PLUS_CHECKOUT_URL: optionalUrl,
+  ZAPI_PRO_CHECKOUT_URL: optionalUrl,
   NODE_ENV: z.string().optional(),
 });
 

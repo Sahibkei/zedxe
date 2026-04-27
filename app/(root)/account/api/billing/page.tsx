@@ -215,7 +215,7 @@ const AccountApiBillingPage = async () => {
                                                 {action.label}
                                             </div>
                                         ) : action.external ? (
-                                            <Link
+                                            <a
                                                 href={action.href}
                                                 target="_blank"
                                                 rel="noreferrer"
@@ -223,7 +223,7 @@ const AccountApiBillingPage = async () => {
                                             >
                                                 {action.label}
                                                 <ExternalLink className="h-4 w-4" />
-                                            </Link>
+                                            </a>
                                         ) : (
                                             <Link
                                                 href={action.href}

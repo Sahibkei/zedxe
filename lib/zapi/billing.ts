@@ -23,11 +23,13 @@ export function getZapiBillingLinks(): ZapiBillingLinks {
 }
 
 export function getZapiCheckoutUrl(plan: ZapiSignedPlanId): string | null {
+    const billingLinks = getZapiBillingLinks();
+
     if (plan === "plus") {
-        return envServer.ZAPI_PLUS_CHECKOUT_URL ?? null;
+        return billingLinks.plusCheckoutUrl;
     }
     if (plan === "pro") {
-        return envServer.ZAPI_PRO_CHECKOUT_URL ?? null;
+        return billingLinks.proCheckoutUrl;
     }
     return null;
 }
