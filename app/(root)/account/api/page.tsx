@@ -75,6 +75,13 @@ const AccountApiPage = async () => {
                             <ArrowRight className="h-4 w-4" />
                         </Link>
                         <Link
+                            href="/account/api/billing"
+                            className="inline-flex items-center gap-2 rounded-full border border-[#273042] px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-[#3a5576] hover:text-white"
+                        >
+                            Billing
+                            <ArrowRight className="h-4 w-4" />
+                        </Link>
+                        <Link
                             href="https://api.zedxe.com/docs"
                             target="_blank"
                             rel="noreferrer"
@@ -219,17 +226,17 @@ ZAPI_PRO_EMAILS=owner@company.com`}</code>
                         </div>
                         <div className="mt-5 flex flex-wrap gap-3">
                             <Link
-                                href="/api/pricing"
+                                href="/account/api/billing"
                                 className="inline-flex items-center gap-2 rounded-full bg-[#58a6ff] px-4 py-2 text-sm font-semibold text-[#010409] transition hover:bg-[#7bb7ff]"
                             >
-                                Compare plans
+                                Manage billing
                                 <ArrowRight className="h-4 w-4" />
                             </Link>
                             <Link
-                                href="/waitlist?from=account-api-upgrade"
+                                href="/api/pricing"
                                 className="inline-flex items-center gap-2 rounded-full border border-[#273042] px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-[#3a5576] hover:text-white"
                             >
-                                Request upgrade
+                                Compare plans
                             </Link>
                         </div>
                     </article>

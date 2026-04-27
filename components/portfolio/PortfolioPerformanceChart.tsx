@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { ValueType } from 'recharts/types/component/DefaultTooltipContent';
 
@@ -9,14 +9,17 @@ import { Button } from '@/components/ui/button';
 import type { PortfolioPerformancePoint } from '@/lib/portfolio/portfolio-service';
 import { cn } from '@/lib/utils';
 
-export type PortfolioChartRange = '1M' | '3M' | '6M' | '1Y' | 'ALL';
+export type PortfolioChartRange = '1D' | '1W' | '1M' | '3M' | '1Y' | 'YTD' | 'MAX';
 export type PortfolioPerformanceChartPoint = PortfolioPerformancePoint & {
     costBasis?: number;
+    netFlow?: number;
 };
 
-const RANGE_OPTIONS: PortfolioChartRange[] = ['1M', '3M', '6M', '1Y', 'ALL'];
+const RANGE_OPTIONS: PortfolioChartRange[] = ['1D', '1W', '1M', '3M', '1Y', 'YTD', 'MAX'];
 const TINY_RANGE_RATIO = 0.005; // 0.5%
 const MIN_PADDING_RATIO = 0.01; // 1%
+
+type PortfolioChartMode = 'value' | 'percent';
 
 export type PortfolioPerformanceChartProps = {
     data: PortfolioPerformanceChartPoint[];
@@ -48,6 +51,12 @@ const formatCurrency = (value: number, currency: string) => {
     }
 };
 
+const formatPercent = (value: number, maximumFractionDigits = 1) => {
+    if (!Number.isFinite(value)) return 'N/A';
+    const sign = value > 0 ? '+' : '';
+    return `${sign}${value.toFixed(maximumFractionDigits)}%`;
+};
+
 const formatDateTick = (date: string) => {
     const parsed = parseDateOnlyLocal(date);
     if (Number.isNaN(parsed.getTime())) return date;
@@ -62,17 +71,54 @@ const PortfolioPerformanceChart = ({
     loading = false,
     error = '',
 }: PortfolioPerformanceChartProps) => {
+    const [chartMode, setChartMode] = useState<PortfolioChartMode>('value');
+
     const chartData = useMemo(
-        () =>
-            data.map((point) => ({
+        () => {
+            const normalizedData = data.map((point) => ({
                 ...point,
                 value: Number.isFinite(point.value) ? point.value : 0,
                 costBasis:
                     typeof point.costBasis === 'number' && Number.isFinite(point.costBasis)
                         ? point.costBasis
                         : undefined,
-            })),
-        [data]
+            }));
+
+            if (chartMode === 'value') {
+                return normalizedData;
+            }
+
+            let cumulativeReturn = 1;
+
+            return normalizedData.map((point, index) => {
+                if (index === 0) {
+                    return {
+                        ...point,
+                        value: 0,
+                        costBasis: typeof point.costBasis === 'number' ? 0 : undefined,
+                    };
+                }
+
+                const previousPoint = normalizedData[index - 1];
+                const previousValue = previousPoint?.value;
+                const netFlow = typeof point.netFlow === 'number' && Number.isFinite(point.netFlow) ? point.netFlow : 0;
+                const adjustedCurrentValue = point.value - netFlow;
+
+                if (typeof previousValue === 'number' && Number.isFinite(previousValue) && previousValue > 0) {
+                    const dailyReturn = adjustedCurrentValue / previousValue - 1;
+                    if (Number.isFinite(dailyReturn)) {
+                        cumulativeReturn *= 1 + dailyReturn;
+                    }
+                }
+
+                return {
+                    ...point,
+                    value: (cumulativeReturn - 1) * 100,
+                    costBasis: typeof point.costBasis === 'number' ? 0 : undefined,
+                };
+            });
+        },
+        [chartMode, data]
     );
 
     const hasCostBasis = useMemo(
@@ -118,27 +164,52 @@ const PortfolioPerformanceChart = ({
                     <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Portfolio Growth</h3>
                     {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
                 </div>
-                <div className="inline-flex flex-wrap gap-1 rounded-lg border border-border/60 bg-muted/20 p-1">
-                    {RANGE_OPTIONS.map((range) => {
-                        const isActive = selectedRange === range;
-                        return (
-                            <Button
-                                key={range}
-                                variant="ghost"
-                                size="sm"
-                                className={cn(
-                                    'h-7 rounded-md px-2.5 text-[10px] font-semibold uppercase tracking-[0.12em]',
-                                    isActive
-                                        ? 'bg-primary/20 text-foreground hover:bg-primary/20'
-                                        : 'text-muted-foreground hover:bg-muted/30 hover:text-foreground'
-                                )}
-                                onClick={() => onRangeChange?.(range)}
-                                disabled={loading || !onRangeChange}
-                            >
-                                {range}
-                            </Button>
-                        );
-                    })}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                    <div className="inline-flex gap-1 rounded-lg border border-border/60 bg-muted/20 p-1">
+                        {(['value', 'percent'] as const).map((mode) => {
+                            const isActive = chartMode === mode;
+                            const label = mode === 'value' ? 'Value' : '%';
+                            return (
+                                <Button
+                                    key={mode}
+                                    variant="ghost"
+                                    size="sm"
+                                    className={cn(
+                                        'h-7 rounded-md px-2.5 text-[10px] font-semibold uppercase tracking-[0.12em]',
+                                        isActive
+                                            ? 'bg-primary/20 text-foreground hover:bg-primary/20'
+                                            : 'text-muted-foreground hover:bg-muted/30 hover:text-foreground'
+                                    )}
+                                    onClick={() => setChartMode(mode)}
+                                    disabled={loading}
+                                >
+                                    {label}
+                                </Button>
+                            );
+                        })}
+                    </div>
+                    <div className="inline-flex flex-wrap gap-1 rounded-lg border border-border/60 bg-muted/20 p-1">
+                        {RANGE_OPTIONS.map((range) => {
+                            const isActive = selectedRange === range;
+                            return (
+                                <Button
+                                    key={range}
+                                    variant="ghost"
+                                    size="sm"
+                                    className={cn(
+                                        'h-7 rounded-md px-2.5 text-[10px] font-semibold uppercase tracking-[0.12em]',
+                                        isActive
+                                            ? 'bg-primary/20 text-foreground hover:bg-primary/20'
+                                            : 'text-muted-foreground hover:bg-muted/30 hover:text-foreground'
+                                    )}
+                                    onClick={() => onRangeChange?.(range)}
+                                    disabled={loading || !onRangeChange}
+                                >
+                                    {range}
+                                </Button>
+                            );
+                        })}
+                    </div>
                 </div>
             </div>
 
@@ -172,7 +243,9 @@ const PortfolioPerformanceChart = ({
                                 axisLine={{ stroke: '#1f2a3a' }}
                                 width={84}
                                 domain={yDomain}
-                                tickFormatter={(value: number) => formatCurrency(value, baseCurrency)}
+                                tickFormatter={(value: number) =>
+                                    chartMode === 'percent' ? formatPercent(value, 0) : formatCurrency(value, baseCurrency)
+                                }
                             />
                             <Tooltip
                                 content={
@@ -185,7 +258,12 @@ const PortfolioPerformanceChart = ({
                                         }}
                                         formatValue={(value: ValueType) => {
                                             const numericValue = typeof value === 'number' ? value : Number(value);
-                                            return Number.isFinite(numericValue) ? formatCurrency(numericValue, baseCurrency) : 'N/A';
+                                            if (!Number.isFinite(numericValue)) {
+                                                return 'N/A';
+                                            }
+                                            return chartMode === 'percent'
+                                                ? formatPercent(numericValue, 2)
+                                                : formatCurrency(numericValue, baseCurrency);
                                         }}
                                     />
                                 }
@@ -194,7 +272,7 @@ const PortfolioPerformanceChart = ({
                             <Line
                                 type="monotone"
                                 dataKey="value"
-                                name="Portfolio Value"
+                                name={chartMode === 'percent' ? 'Portfolio P/L' : 'Portfolio Value'}
                                 stroke="#78b9ff"
                                 strokeWidth={2}
                                 dot={false}
@@ -204,7 +282,7 @@ const PortfolioPerformanceChart = ({
                                 <Line
                                     type="monotone"
                                     dataKey="costBasis"
-                                    name="Cost Basis"
+                                    name={chartMode === 'percent' ? 'Break-even' : 'Cost Basis'}
                                     stroke="#94a3b8"
                                     strokeDasharray="5 4"
                                     strokeWidth={1.5}

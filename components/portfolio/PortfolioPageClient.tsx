@@ -28,18 +28,22 @@ import type {
 const DEFAULT_CHART_RANGE: PortfolioChartRange = '1M';
 
 const CHART_TO_ANALYTICS_RANGE: Record<PortfolioChartRange, PortfolioAnalyticsRange> = {
+    '1D': '1d',
+    '1W': '1w',
     '1M': '1m',
     '3M': '3m',
-    '6M': '6m',
     '1Y': '1y',
-    ALL: 'all',
+    YTD: 'ytd',
+    MAX: 'all',
 };
 
 const normalizeInitialRange = (range: PortfolioPerformanceRange): PortfolioChartRange => {
+    if (range === '1D') return '1D';
+    if (range === '1W') return '1W';
     if (range === '3M') return '3M';
-    if (range === '6M') return '6M';
     if (range === '1Y') return '1Y';
-    if (range === 'MAX') return 'ALL';
+    if (range === 'YTD') return 'YTD';
+    if (range === 'MAX') return 'MAX';
     return '1M';
 };
 

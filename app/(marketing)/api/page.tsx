@@ -30,14 +30,14 @@ const highlightIcons = {
 export default async function ApiLandingPage() {
     const session = await auth.api.getSession({ headers: await headers() });
     const primaryCta = session?.user
-        ? { label: "Open API Dashboard", href: "/account/api" }
+        ? { label: "Open API Billing", href: "/account/api/billing" }
         : { label: "Request API Access", href: "/waitlist?from=api" };
 
     return (
         <ApiMarketingShell
             eyebrow="Zapi / API"
             title="Financial statements and regime metadata, productized inside the main site."
-            description="Zapi now runs live on api.zedxe.com. This public site layer is where users discover the API, understand regional coverage, compare access tiers, and enter the signup flow before account dashboards and token management arrive."
+            description="Zapi now runs live on api.zedxe.com. This public site layer is where users discover the API, understand regional coverage, compare access tiers, and move into signed-in billing and token flows inside the main product."
             primaryCta={primaryCta}
             secondaryCta={{ label: "Read API Docs", href: "/api/docs" }}
             tabs={tabs}
@@ -178,10 +178,10 @@ export default async function ApiLandingPage() {
                 </div>
                 <div className="mt-8 flex flex-wrap gap-3">
                     <Link
-                        href="/waitlist?from=api-plans"
+                        href={session?.user ? "/account/api/billing" : "/waitlist?from=api-plans"}
                         className="btn-glow inline-flex items-center gap-2 rounded-full bg-teal-400 px-5 py-3 text-sm font-semibold text-gray-900"
                     >
-                        Join the API waitlist
+                        {session?.user ? "Open API billing" : "Join the API waitlist"}
                         <ArrowRight className="h-4 w-4" />
                     </Link>
                     <Link

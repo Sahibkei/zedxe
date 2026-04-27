@@ -7,6 +7,7 @@ export type ApiCoverageItem = {
 };
 
 export type ApiPlanItem = {
+    id: "free" | "plus" | "pro";
     name: string;
     price: string;
     requestsPerHour: string;
@@ -64,8 +65,9 @@ export const apiCoverage: ApiCoverageItem[] = [
 
 export const apiPlans: ApiPlanItem[] = [
     {
+        id: "free",
         name: "Free",
-        price: "$0",
+        price: "EUR 0",
         requestsPerHour: "100",
         access: "Signed-in starter plan",
         regions: "US only",
@@ -75,8 +77,9 @@ export const apiPlans: ApiPlanItem[] = [
         idealFor: "Testing, simple automations, light US-only usage",
     },
     {
+        id: "plus",
         name: "Plus",
-        price: "$7/mo",
+        price: "EUR 7 / mo",
         requestsPerHour: "500",
         access: "Paid US plan",
         regions: "US only",
@@ -86,8 +89,9 @@ export const apiPlans: ApiPlanItem[] = [
         idealFor: "Recurring US data users and future Excel plugin workflows",
     },
     {
+        id: "pro",
         name: "Pro",
-        price: "$10/mo",
+        price: "EUR 10 / mo",
         requestsPerHour: "2,000",
         access: "Full API plan",
         regions: "Full API access",
@@ -118,9 +122,9 @@ export const apiPricingRows = [
     {
         label: "Monthly price",
         values: {
-            Free: "$0",
-            Plus: "$7",
-            Pro: "$10",
+            Free: "EUR 0",
+            Plus: "EUR 7",
+            Pro: "EUR 10",
         },
     },
     {
@@ -194,7 +198,7 @@ export const apiHighlights: ApiHighlightItem[] = [
     {
         icon: "orbit",
         title: "Built for product integration",
-        body: "Terminal tables, charts, and later account dashboards can all read from the same Zapi response model.",
+        body: "Terminal tables, charts, account dashboards, and billing-aware upgrade flows can all read from the same Zapi response model.",
     },
 ];
 

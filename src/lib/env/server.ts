@@ -19,6 +19,8 @@ const rawEnv = {
   ZAPI_DEFAULT_SIGNED_PLAN: process.env.ZAPI_DEFAULT_SIGNED_PLAN,
   ZAPI_PLUS_EMAILS: process.env.ZAPI_PLUS_EMAILS,
   ZAPI_PRO_EMAILS: process.env.ZAPI_PRO_EMAILS,
+  ZAPI_PLUS_CHECKOUT_URL: process.env.ZAPI_PLUS_CHECKOUT_URL,
+  ZAPI_PRO_CHECKOUT_URL: process.env.ZAPI_PRO_CHECKOUT_URL,
   NODE_ENV: process.env.NODE_ENV,
 };
 
@@ -52,6 +54,8 @@ const serverSchema = z.object({
   ZAPI_DEFAULT_SIGNED_PLAN: z.string().min(1).optional(),
   ZAPI_PLUS_EMAILS: z.string().min(1).optional(),
   ZAPI_PRO_EMAILS: z.string().min(1).optional(),
+  ZAPI_PLUS_CHECKOUT_URL: z.string().url().optional(),
+  ZAPI_PRO_CHECKOUT_URL: z.string().url().optional(),
   NODE_ENV: z.string().optional(),
 });
 
@@ -68,6 +72,8 @@ const parsed = serverSchema.safeParse({
   ZAPI_DEFAULT_SIGNED_PLAN: rawEnv.ZAPI_DEFAULT_SIGNED_PLAN,
   ZAPI_PLUS_EMAILS: rawEnv.ZAPI_PLUS_EMAILS,
   ZAPI_PRO_EMAILS: rawEnv.ZAPI_PRO_EMAILS,
+  ZAPI_PLUS_CHECKOUT_URL: rawEnv.ZAPI_PLUS_CHECKOUT_URL,
+  ZAPI_PRO_CHECKOUT_URL: rawEnv.ZAPI_PRO_CHECKOUT_URL,
   NODE_ENV: rawEnv.NODE_ENV,
 });
 
@@ -97,5 +103,7 @@ export const envServer = {
   ZAPI_DEFAULT_SIGNED_PLAN: parsed.data.ZAPI_DEFAULT_SIGNED_PLAN,
   ZAPI_PLUS_EMAILS: parsed.data.ZAPI_PLUS_EMAILS,
   ZAPI_PRO_EMAILS: parsed.data.ZAPI_PRO_EMAILS,
+  ZAPI_PLUS_CHECKOUT_URL: parsed.data.ZAPI_PLUS_CHECKOUT_URL,
+  ZAPI_PRO_CHECKOUT_URL: parsed.data.ZAPI_PRO_CHECKOUT_URL,
   NODE_ENV: parsed.data.NODE_ENV,
 };
