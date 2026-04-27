@@ -32,7 +32,7 @@ const tabs = [
 export default async function ApiDocsPage() {
     const session = await auth.api.getSession({ headers: await headers() });
     const secondaryCta = session?.user
-        ? { label: "Open API Dashboard", href: "/account/api" }
+        ? { label: "Open API Billing", href: "/account/api/billing" }
         : { label: "Back to API Overview", href: "/api" };
 
     return (
@@ -49,7 +49,7 @@ export default async function ApiDocsPage() {
                     <p className="text-xs uppercase tracking-[0.24em] text-teal-300">Base URL</p>
                     <h2 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-white">https://api.zedxe.com</h2>
                     <p className="mt-5 text-sm leading-7 text-gray-300">
-                        Default product flow: the main site owns signup, billing, and plan assignment. Signed users later receive site-issued JWTs, while internal server traffic continues using the service key path.
+                        Default product flow: the main site owns signup, billing, and plan assignment. Signed users receive site-issued JWTs, while internal server traffic continues using the service key path.
                     </p>
                     <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-black/20 p-5">
                         <p className="text-sm font-semibold text-white">Current canonical endpoints</p>
@@ -99,7 +99,7 @@ export default async function ApiDocsPage() {
                     <article className="rounded-[1.5rem] border border-white/10 bg-black/20 p-6">
                         <p className="text-sm font-semibold text-white">Bearer JWT for signed plans</p>
                         <p className="mt-3 text-sm leading-7 text-gray-300">
-                            The site backend will mint HS256 JWTs with at least <code>sub</code>, <code>plan</code>, <code>iss</code>, <code>aud</code>, and <code>exp</code>. Until billing is wired, the main site can still map users into Free, Plus, and Pro through site config and keep Zapi enforcement unchanged.
+                            The site backend will mint HS256 JWTs with at least <code>sub</code>, <code>plan</code>, <code>iss</code>, <code>aud</code>, and <code>exp</code>. The signed-in billing flow can then map users into Free, Plus, and Pro without changing Zapi enforcement.
                         </p>
                     </article>
                     <article className="rounded-[1.5rem] border border-white/10 bg-black/20 p-6">
@@ -200,10 +200,10 @@ ZAPI_PRO_EMAILS=owner@company.com`}</code>
                         <h2 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-white">Document the caveats where users will see them</h2>
                     </div>
                     <Link
-                        href="/waitlist?from=api-docs"
+                        href={session?.user ? "/account/api/billing" : "/sign-in?redirect=/account/api/billing"}
                         className="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-white/85 transition hover:border-white/30 hover:text-white"
                     >
-                        Request access
+                        {session?.user ? "Open billing" : "Sign in to subscribe"}
                     </Link>
                 </div>
                 <div className="mt-8 grid gap-4 lg:grid-cols-2">

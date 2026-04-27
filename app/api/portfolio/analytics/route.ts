@@ -9,9 +9,11 @@ import { getFxRate } from '@/lib/finnhub/fx';
 import { getDailyHistory, getQuotes } from '@/lib/market/providers';
 import {
     computeBeta,
+    computeCumulativeReturnPct,
     computeMaxDrawdown,
     computeReturns,
     computeSharpe,
+    computeTimeWeightedReturns,
     computeVolatility,
     type AnalyticsSeriesPoint,
     type PortfolioAnalyticsHistoryPoint,
@@ -43,10 +45,35 @@ type HoldingAggregate = {
     avgCost: number;
 };
 
+type NormalizedTransaction = {
+    symbol: string;
+    tradeDate: string;
+    signedQuantity: number;
+    signedCost: number;
+};
+
+type RawTransactionInput = {
+    symbol: string;
+    type: 'BUY' | 'SELL';
+    quantity: number;
+    price: number;
+    currency: string;
+    fxRateToBase: number | null;
+    tradeDate: Date;
+};
+
 const parseRange = (value: string | null): PortfolioAnalyticsRange => {
     if (!value) return DEFAULT_RANGE;
     const normalized = value.trim().toLowerCase();
-    if (normalized === '1m' || normalized === '3m' || normalized === '6m' || normalized === '1y' || normalized === 'all') {
+    if (
+        normalized === '1d' ||
+        normalized === '1w' ||
+        normalized === '1m' ||
+        normalized === '3m' ||
+        normalized === '1y' ||
+        normalized === 'ytd' ||
+        normalized === 'all'
+    ) {
         return normalized;
     }
     return DEFAULT_RANGE;
@@ -73,14 +100,20 @@ const getRangeStartDate = (range: PortfolioAnalyticsRange, toDate: Date, firstTr
 
     const start = new Date(toDate);
     switch (range) {
+        case '1d':
+            return subtractUtcDays(start, 1);
+        case '1w':
+            return subtractUtcDays(start, 7);
         case '1m':
             return subtractUtcDays(start, 30);
         case '3m':
             return subtractUtcDays(start, 90);
-        case '6m':
-            return subtractUtcDays(start, 180);
         case '1y':
             return subtractUtcDays(start, 365);
+        case 'ytd': {
+            const yearStart = new Date(Date.UTC(start.getUTCFullYear(), 0, 1));
+            return startOfUtcDay(yearStart);
+        }
         case 'all':
             return subtractUtcDays(start, 3650);
         default:
@@ -172,7 +205,7 @@ const getDailyHistoryCached = unstable_cache(
             to: toDate,
         });
     },
-    ['portfolio-daily-history'],
+    ['portfolio-daily-history-v2'],
     { revalidate: 300 }
 );
 
@@ -190,18 +223,10 @@ const fetchHistoryWithFallback = async (symbol: string, fromIso: string, toIso: 
     return { series: primarySeries, usedFallback: false };
 };
 
-const aggregateHoldings = async (
-    transactions: Array<{
-        symbol: string;
-        type: 'BUY' | 'SELL';
-        quantity: number;
-        price: number;
-        currency: string;
-        fxRateToBase: number | null;
-    }>,
+const normalizeTransactions = async (
+    transactions: RawTransactionInput[],
     baseCurrency: string
 ) => {
-    const bySymbol = new Map<string, { quantity: number; totalCost: number }>();
     const fxRateCache = new Map<string, number>();
 
     const resolveFxRate = async (currency: string, fxRateToBase: number | null) => {
@@ -219,6 +244,8 @@ const aggregateHoldings = async (
         return rate;
     };
 
+    const normalizedTransactions: NormalizedTransaction[] = [];
+
     for (const tx of transactions) {
         const symbol = tx.symbol.toUpperCase();
         const quantity = Math.abs(Number(tx.quantity));
@@ -230,11 +257,26 @@ const aggregateHoldings = async (
         const fxRate = await resolveFxRate(tx.currency || baseCurrency, tx.fxRateToBase);
         const signedQuantity = tx.type === 'SELL' ? -quantity : quantity;
         const signedCost = tx.type === 'SELL' ? -(quantity * price * fxRate) : quantity * price * fxRate;
+        normalizedTransactions.push({
+            symbol,
+            tradeDate: dateToIso(startOfUtcDay(new Date(tx.tradeDate))),
+            signedQuantity,
+            signedCost,
+        });
+    }
 
-        const current = bySymbol.get(symbol) || { quantity: 0, totalCost: 0 };
-        current.quantity += signedQuantity;
-        current.totalCost += signedCost;
-        bySymbol.set(symbol, current);
+    normalizedTransactions.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+    return normalizedTransactions;
+};
+
+const aggregateHoldings = (transactions: NormalizedTransaction[]) => {
+    const bySymbol = new Map<string, { quantity: number; totalCost: number }>();
+
+    for (const tx of transactions) {
+        const current = bySymbol.get(tx.symbol) || { quantity: 0, totalCost: 0 };
+        current.quantity += tx.signedQuantity;
+        current.totalCost += tx.signedCost;
+        bySymbol.set(tx.symbol, current);
     }
 
     const holdings: HoldingAggregate[] = [];
@@ -252,46 +294,81 @@ const aggregateHoldings = async (
     return holdings;
 };
 
-const computeHistoryFromHoldings = (
+const computeHistoryFromTransactions = (
     dateGrid: string[],
-    holdings: HoldingAggregate[],
+    transactions: NormalizedTransaction[],
     historiesBySymbol: Map<string, Map<string, number>>
 ): PortfolioAnalyticsHistoryPoint[] => {
     const history: PortfolioAnalyticsHistoryPoint[] = [];
-    const runningCloseBySymbol = new Map<string, number>();
-    const costBasis = holdings.reduce((acc, holding) => acc + holding.quantity * holding.avgCost, 0);
-    const normalizedCostBasis = Number.isFinite(costBasis) ? costBasis : 0;
+    const runningCloseBySymbol = new Map<string, number | null>();
     const firstGridDate = dateGrid[0];
+    const txsBySymbol = new Map<string, NormalizedTransaction[]>();
+
+    for (const tx of transactions) {
+        const list = txsBySymbol.get(tx.symbol) || [];
+        list.push(tx);
+        txsBySymbol.set(tx.symbol, list);
+    }
+
+    const stateBySymbol = new Map<string, { quantity: number; totalCost: number; txIndex: number; txs: NormalizedTransaction[] }>();
+
+    for (const [symbol, txs] of txsBySymbol.entries()) {
+        stateBySymbol.set(symbol, {
+            quantity: 0,
+            totalCost: 0,
+            txIndex: 0,
+            txs,
+        });
+    }
 
     if (firstGridDate) {
-        for (const holding of holdings) {
-            const symbolSeries = historiesBySymbol.get(holding.symbol);
+        for (const symbol of stateBySymbol.keys()) {
+            const symbolSeries = historiesBySymbol.get(symbol);
             if (!symbolSeries) continue;
 
             const seedClose = getSeedCloseForRangeStart(symbolSeries, firstGridDate);
             if (typeof seedClose === 'number' && Number.isFinite(seedClose) && seedClose > 0) {
-                runningCloseBySymbol.set(holding.symbol, seedClose);
+                runningCloseBySymbol.set(symbol, seedClose);
             }
         }
     }
 
     for (const date of dateGrid) {
         let totalValue = 0;
+        let totalCostBasis = 0;
+        let dailyNetFlow = 0;
         let contributors = 0;
 
-        for (const holding of holdings) {
-            const symbolSeries = historiesBySymbol.get(holding.symbol);
+        for (const [symbol, state] of stateBySymbol.entries()) {
+            while (state.txIndex < state.txs.length && state.txs[state.txIndex].tradeDate <= date) {
+                const tx = state.txs[state.txIndex];
+                state.quantity += tx.signedQuantity;
+                state.totalCost += tx.signedCost;
+                if (tx.tradeDate === date) {
+                    dailyNetFlow += tx.signedCost;
+                }
+                state.txIndex += 1;
+            }
+
+            if (!Number.isFinite(state.quantity) || state.quantity <= 0) {
+                continue;
+            }
+
+            const symbolSeries = historiesBySymbol.get(symbol);
             if (!symbolSeries) continue;
 
             const closeOnDate = symbolSeries.get(date);
             if (typeof closeOnDate === 'number' && Number.isFinite(closeOnDate) && closeOnDate > 0) {
-                runningCloseBySymbol.set(holding.symbol, closeOnDate);
+                runningCloseBySymbol.set(symbol, closeOnDate);
             }
 
-            const close = runningCloseBySymbol.get(holding.symbol);
+            const close = runningCloseBySymbol.get(symbol);
             if (typeof close !== 'number' || !Number.isFinite(close) || close <= 0) continue;
 
-            totalValue += holding.quantity * close;
+            totalValue += state.quantity * close;
+            if (Number.isFinite(state.totalCost) && state.totalCost > 0) {
+                totalCostBasis += state.totalCost;
+            }
             contributors += 1;
         }
 
@@ -302,7 +379,8 @@ const computeHistoryFromHoldings = (
         history.push({
             date,
             value: totalValue,
-            costBasis: normalizedCostBasis > 0 ? normalizedCostBasis : undefined,
+            costBasis: totalCostBasis > 0 ? totalCostBasis : undefined,
+            netFlow: dailyNetFlow !== 0 ? dailyNetFlow : undefined,
         });
     }
 
@@ -383,7 +461,7 @@ export async function GET(request: NextRequest) {
         const fromDate = range === 'all' && firstTradeDate && firstTradeDate > rangeStartDate ? firstTradeDate : rangeStartDate;
 
         const baseCurrency = (portfolio.baseCurrency || 'USD').toUpperCase();
-        const holdings = await aggregateHoldings(
+        const normalizedTransactions = await normalizeTransactions(
             transactions.map((tx) => ({
                 symbol: tx.symbol,
                 type: tx.type,
@@ -391,9 +469,11 @@ export async function GET(request: NextRequest) {
                 price: tx.price,
                 currency: tx.currency || baseCurrency,
                 fxRateToBase: tx.fxRateToBase,
+                tradeDate: tx.tradeDate,
             })),
             baseCurrency
         );
+        const holdings = aggregateHoldings(normalizedTransactions);
 
         if (holdings.length === 0) {
             warnings.push('No open holdings found for this portfolio.');
@@ -461,8 +541,8 @@ export async function GET(request: NextRequest) {
         }
 
         const includedSymbols = new Set(validSeries.map((item) => item.holding.symbol));
-        const computableHoldings = holdings.filter((holding) => includedSymbols.has(holding.symbol));
-        let history = computeHistoryFromHoldings(dateGrid, computableHoldings, historiesBySymbol);
+        const computableTransactions = normalizedTransactions.filter((tx) => includedSymbols.has(tx.symbol));
+        let history = computeHistoryFromTransactions(dateGrid, computableTransactions, historiesBySymbol);
 
         if (history.length < MIN_SERIES_POINTS) {
             const fallbackValue = await computeFallbackFlatValue(holdings);
@@ -501,7 +581,7 @@ export async function GET(request: NextRequest) {
 
         const benchmarkAnalyticsSeries = buildBenchmarkSeriesForGrid(dateGrid, benchmarkSeriesMap);
 
-        const portfolioReturns = computeReturns(history);
+        const portfolioReturns = computeTimeWeightedReturns(history);
         const benchmarkReturns = computeReturns(benchmarkAnalyticsSeries);
         const benchmarkReturnsByDate = new Map(benchmarkReturns.map((point) => [point.date, point.value]));
 
@@ -516,8 +596,27 @@ export async function GET(request: NextRequest) {
             alignedBenchmarkReturns.push(benchmarkReturn);
         }
 
+        const performanceIndex = (() => {
+            if (!history.length) return [] as AnalyticsSeriesPoint[];
+            const points: AnalyticsSeriesPoint[] = [{ date: history[0].date, value: 100 }];
+            let indexValue = 100;
+
+            for (const point of portfolioReturns) {
+                indexValue *= 1 + point.value;
+                if (!Number.isFinite(indexValue) || indexValue <= 0) {
+                    continue;
+                }
+                points.push({
+                    date: point.date,
+                    value: indexValue,
+                });
+            }
+
+            return points;
+        })();
+
         const ratios: PortfolioAnalyticsRatios = {
-            totalReturnPct: computeTotalReturnPct(history),
+            totalReturnPct: computeCumulativeReturnPct(portfolioReturns.map((point) => point.value)),
             benchmarkReturnPct: computeTotalReturnPct(benchmarkAnalyticsSeries),
             volAnnual: (() => {
                 const value = computeVolatility(portfolioReturns.map((point) => point.value));
@@ -529,7 +628,7 @@ export async function GET(request: NextRequest) {
             ),
             beta: computeBeta(alignedPortfolioReturns, alignedBenchmarkReturns),
             maxDrawdownPct: (() => {
-                const value = computeMaxDrawdown(history);
+                const value = computeMaxDrawdown(performanceIndex);
                 return value == null ? null : value * 100;
             })(),
         };

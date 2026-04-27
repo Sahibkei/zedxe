@@ -27,17 +27,17 @@ const toneClassByPlan: Record<string, string> = {
 export default async function ApiPricingPage() {
     const session = await auth.api.getSession({ headers: await headers() });
     const primaryCta = session?.user
-        ? { label: "Open API Dashboard", href: "/account/api" }
-        : { label: "Request API Access", href: "/waitlist?from=api-pricing" };
+        ? { label: "Open API Billing", href: "/account/api/billing" }
+        : { label: "Sign in to subscribe", href: "/sign-in?redirect=/account/api/billing" };
     const secondaryCta = session?.user
-        ? { label: "Request Upgrade", href: "/waitlist?from=api-pricing" }
+        ? { label: "Open API Dashboard", href: "/account/api" }
         : { label: "Read API Docs", href: "/api/docs" };
 
     return (
         <ApiMarketingShell
             eyebrow="Zapi / Pricing"
             title="Choose the access tier that matches your integration depth and region needs."
-            description="Zapi pricing is structured around three plans: Free, Plus, and Pro. Rate limits are an intentional protection layer so one user cannot spam the API and degrade the rest of the app."
+            description="Zapi pricing is structured around three plans: Free, Plus, and Pro. Paid tiers are billed monthly in EUR, while rate limits remain an intentional protection layer so one user cannot spam the API and degrade the rest of the app."
             primaryCta={primaryCta}
             secondaryCta={secondaryCta}
             tabs={tabs}
@@ -82,7 +82,7 @@ export default async function ApiPricingPage() {
                         <h2 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-white">What changes as you move up</h2>
                     </div>
                     <p className="max-w-2xl text-sm leading-7 text-slate-300">
-                        The actual billing UI can evolve later. The important product behavior is already defined here: quota, auth level, region access, and source maturity expectations.
+                        This public page explains the contract. Actual paid checkout and account-level upgrade flow now live inside the signed-in billing surface.
                     </p>
                 </div>
 
@@ -141,23 +141,23 @@ export default async function ApiPricingPage() {
                         <div className="rounded-[1.5rem] border border-white/10 bg-black/20 p-5">
                             <p className="text-sm font-semibold text-white">3. Upgrade</p>
                             <p className="mt-2 text-sm leading-7 text-slate-300">
-                                Until billing is fully wired, Plus and Pro upgrade intent can route through the waitlist or manual sales/onboarding path.
+                                Signed users move into <code>/account/api/billing</code>, where Plus and Pro can open Stripe checkout links when they are configured for the environment.
                             </p>
                         </div>
                     </div>
                     <div className="mt-6 flex flex-wrap gap-3">
                         <Link
-                            href={session?.user ? "/account/api" : "/waitlist?from=api-pricing"}
+                            href={session?.user ? "/account/api/billing" : "/sign-in?redirect=/account/api/billing"}
                             className="inline-flex items-center gap-2 rounded-full bg-teal-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-teal-300"
                         >
-                            {session?.user ? "Open API Dashboard" : "Request API Access"}
+                            {session?.user ? "Open billing" : "Sign in to subscribe"}
                             <ArrowRight className="h-4 w-4" />
                         </Link>
                         <Link
-                            href="/waitlist?from=api-pricing"
+                            href={session?.user ? "/account/api" : "/api/docs"}
                             className="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-white/85 transition hover:border-white/30 hover:text-white"
                         >
-                            Request plan upgrade
+                            {session?.user ? "View API dashboard" : "Read API docs"}
                         </Link>
                     </div>
                 </article>

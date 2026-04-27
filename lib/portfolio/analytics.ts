@@ -3,7 +3,7 @@ export type AnalyticsSeriesPoint = {
     value: number;
 };
 
-export type PortfolioAnalyticsRange = '1m' | '3m' | '6m' | '1y' | 'all';
+export type PortfolioAnalyticsRange = '1d' | '1w' | '1m' | '3m' | '1y' | 'ytd' | 'all';
 
 export type PortfolioAnalyticsRatios = {
     totalReturnPct: number | null;
@@ -21,6 +21,7 @@ export type PortfolioBenchmarkSeriesPoint = {
 
 export type PortfolioAnalyticsHistoryPoint = AnalyticsSeriesPoint & {
     costBasis?: number;
+    netFlow?: number;
 };
 
 export type PortfolioAnalyticsResponse = {
@@ -86,6 +87,47 @@ export const computeReturns = (series: AnalyticsSeriesPoint[]): DailyReturnPoint
     }
 
     return returns;
+};
+
+export const computeTimeWeightedReturns = (series: PortfolioAnalyticsHistoryPoint[]): DailyReturnPoint[] => {
+    if (series.length < 2) return [];
+
+    const returns: DailyReturnPoint[] = [];
+    for (let i = 1; i < series.length; i += 1) {
+        const previousValue = series[i - 1]?.value;
+        const currentValue = series[i]?.value;
+        const netFlow = typeof series[i]?.netFlow === 'number' && isFiniteNumber(series[i].netFlow) ? series[i].netFlow : 0;
+
+        if (!isFiniteNumber(previousValue) || !isFiniteNumber(currentValue) || previousValue <= 0) {
+            continue;
+        }
+
+        const adjustedCurrentValue = currentValue - netFlow;
+        const dailyReturn = adjustedCurrentValue / previousValue - 1;
+        if (!isFiniteNumber(dailyReturn)) {
+            continue;
+        }
+
+        returns.push({
+            date: series[i].date,
+            value: dailyReturn,
+        });
+    }
+
+    return returns;
+};
+
+export const computeCumulativeReturnPct = (returns: number[]): number | null => {
+    const filtered = returns.filter((value) => isFiniteNumber(value));
+    if (!filtered.length) return null;
+
+    let growth = 1;
+    for (const dailyReturn of filtered) {
+        growth *= 1 + dailyReturn;
+    }
+
+    const cumulativeReturn = (growth - 1) * 100;
+    return isFiniteNumber(cumulativeReturn) ? cumulativeReturn : null;
 };
 
 export const computeCAGR = (series: AnalyticsSeriesPoint[]): number | null => {
