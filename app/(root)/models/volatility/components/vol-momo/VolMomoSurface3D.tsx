@@ -15,7 +15,10 @@ type SurfaceData = {
 };
 
 type VolMomoSurface3DProps = {
-    data: SurfaceData | null;
+    data: {
+        axes: { xEdges: number[]; yEdges: number[] };
+        grids: { pWin: Array<Array<number | null>> };
+    } | null;
 };
 
 /**
@@ -32,15 +35,21 @@ export default function VolMomoSurface3D({ data }: VolMomoSurface3DProps) {
         );
     }
 
+    const surfaceData: SurfaceData = {
+        x: data.axes.xEdges.slice(0, -1).map((edge, index) => (edge + data.axes.xEdges[index + 1]) / 2),
+        y: data.axes.yEdges.slice(0, -1).map((edge, index) => (edge + data.axes.yEdges[index + 1]) / 2),
+        z: data.grids.pWin.map((row) => row.map((value) => value ?? NaN)),
+    };
+
     return (
         <div className="h-[380px] w-full rounded-2xl border border-white/10 bg-[#0b0f14] p-3 shadow-2xl shadow-black/40">
             <Plot
                 data={[
                     {
                         type: "surface",
-                        x: data.x,
-                        y: data.y,
-                        z: data.z,
+                        x: surfaceData.x,
+                        y: surfaceData.y,
+                        z: surfaceData.z,
                         colorscale: "Viridis",
                         showscale: false,
                     },
