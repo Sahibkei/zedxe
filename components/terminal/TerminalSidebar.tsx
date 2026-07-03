@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -20,17 +21,19 @@ const TerminalSidebar = ({ collapsed }: Props) => {
     const pathname = usePathname();
 
     return (
-        <aside className={cn('terminal-sidebar', collapsed && 'terminal-sidebar-hidden')}>
+        <aside className={cn('terminal-sidebar', collapsed && 'terminal-sidebar-hidden')} aria-label="Terminal navigation">
             <div className="space-y-5">
-                <div>
+                <div className={cn('terminal-side-logo-wrap', collapsed && 'terminal-side-logo-wrap-collapsed')}>
                     {!collapsed ? (
                         <>
-                            <Image src="/brand/zedxe-logo.svg" alt="ZedXe" width={120} height={32} className="h-7 w-auto" priority />
+                            <Image src="/brand/zedxe-logo.svg" alt="ZedXe" width={120} height={39} className="terminal-side-logo-full" priority />
                             <h1 className="mt-2 text-4xl font-semibold leading-none">Terminal</h1>
                             <p className="mt-2 text-xs terminal-side-muted">Advanced market workspace</p>
                         </>
                     ) : (
-                        <div className="terminal-side-mini-mark">ZX</div>
+                        <span className="terminal-side-mini-mark" aria-hidden="true">
+                            <Image src="/brand/zedxe-mark.svg" alt="" width={38} height={32} className="terminal-side-logo-mark" priority />
+                        </span>
                     )}
                 </div>
 
@@ -81,4 +84,4 @@ const TerminalSidebar = ({ collapsed }: Props) => {
     );
 };
 
-export default TerminalSidebar;
+export default memo(TerminalSidebar);

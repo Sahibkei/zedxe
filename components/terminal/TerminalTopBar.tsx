@@ -1,10 +1,21 @@
 'use client';
 
+import { memo } from 'react';
+import dynamic from 'next/dynamic';
 import { usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { CalendarDays, Moon, PanelLeft, Sun, ChevronLeft, ChevronRight } from 'lucide-react';
-import SearchCommand from '@/components/SearchCommand';
+import { CalendarDays, Command, Moon, PanelLeft, Sun, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+const SearchCommand = dynamic(() => import('@/components/SearchCommand'), {
+    ssr: false,
+    loading: () => (
+        <button type="button" className="terminal-search terminal-search-loading" aria-label="Loading terminal search" disabled>
+            <Command className="h-4 w-4" />
+            <span className="truncate">Search for a name, ticker, or function</span>
+        </button>
+    ),
+});
 
 const resolveTitle = (pathname: string) => {
     if (pathname.startsWith('/terminal/news-terminal')) return 'Market News';
@@ -88,4 +99,4 @@ const TerminalTopBar = ({ theme, sidebarHidden, onToggleTheme, onToggleSidebar }
     );
 };
 
-export default TerminalTopBar;
+export default memo(TerminalTopBar);

@@ -53,12 +53,48 @@ const toTileStyle = (changePercent: number | null) => {
     };
 };
 
+const toExpandedTileStyle = (changePercent: number | null) => {
+    if (typeof changePercent !== 'number' || !Number.isFinite(changePercent)) {
+        return {
+            background:
+                'linear-gradient(145deg, color-mix(in srgb, var(--terminal-panel-soft) 96%, transparent), color-mix(in srgb, var(--terminal-panel) 98%, transparent))',
+            borderColor: 'color-mix(in srgb, var(--terminal-border-strong) 80%, var(--terminal-border))',
+        };
+    }
+
+    const intensity = Math.min(Math.abs(changePercent) / 3, 1);
+    const colorVar = changePercent >= 0 ? 'var(--terminal-up)' : 'var(--terminal-down)';
+
+    return {
+        background: `linear-gradient(145deg, color-mix(in srgb, ${colorVar} ${26 + intensity * 26}%, var(--terminal-panel-soft)), color-mix(in srgb, ${colorVar} ${14 + intensity * 20}%, var(--terminal-panel)))`,
+        borderColor: `color-mix(in srgb, ${colorVar} ${48 + intensity * 34}%, var(--terminal-border))`,
+    };
+};
+
 const tileSpanClass = (changePercent: number | null) => {
     if (typeof changePercent !== 'number' || !Number.isFinite(changePercent)) return 'col-span-1';
     return Math.abs(changePercent) >= 3 ? 'col-span-2' : 'col-span-1';
 };
 
-const TerminalMarketHeatmapWidget = ({ groups }: { groups: TerminalHeatmapGroup[] }) => {
+const expandedMosaicClass = (index: number, total: number) => {
+    if (total <= 2) return 'terminal-heatmap-tile-span-6 terminal-heatmap-tile-row-3';
+    if (total === 3) return 'terminal-heatmap-tile-span-4 terminal-heatmap-tile-row-3';
+    if (total === 4) return 'terminal-heatmap-tile-span-3 terminal-heatmap-tile-row-3';
+    if (total === 5) return `${index >= 3 ? 'terminal-heatmap-tile-span-6' : 'terminal-heatmap-tile-span-4'} terminal-heatmap-tile-row-2`;
+    if (total === 6) return 'terminal-heatmap-tile-span-4 terminal-heatmap-tile-row-2';
+    if (total === 7) return `${index >= 4 ? 'terminal-heatmap-tile-span-4' : 'terminal-heatmap-tile-span-3'} terminal-heatmap-tile-row-2`;
+    if (total === 8) return 'terminal-heatmap-tile-span-3 terminal-heatmap-tile-row-2';
+    if (total % 4 === 3 && index >= total - 3) return 'terminal-heatmap-tile-span-4 terminal-heatmap-tile-row-2';
+    if (total % 4 === 2 && index >= total - 2) return 'terminal-heatmap-tile-span-6 terminal-heatmap-tile-row-2';
+    return 'terminal-heatmap-tile-span-3 terminal-heatmap-tile-row-2';
+};
+
+type Props = {
+    groups: TerminalHeatmapGroup[];
+    expanded?: boolean;
+};
+
+const TerminalMarketHeatmapWidget = ({ groups, expanded = false }: Props) => {
     const availableGroups = useMemo(() => groups.filter((group) => group.items.length > 0), [groups]);
     const [activeGroupKey, setActiveGroupKey] = useState<string>(availableGroups[0]?.key ?? groups[0]?.key ?? 'default');
 
@@ -70,7 +106,7 @@ const TerminalMarketHeatmapWidget = ({ groups }: { groups: TerminalHeatmapGroup[
     }
 
     return (
-        <div className="flex h-full min-h-0 flex-col">
+        <div className={cn('flex h-full min-h-0 flex-col', expanded && 'terminal-heatmap-expanded')}>
             <div className="flex flex-wrap items-center gap-1 border-b border-[var(--terminal-border)] px-2.5 py-2">
                 {groups.map((group) => (
                     <button
@@ -84,19 +120,27 @@ const TerminalMarketHeatmapWidget = ({ groups }: { groups: TerminalHeatmapGroup[
                 ))}
             </div>
 
-            <div className="min-h-0 flex-1 p-2.5">
-                <div className="grid auto-rows-[112px] grid-cols-2 gap-2 xl:grid-cols-4">
-                    {activeGroup.items.map((item) => {
-                        const style = toTileStyle(item.changePercent);
-                        const spanClass = tileSpanClass(item.changePercent);
+            <div className={cn('min-h-0 flex-1 p-2.5', expanded && 'terminal-heatmap-expanded-body')}>
+                <div
+                    className={cn(
+                        'grid gap-2',
+                        expanded ? 'terminal-heatmap-grid-expanded' : 'auto-rows-[112px] grid-cols-2 xl:grid-cols-4'
+                    )}
+                >
+                    {activeGroup.items.map((item, index) => {
+                        const style = expanded ? toExpandedTileStyle(item.changePercent) : toTileStyle(item.changePercent);
+                        const spanClass = expanded ? expandedMosaicClass(index, activeGroup.items.length) : tileSpanClass(item.changePercent);
                         const tileContent = (
                             <div
-                                className="flex h-full min-h-[112px] flex-col justify-between rounded-xl border p-3 transition-transform duration-150 hover:-translate-y-[1px]"
+                                className={cn(
+                                    'flex h-full min-w-0 flex-col justify-between rounded-xl border transition-transform duration-150 hover:-translate-y-[1px]',
+                                    expanded ? 'min-h-0 p-4' : 'min-h-[112px] p-3'
+                                )}
                                 style={style}
                             >
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
-                                        <p className="truncate text-sm font-semibold">{item.label}</p>
+                                        <p className={cn('truncate font-semibold', expanded ? 'text-sm sm:text-base' : 'text-sm')}>{item.label}</p>
                                         <p className="truncate text-[11px] uppercase tracking-[0.08em] terminal-muted">{item.sublabel}</p>
                                     </div>
                                     <span className={cn('text-xs font-semibold', typeof item.changePercent === 'number' ? (item.changePercent >= 0 ? 'terminal-up' : 'terminal-down') : 'terminal-muted')}>
@@ -104,7 +148,7 @@ const TerminalMarketHeatmapWidget = ({ groups }: { groups: TerminalHeatmapGroup[
                                     </span>
                                 </div>
                                 <div>
-                                    <p className="text-lg font-semibold">{formatValue(item.price)}</p>
+                                    <p className={cn('font-semibold', expanded ? 'text-xl sm:text-2xl' : 'text-lg')}>{formatValue(item.price)}</p>
                                     <p className="mt-1 text-xs terminal-muted">{item.symbol}</p>
                                 </div>
                             </div>
