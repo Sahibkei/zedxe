@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import TerminalSidebar from '@/components/terminal/TerminalSidebar';
 import TerminalTopBar from '@/components/terminal/TerminalTopBar';
 
@@ -34,6 +34,14 @@ const TerminalShellClient = ({ children }: { children: React.ReactNode }) => {
         localStorage.setItem(SIDEBAR_STORAGE_KEY, sidebarHidden ? 'true' : 'false');
     }, [settingsLoaded, sidebarHidden]);
 
+    const handleToggleTheme = useCallback(() => {
+        setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+    }, []);
+
+    const handleToggleSidebar = useCallback(() => {
+        setSidebarHidden((prev) => !prev);
+    }, []);
+
     return (
         <main className="terminal-shell" data-terminal-theme={theme} data-sidebar-collapsed={sidebarHidden ? 'true' : 'false'}>
             <div className="terminal-shell-inner">
@@ -42,8 +50,8 @@ const TerminalShellClient = ({ children }: { children: React.ReactNode }) => {
                     <TerminalTopBar
                         theme={theme}
                         sidebarHidden={sidebarHidden}
-                        onToggleTheme={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
-                        onToggleSidebar={() => setSidebarHidden((prev) => !prev)}
+                        onToggleTheme={handleToggleTheme}
+                        onToggleSidebar={handleToggleSidebar}
                     />
                     <div className="terminal-main-content">{children}</div>
                 </section>

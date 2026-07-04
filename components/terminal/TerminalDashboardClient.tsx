@@ -838,6 +838,8 @@ const TerminalDashboardClient = () => {
                 '--terminal-text': terminalPalette.text,
                 '--terminal-muted': terminalPalette.muted,
                 '--terminal-accent': terminalPalette.accent,
+                '--terminal-up': terminalPalette.up,
+                '--terminal-down': terminalPalette.down,
             };
         return style as unknown as CSSProperties & Record<string, string>;
     }, [terminalPalette, terminalTheme]);
@@ -1950,8 +1952,18 @@ const TerminalDashboardClient = () => {
                                     Full view for the selected dashboard widget.
                                 </DialogDescription>
                             </DialogHeader>
-                            <div className="min-h-0 flex-1 overflow-hidden p-4">
-                                <article className="terminal-widget h-full overflow-hidden">
+                            <div
+                                className={cn(
+                                    'min-h-0 flex-1 overflow-hidden p-4',
+                                    expandedWidgetId === 'heatmap' && 'terminal-heatmap-expanded-frame'
+                                )}
+                            >
+                                <article
+                                    className={cn(
+                                        'terminal-widget overflow-hidden',
+                                        expandedWidgetId === 'heatmap' ? 'terminal-heatmap-expanded-shell' : 'h-full'
+                                    )}
+                                >
                                     {expandedTickerItems.length ? (
                                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
                                             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--terminal-border)] px-4 py-3">
@@ -2106,9 +2118,13 @@ const TerminalDashboardClient = () => {
                                         </div>
                                     ) : (
                                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                                            {cloneElement(widgetContent[expandedWidgetId], {
-                                                key: `expanded-${expandedWidgetId}`,
-                                            })}
+                                            {expandedWidgetId === 'heatmap' ? (
+                                                <TerminalMarketHeatmapWidget key="expanded-heatmap" groups={heatmapGroups} expanded />
+                                            ) : (
+                                                cloneElement(widgetContent[expandedWidgetId], {
+                                                    key: `expanded-${expandedWidgetId}`,
+                                                })
+                                            )}
                                         </div>
                                     )}
                                 </article>

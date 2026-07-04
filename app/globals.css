@@ -570,6 +570,9 @@
 }
 
 .terminal-shell {
+    --terminal-sidebar-width: 286px;
+    --terminal-sidebar-collapsed-width: 72px;
+    --terminal-topbar-height: 72px;
     --terminal-bg: #121a26;
     --terminal-panel: #0f1622;
     --terminal-panel-soft: #111b2a;
@@ -604,10 +607,15 @@
 .terminal-shell-inner {
     display: flex;
     min-height: 100vh;
+    align-items: stretch;
 }
 
 .terminal-sidebar {
-    width: 286px;
+    flex: 0 0 var(--terminal-sidebar-width);
+    width: var(--terminal-sidebar-width);
+    min-width: var(--terminal-sidebar-width);
+    max-width: var(--terminal-sidebar-width);
+    min-height: 100vh;
     border-right: 1px solid #2b3647;
     background: #192330;
     color: #e5edf8;
@@ -616,13 +624,41 @@
     flex-direction: column;
     justify-content: space-between;
     gap: 1rem;
-    transition: width 200ms ease, padding 200ms ease, border-color 200ms ease;
+    overflow: hidden;
+    contain: layout paint style;
+    transition:
+        flex-basis 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        width 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        min-width 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        max-width 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        padding 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        border-color 200ms ease;
+    will-change: width, flex-basis, padding;
 }
 
 .terminal-sidebar-hidden {
-    width: 76px;
-    padding: 0.7rem 0.45rem;
-    overflow: visible;
+    flex-basis: var(--terminal-sidebar-collapsed-width);
+    width: var(--terminal-sidebar-collapsed-width);
+    min-width: var(--terminal-sidebar-collapsed-width);
+    max-width: var(--terminal-sidebar-collapsed-width);
+    padding: 0.75rem 0.55rem;
+}
+
+.terminal-side-logo-wrap {
+    min-height: 104px;
+    transition: min-height 200ms ease;
+}
+
+.terminal-side-logo-wrap-collapsed {
+    display: flex;
+    min-height: 44px;
+    justify-content: center;
+}
+
+.terminal-side-logo-full {
+    height: 2rem;
+    width: auto;
+    display: block;
 }
 
 .terminal-side-brand {
@@ -656,24 +692,39 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 8px;
+    width: 42px;
+    height: 42px;
+    border-radius: 11px;
     border: 1px solid #3a475d;
-    color: #9ec5ff;
-    font-size: 0.74rem;
-    font-weight: 700;
-    letter-spacing: 0.15em;
+    background: linear-gradient(180deg, rgba(38, 52, 73, 0.95), rgba(26, 37, 52, 0.95));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 24px rgba(0, 0, 0, 0.16);
+    transition: border-color 160ms ease, transform 160ms ease, background-color 160ms ease;
+}
+
+.terminal-side-mini-mark:hover {
+    border-color: #5575a6;
+    transform: translateY(-1px);
+}
+
+.terminal-side-logo-mark {
+    width: 32px;
+    height: auto;
+    display: block;
 }
 
 .terminal-side-link {
     display: flex;
+    min-height: 52px;
     align-items: center;
     justify-content: space-between;
     border-radius: 8px;
     border: 1px solid #354154;
     padding: 0.6rem 0.7rem;
-    transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+    transition:
+        border-color 160ms ease,
+        background-color 160ms ease,
+        color 160ms ease,
+        transform 160ms ease;
 }
 
 .terminal-side-link-idle {
@@ -683,12 +734,20 @@
 
 .terminal-side-link-idle:hover {
     border-color: #4f6080;
+    transform: translateX(2px);
 }
 
 .terminal-side-link-collapsed {
+    width: 48px;
+    height: 44px;
+    min-height: 44px;
     justify-content: center;
     padding-left: 0.5rem;
     padding-right: 0.5rem;
+}
+
+.terminal-side-link-collapsed:hover {
+    transform: translateY(-1px);
 }
 
 .terminal-side-link-active {
@@ -708,6 +767,7 @@
 .terminal-side-back {
     display: inline-flex;
     width: 100%;
+    min-height: 52px;
     align-items: center;
     gap: 0.35rem;
     justify-content: center;
@@ -726,8 +786,11 @@
 }
 
 .terminal-side-back-collapsed {
+    width: 48px;
+    min-height: 44px;
     padding-left: 0.3rem;
     padding-right: 0.3rem;
+    margin-inline: auto;
 }
 
 .terminal-main {
@@ -738,7 +801,8 @@
 }
 
 .terminal-topbar {
-    height: 72px;
+    height: var(--terminal-topbar-height);
+    min-height: var(--terminal-topbar-height);
     border-bottom: 1px solid #2b3647;
     display: flex;
     align-items: center;
@@ -754,7 +818,7 @@
     flex: 1 1 auto;
     min-width: 0;
     padding: 0.85rem;
-    height: calc(100vh - 72px);
+    height: calc(100vh - var(--terminal-topbar-height));
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-gutter: stable;
@@ -784,6 +848,93 @@
     background: #2a3648;
     padding: 0.55rem 0.7rem;
     color: #c4d0e2;
+}
+
+.terminal-search-loading {
+    opacity: 0.72;
+    cursor: wait;
+}
+
+.terminal-heatmap-expanded {
+    height: 100%;
+}
+
+.terminal-heatmap-expanded-frame {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+.terminal-heatmap-expanded-shell {
+    width: min(100%, 1240px);
+    height: min(100%, 560px);
+    margin-inline: auto;
+}
+
+.terminal-heatmap-expanded-body {
+    flex: 1 1 auto;
+    overflow: auto;
+    padding: 0.75rem;
+}
+
+.terminal-heatmap-grid-expanded {
+    min-height: 100%;
+    grid-auto-flow: dense;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-auto-rows: minmax(58px, 1fr);
+    gap: 0.5rem;
+    align-content: stretch;
+}
+
+.terminal-heatmap-tile-span-3 {
+    grid-column: span 3 / span 3;
+}
+
+.terminal-heatmap-tile-span-4 {
+    grid-column: span 4 / span 4;
+}
+
+.terminal-heatmap-tile-span-6 {
+    grid-column: span 6 / span 6;
+}
+
+.terminal-heatmap-tile-row-2 {
+    grid-row: span 2 / span 2;
+}
+
+.terminal-heatmap-tile-row-3 {
+    grid-row: span 3 / span 3;
+}
+
+@media (max-width: 1280px) {
+    .terminal-heatmap-grid-expanded {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-auto-rows: 112px;
+    }
+
+    .terminal-heatmap-tile-span-3,
+    .terminal-heatmap-tile-span-4,
+    .terminal-heatmap-tile-span-6 {
+        grid-column: span 3 / span 3;
+    }
+
+    .terminal-heatmap-tile-row-2,
+    .terminal-heatmap-tile-row-3 {
+        grid-row: span 1 / span 1;
+    }
+}
+
+@media (max-width: 767px) {
+    .terminal-heatmap-grid-expanded {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-auto-rows: 116px;
+    }
+
+    .terminal-heatmap-tile-span-3,
+    .terminal-heatmap-tile-span-4,
+    .terminal-heatmap-tile-span-6 {
+        grid-column: span 1 / span 1;
+    }
 }
 
 .terminal-title {
@@ -867,6 +1018,13 @@
     border-radius: 8px;
     background: var(--terminal-panel);
     box-shadow: var(--terminal-shadow);
+}
+
+.terminal-widget.terminal-heatmap-expanded-shell {
+    flex: 0 0 auto;
+    width: min(100%, 1240px);
+    height: min(100%, 560px);
+    margin-inline: auto;
 }
 
 .terminal-widget-head {
@@ -1474,13 +1632,20 @@
     }
 
     .terminal-sidebar {
+        flex-basis: auto;
         width: 100%;
+        min-width: 0;
+        max-width: none;
+        min-height: auto;
         border-right: none;
         border-bottom: 1px solid var(--terminal-border);
     }
 
     .terminal-sidebar-hidden {
+        flex-basis: auto;
         width: 100%;
+        min-width: 0;
+        max-width: none;
         padding: 0.5rem 0.65rem;
         border-bottom: 1px solid var(--terminal-border);
         border-right-width: 0;
@@ -1494,6 +1659,8 @@
 
     .terminal-sidebar-hidden .terminal-side-link {
         width: 44px;
+        height: 44px;
+        min-height: 44px;
     }
 
     .terminal-search {
@@ -1506,6 +1673,16 @@
 
     .terminal-analytics-hero {
         grid-template-columns: 1fr;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .terminal-sidebar,
+    .terminal-side-logo-wrap,
+    .terminal-side-mini-mark,
+    .terminal-side-link,
+    .terminal-side-back {
+        transition-duration: 1ms;
     }
 }
 
