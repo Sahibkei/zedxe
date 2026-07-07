@@ -1,6 +1,8 @@
 import MarketMoversPageClient from '@/components/markets/MarketMoversPageClient';
 import { getUsTopMovers } from '@/lib/market/movers';
 
+export const dynamic = 'force-dynamic';
+
 type MoversTab = 'gainers' | 'losers';
 type MoversView = 'table' | 'heatmap';
 type SearchParamsRecord = Record<string, string | string[] | undefined>;

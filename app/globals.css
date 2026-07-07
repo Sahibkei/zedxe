@@ -1563,6 +1563,18 @@
     color: #f8fbff;
 }
 
+.research-wire-access-badge {
+    border: 1px solid #3f79de;
+    background: color-mix(in srgb, #1f56b8 92%, transparent);
+    color: #f0f6ff;
+}
+
+.terminal-shell[data-terminal-theme='light'] .research-wire-access-badge {
+    border-color: #2ead7e;
+    background: color-mix(in srgb, #0f8e5e 92%, transparent);
+    color: #eefef5;
+}
+
 .terminal-analytics-flow {
     display: flex;
     align-items: stretch;
