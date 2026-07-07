@@ -1,22 +1,37 @@
 import { NextResponse } from "next/server";
+import type { Db } from "mongodb";
 
 import { connectToDatabase } from "@/database/mongoose";
 import { auth } from "@/lib/better-auth/auth";
+import { enforceRateLimit } from "@/lib/security/rateLimit";
+import { findResearchWireUserById } from "@/lib/research-wire/users";
 
 export const runtime = "nodejs";
 
 const SUBSCRIPTION_COLLECTION = "research_wire_subscriptions";
 
-const ensureSubscriptionIndexes = async () => {
+let subscriptionIndexesPromise: Promise<void> | null = null;
+
+const getResearchWireDb = async () => {
     const mongoose = await connectToDatabase();
     const db = mongoose.connection.db;
     if (!db) throw new Error("Database connection missing");
-
-    await db.collection(SUBSCRIPTION_COLLECTION).createIndex({ subscriberId: 1, creatorId: 1 }, { unique: true });
-    await db.collection(SUBSCRIPTION_COLLECTION).createIndex({ creatorId: 1 });
-
     return db;
 };
+
+const ensureSubscriptionIndexes = (db: Db) => {
+    if (!subscriptionIndexesPromise) {
+        subscriptionIndexesPromise = Promise.all([
+            db.collection(SUBSCRIPTION_COLLECTION).createIndex({ subscriberId: 1, creatorId: 1 }, { unique: true }),
+            db.collection(SUBSCRIPTION_COLLECTION).createIndex({ creatorId: 1 }),
+        ]).then(() => undefined);
+    }
+
+    return subscriptionIndexesPromise;
+};
+
+const isDuplicateKeyError = (error: unknown) =>
+    typeof error === "object" && error !== null && "code" in error && (error as { code?: number }).code === 11000;
 
 export const GET = async (request: Request) => {
     const session = await auth.api.getSession({ headers: request.headers });
@@ -31,7 +46,8 @@ export const GET = async (request: Request) => {
     }
 
     try {
-        const db = await ensureSubscriptionIndexes();
+        const db = await getResearchWireDb();
+        await ensureSubscriptionIndexes(db);
         const collection = db.collection(SUBSCRIPTION_COLLECTION);
 
         const [subscriberCount, existingSubscription] = await Promise.all([
@@ -58,6 +74,9 @@ export const POST = async (request: Request) => {
     if (!session?.user) {
         return NextResponse.json({ success: false, code: "unauthorized" }, { status: 401 });
     }
+
+    const rateLimited = await enforceRateLimit(request, "research_wire_subscription");
+    if (rateLimited) return rateLimited;
 
     let body: unknown;
     try {
@@ -86,22 +105,35 @@ export const POST = async (request: Request) => {
     }
 
     try {
-        const db = await ensureSubscriptionIndexes();
+        const db = await getResearchWireDb();
+        await ensureSubscriptionIndexes(db);
+        const targetUser = await findResearchWireUserById(db, targetUserId, { _id: 1, id: 1 });
+        if (!targetUser) {
+            return NextResponse.json(
+                { success: false, code: "target_not_found", message: "User not found." },
+                { status: 404 },
+            );
+        }
+
         const collection = db.collection(SUBSCRIPTION_COLLECTION);
 
         if (action === "subscribe") {
-            await collection.updateOne(
-                { subscriberId: session.user.id, creatorId: targetUserId },
-                {
-                    $setOnInsert: {
-                        subscriberId: session.user.id,
-                        creatorId: targetUserId,
-                        notifyInApp: true,
-                        createdAt: new Date(),
+            try {
+                await collection.updateOne(
+                    { subscriberId: session.user.id, creatorId: targetUserId },
+                    {
+                        $setOnInsert: {
+                            subscriberId: session.user.id,
+                            creatorId: targetUserId,
+                            notifyInApp: true,
+                            createdAt: new Date(),
+                        },
                     },
-                },
-                { upsert: true },
-            );
+                    { upsert: true },
+                );
+            } catch (error) {
+                if (!isDuplicateKeyError(error)) throw error;
+            }
         } else {
             await collection.deleteOne({ subscriberId: session.user.id, creatorId: targetUserId });
         }

@@ -3,7 +3,17 @@ import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
 
-type RateLimitAction = "signup" | "forgot" | "resend" | "signin" | "reset" | "profile_update" | "waitlist";
+type RateLimitAction =
+    | "signup"
+    | "forgot"
+    | "resend"
+    | "signin"
+    | "reset"
+    | "profile_update"
+    | "waitlist"
+    | "research_wire_search"
+    | "research_wire_follow"
+    | "research_wire_subscription";
 type RateLimiters = Record<RateLimitAction, Ratelimit>;
 
 let cachedRedis: Redis | null | undefined;
@@ -78,6 +88,21 @@ const getRateLimiter = (action: RateLimitAction) => {
                 redis,
                 limiter: Ratelimit.fixedWindow(5, "10 m"),
                 prefix: "rate-limit:waitlist",
+            }),
+            research_wire_search: new Ratelimit({
+                redis,
+                limiter: Ratelimit.fixedWindow(60, "1 m"),
+                prefix: "rate-limit:research_wire_search",
+            }),
+            research_wire_follow: new Ratelimit({
+                redis,
+                limiter: Ratelimit.fixedWindow(40, "1 m"),
+                prefix: "rate-limit:research_wire_follow",
+            }),
+            research_wire_subscription: new Ratelimit({
+                redis,
+                limiter: Ratelimit.fixedWindow(40, "1 m"),
+                prefix: "rate-limit:research_wire_subscription",
             }),
         };
     }

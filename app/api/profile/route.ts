@@ -1,14 +1,25 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { Types } from "mongoose";
+import type { Db } from "mongodb";
 
 import { auth } from "@/lib/better-auth/auth";
 import { enforceRateLimit } from "@/lib/security/rateLimit";
 import { connectToDatabase } from "@/database/mongoose";
+import { findUserBySessionId, getUserIdentityFilters } from "@/lib/research-wire/users";
 
 export const runtime = "nodejs";
 
 const USERNAME_CHANGE_COOLDOWN_MS = 15 * 24 * 60 * 60 * 1000;
+
+let usernameIndexPromise: Promise<string> | null = null;
+
+const ensureUsernameIndex = (db: Db) => {
+    if (!usernameIndexPromise) {
+        usernameIndexPromise = db.collection("user").createIndex({ username: 1 }, { unique: true, sparse: true });
+    }
+
+    return usernameIndexPromise;
+};
 
 const avatarUrlSchema = z.union([
     z.string().trim().length(0).transform(() => null),
@@ -44,7 +55,7 @@ const profileSchema = z.object({
         .optional(),
 });
 
-const mapErrorCode = (issue: z.ZodIssueOptionalMessage) => {
+const mapErrorCode = (issue: { message: string; path: readonly PropertyKey[] }) => {
     if (issue.message === "invalid_avatar_url_length") return { code: "invalid_avatar_url_length", message: "Avatar URL must be 100 characters or fewer." };
     if (issue.path.includes("avatarUrl")) return { code: "invalid_avatar_url", message: "Please provide a valid avatar URL." };
     if (issue.path.includes("name")) return { code: "invalid_name", message: "Name must be between 2 and 50 characters." };
@@ -94,19 +105,14 @@ export const PATCH = async (request: Request) => {
         const mongoose = await connectToDatabase();
         const db = mongoose.connection.db;
         if (!db) throw new Error("Database connection missing");
-        await db.collection("user").createIndex({ username: 1 }, { unique: true, sparse: true });
-
-        const filters: Record<string, unknown>[] = [{ id: session.user.id }];
-        if (Types.ObjectId.isValid(session.user.id)) {
-            filters.push({ _id: new Types.ObjectId(session.user.id) });
-        }
-
-        const currentUser = await db.collection("user").findOne<{
-            username?: string | null;
-            usernameUpdatedAt?: Date | string | null;
-        }>({ $or: filters });
+        const filters = getUserIdentityFilters(session.user.id);
 
         if (typeof username === "string") {
+            await ensureUsernameIndex(db);
+            const currentUser = await findUserBySessionId<{
+                username?: string | null;
+                usernameUpdatedAt?: Date | string | null;
+            }>(db, session.user.id, { username: 1, usernameUpdatedAt: 1 });
             const currentUsername = currentUser?.username ?? null;
             if (username !== currentUsername) {
                 if (currentUsername && currentUser?.usernameUpdatedAt) {

@@ -39,8 +39,6 @@ const TerminalTopBar = ({ theme, sidebarHidden, onToggleTheme, onToggleSidebar }
     const title = resolveTitle(pathname);
     const classicHref = pathname.startsWith('/terminal/news-terminal')
         ? '/news'
-        : pathname.startsWith('/terminal/research-wire')
-          ? '/dashboard'
         : pathname.startsWith('/terminal/movers')
           ? `/markets/movers?tab=${searchParams.get('tab') === 'losers' ? 'losers' : 'gainers'}`
           : '/dashboard';

@@ -1,23 +1,38 @@
 import { NextResponse } from "next/server";
 import { Types } from "mongoose";
+import type { Db } from "mongodb";
 
 import { connectToDatabase } from "@/database/mongoose";
 import { auth } from "@/lib/better-auth/auth";
+import { enforceRateLimit } from "@/lib/security/rateLimit";
+import { findResearchWireUserById, mapResearchWireUser } from "@/lib/research-wire/users";
 
 export const runtime = "nodejs";
 
 const FOLLOW_COLLECTION = "research_wire_follows";
 
-const ensureFollowIndexes = async () => {
+let followIndexesPromise: Promise<void> | null = null;
+
+const getResearchWireDb = async () => {
     const mongoose = await connectToDatabase();
     const db = mongoose.connection.db;
     if (!db) throw new Error("Database connection missing");
-
-    await db.collection(FOLLOW_COLLECTION).createIndex({ followerId: 1, followingId: 1 }, { unique: true });
-    await db.collection(FOLLOW_COLLECTION).createIndex({ followingId: 1 });
-
     return db;
 };
+
+const ensureFollowIndexes = (db: Db) => {
+    if (!followIndexesPromise) {
+        followIndexesPromise = Promise.all([
+            db.collection(FOLLOW_COLLECTION).createIndex({ followerId: 1, followingId: 1 }, { unique: true }),
+            db.collection(FOLLOW_COLLECTION).createIndex({ followingId: 1 }),
+        ]).then(() => undefined);
+    }
+
+    return followIndexesPromise;
+};
+
+const isDuplicateKeyError = (error: unknown) =>
+    typeof error === "object" && error !== null && "code" in error && (error as { code?: number }).code === 11000;
 
 export const GET = async (request: Request) => {
     const session = await auth.api.getSession({ headers: request.headers });
@@ -30,7 +45,8 @@ export const GET = async (request: Request) => {
     const list = searchParams.get("list");
 
     try {
-        const db = await ensureFollowIndexes();
+        const db = await getResearchWireDb();
+        await ensureFollowIndexes(db);
         const collection = db.collection(FOLLOW_COLLECTION);
 
         if (list === "followers" || list === "following") {
@@ -70,13 +86,7 @@ export const GET = async (request: Request) => {
                     .map((userId) => {
                         const user = userById.get(userId);
                         if (!user) return null;
-                        return {
-                            id: typeof user.id === "string" ? user.id : String(user._id),
-                            name: typeof user.name === "string" ? user.name : "ZedXe user",
-                            username: typeof user.username === "string" ? user.username : null,
-                            image: typeof user.image === "string" ? user.image : null,
-                            bio: typeof user.bio === "string" ? user.bio : null,
-                        };
+                        return mapResearchWireUser(user);
                     })
                     .filter(Boolean),
             });
@@ -109,6 +119,9 @@ export const POST = async (request: Request) => {
         return NextResponse.json({ success: false, code: "unauthorized" }, { status: 401 });
     }
 
+    const rateLimited = await enforceRateLimit(request, "research_wire_follow");
+    if (rateLimited) return rateLimited;
+
     let body: unknown;
     try {
         body = await request.json();
@@ -136,21 +149,34 @@ export const POST = async (request: Request) => {
     }
 
     try {
-        const db = await ensureFollowIndexes();
+        const db = await getResearchWireDb();
+        await ensureFollowIndexes(db);
+        const targetUser = await findResearchWireUserById(db, targetUserId, { _id: 1, id: 1 });
+        if (!targetUser) {
+            return NextResponse.json(
+                { success: false, code: "target_not_found", message: "User not found." },
+                { status: 404 },
+            );
+        }
+
         const collection = db.collection(FOLLOW_COLLECTION);
 
         if (action === "follow") {
-            await collection.updateOne(
-                { followerId: session.user.id, followingId: targetUserId },
-                {
-                    $setOnInsert: {
-                        followerId: session.user.id,
-                        followingId: targetUserId,
-                        createdAt: new Date(),
+            try {
+                await collection.updateOne(
+                    { followerId: session.user.id, followingId: targetUserId },
+                    {
+                        $setOnInsert: {
+                            followerId: session.user.id,
+                            followingId: targetUserId,
+                            createdAt: new Date(),
+                        },
                     },
-                },
-                { upsert: true },
-            );
+                    { upsert: true },
+                );
+            } catch (error) {
+                if (!isDuplicateKeyError(error)) throw error;
+            }
         } else {
             await collection.deleteOne({ followerId: session.user.id, followingId: targetUserId });
         }
