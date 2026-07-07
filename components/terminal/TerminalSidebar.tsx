@@ -4,12 +4,13 @@ import { memo } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Newspaper, ArrowLeftToLine, FileBarChart2 } from 'lucide-react';
+import { LayoutDashboard, Newspaper, ArrowLeftToLine, FileBarChart2, NewspaperIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const TERMINAL_ITEMS = [
     { href: '/terminal/dashboard', label: "Today's Markets", icon: LayoutDashboard, code: 'NOW' },
     { href: '/terminal/advance-analytics?symbol=NVDA', label: 'Advance Analytics', icon: FileBarChart2, code: 'ANL' },
+    { href: '/terminal/research-wire', label: 'Research Wire', icon: NewspaperIcon, code: 'RPT' },
     { href: '/terminal/news-terminal', label: 'Market News', icon: Newspaper, code: 'TOP' },
 ];
 

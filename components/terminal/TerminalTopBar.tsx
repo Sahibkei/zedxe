@@ -19,6 +19,7 @@ const SearchCommand = dynamic(() => import('@/components/SearchCommand'), {
 
 const resolveTitle = (pathname: string) => {
     if (pathname.startsWith('/terminal/news-terminal')) return 'Market News';
+    if (pathname.startsWith('/terminal/research-wire')) return 'Research Wire';
     if (pathname.startsWith('/terminal/movers')) return 'Top Movers';
     if (pathname.startsWith('/terminal/chart')) return 'Chart';
     if (pathname.startsWith('/terminal/constituents')) return 'Constituents';
@@ -38,6 +39,8 @@ const TerminalTopBar = ({ theme, sidebarHidden, onToggleTheme, onToggleSidebar }
     const title = resolveTitle(pathname);
     const classicHref = pathname.startsWith('/terminal/news-terminal')
         ? '/news'
+        : pathname.startsWith('/terminal/research-wire')
+          ? '/dashboard'
         : pathname.startsWith('/terminal/movers')
           ? `/markets/movers?tab=${searchParams.get('tab') === 'losers' ? 'losers' : 'gainers'}`
           : '/dashboard';
