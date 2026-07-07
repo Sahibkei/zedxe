@@ -13,7 +13,8 @@ type RateLimitAction =
     | "waitlist"
     | "research_wire_search"
     | "research_wire_follow"
-    | "research_wire_subscription";
+    | "research_wire_subscription"
+    | "research_wire_chat";
 type RateLimiters = Record<RateLimitAction, Ratelimit>;
 
 let cachedRedis: Redis | null | undefined;
@@ -103,6 +104,11 @@ const getRateLimiter = (action: RateLimitAction) => {
                 redis,
                 limiter: Ratelimit.fixedWindow(40, "1 m"),
                 prefix: "rate-limit:research_wire_subscription",
+            }),
+            research_wire_chat: new Ratelimit({
+                redis,
+                limiter: Ratelimit.fixedWindow(60, "1 m"),
+                prefix: "rate-limit:research_wire_chat",
             }),
         };
     }

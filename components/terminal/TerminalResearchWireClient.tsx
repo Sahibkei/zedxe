@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useMemo, useState, useTransition, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useState, useTransition, type CSSProperties } from 'react';
 import {
     Bell,
     Bookmark,
@@ -76,9 +76,16 @@ type WireChatConversation = {
     type: 'direct' | 'group';
     name: string;
     status: 'pending' | 'active';
+    requesterId?: string;
+    recipientId?: string | null;
+    direction?: 'incoming' | 'outgoing' | null;
     members: WireChatMember[];
     messages: WireChatMessage[];
 };
+
+type WireChatCreatePayload =
+    | { type: 'direct'; targetUserId: string }
+    | { type: 'group'; groupName: string; targetUserIds: string[] };
 
 type ResearchWireUser = {
     id: string;
@@ -492,50 +499,105 @@ const ActivityView = ({ notifications }: { notifications: WireNotification[] }) 
 );
 
 const ChatView = ({ user }: { user: ResearchWireUser }) => {
-    const currentUserName = user.name || user.email || 'You';
     const [conversations, setConversations] = useState<WireChatConversation[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [composerOpen, setComposerOpen] = useState(false);
     const [composerMode, setComposerMode] = useState<'direct' | 'group'>('direct');
     const [message, setMessage] = useState('');
     const [groupNameDraft, setGroupNameDraft] = useState('');
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [isPending, startTransition] = useTransition();
 
     const selectedConversation = conversations.find((conversation) => conversation.id === selectedId) ?? null;
     const currentMember = selectedConversation?.members.find((member) => member.id === user.id);
     const isGroupAdmin = selectedConversation?.type === 'group' && currentMember?.role === 'admin';
+    const isIncomingRequest = selectedConversation?.status === 'pending' && selectedConversation.recipientId === user.id;
+    const isOutgoingRequest = selectedConversation?.status === 'pending' && selectedConversation.requesterId === user.id;
 
-    const handleCreateConversation = (conversation: WireChatConversation) => {
-        setConversations((current) => [conversation, ...current]);
-        setSelectedId(conversation.id);
-        setGroupNameDraft(conversation.name);
-        setComposerOpen(false);
+    const syncConversations = useCallback((nextConversations: WireChatConversation[]) => {
+        setConversations(nextConversations);
+        setSelectedId((currentSelectedId) =>
+            currentSelectedId && nextConversations.some((conversation) => conversation.id === currentSelectedId)
+                ? currentSelectedId
+                : nextConversations[0]?.id ?? null,
+        );
+    }, []);
+
+    const loadConversations = useCallback(async () => {
+        setError(null);
+        try {
+            const response = await fetch('/api/research-wire/chats');
+            const data = await response.json().catch(() => null);
+            if (!response.ok || !data?.success) {
+                setError(data?.message ?? 'Could not load chats.');
+                syncConversations([]);
+                return;
+            }
+            syncConversations(Array.isArray(data.conversations) ? data.conversations : []);
+        } catch (fetchError) {
+            setError(fetchError instanceof Error ? fetchError.message : 'Could not load chats.');
+            syncConversations([]);
+        } finally {
+            setLoading(false);
+        }
+    }, [syncConversations]);
+
+    useEffect(() => {
+        void loadConversations();
+        const interval = window.setInterval(() => void loadConversations(), 15000);
+        return () => window.clearInterval(interval);
+    }, [loadConversations]);
+
+    const runChatAction = (payload: Record<string, unknown>, onSuccess?: () => void) => {
+        setError(null);
+        startTransition(async () => {
+            try {
+                const response = await fetch('/api/research-wire/chats', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await response.json().catch(() => null);
+                if (!response.ok || !data?.success) {
+                    setError(data?.message ?? 'Could not update chat.');
+                    return;
+                }
+                syncConversations(Array.isArray(data.conversations) ? data.conversations : []);
+                onSuccess?.();
+            } catch (fetchError) {
+                setError(fetchError instanceof Error ? fetchError.message : 'Could not update chat.');
+            }
+        });
+    };
+
+    const handleCreateConversation = (payload: WireChatCreatePayload) => {
+        if (payload.type === 'direct') {
+            runChatAction({ action: 'request', targetUserId: payload.targetUserId }, () => setComposerOpen(false));
+            return;
+        }
+
+        runChatAction(
+            {
+                action: 'create_group',
+                groupName: payload.groupName,
+                targetUserIds: payload.targetUserIds,
+            },
+            () => setComposerOpen(false),
+        );
     };
 
     const handleSendMessage = () => {
         const trimmedMessage = message.trim();
-        if (!trimmedMessage || !selectedConversation) return;
-
-        setConversations((current) =>
-            current.map((conversation) =>
-                conversation.id === selectedConversation.id
-                    ? {
-                          ...conversation,
-                          status: 'active',
-                          messages: [
-                              ...conversation.messages,
-                              {
-                                  id: `message-${Date.now()}`,
-                                  senderId: user.id,
-                                  senderName: currentUserName,
-                                  body: trimmedMessage,
-                                  createdAt: 'Now',
-                              },
-                          ],
-                      }
-                    : conversation,
-            ),
+        if (!trimmedMessage || !selectedConversation || selectedConversation.status !== 'active') return;
+        runChatAction(
+            {
+                action: 'message',
+                conversationId: selectedConversation.id,
+                message: trimmedMessage,
+            },
+            () => setMessage(''),
         );
-        setMessage('');
     };
 
     const updateSelectedConversation = (updater: (conversation: WireChatConversation) => WireChatConversation | null) => {
@@ -573,15 +635,20 @@ const ChatView = ({ user }: { user: ResearchWireUser }) => {
 
     const handleLeaveConversation = () => {
         if (!selectedConversation) return;
-        updateSelectedConversation((conversation) =>
-            conversation.type === 'direct'
-                ? null
-                : {
-                      ...conversation,
-                      members: conversation.members.filter((member) => member.id !== user.id),
-                  },
-        );
-        setSelectedId(null);
+        runChatAction({
+            action: selectedConversation.type === 'group' ? 'leave' : 'close',
+            conversationId: selectedConversation.id,
+        });
+    };
+
+    const handleRequestDecision = (action: 'accept' | 'reject') => {
+        if (!selectedConversation) return;
+        runChatAction({ action, conversationId: selectedConversation.id });
+    };
+
+    const getConversationStatus = (conversation: WireChatConversation) => {
+        if (conversation.status !== 'pending') return `${conversation.members.length} members`;
+        return conversation.direction === 'incoming' ? 'Request received' : 'Request pending';
     };
 
     return (
@@ -627,7 +694,9 @@ const ChatView = ({ user }: { user: ResearchWireUser }) => {
 
             <div className="grid min-h-[520px] lg:grid-cols-[280px_minmax(0,1fr)]">
                 <aside className="border-b border-[var(--terminal-border)] lg:border-b-0 lg:border-r">
-                    {conversations.length ? (
+                    {loading ? (
+                        <div className="px-5 py-12 text-center text-sm font-semibold text-[var(--terminal-muted)]">Loading chats...</div>
+                    ) : conversations.length ? (
                         <div className="divide-y divide-[var(--terminal-border)]">
                             {conversations.map((conversation) => (
                                 <button
@@ -648,7 +717,7 @@ const ChatView = ({ user }: { user: ResearchWireUser }) => {
                                     <div className="min-w-0 flex-1">
                                         <p className="truncate font-black text-[var(--terminal-text)]">{conversation.name}</p>
                                         <p className="mt-1 truncate text-xs text-[var(--terminal-muted)]">
-                                            {conversation.status === 'pending' ? 'Request pending' : `${conversation.members.length} members`}
+                                            {getConversationStatus(conversation)}
                                         </p>
                                     </div>
                                 </button>
@@ -663,6 +732,7 @@ const ChatView = ({ user }: { user: ResearchWireUser }) => {
                             <p className="mt-2 text-sm leading-6 text-[var(--terminal-muted)]">
                                 Send a chat request or create a group to start a private conversation.
                             </p>
+                            {error ? <p className="mt-3 text-xs font-semibold text-[var(--terminal-down)]">{error}</p> : null}
                         </div>
                     )}
                 </aside>
@@ -677,19 +747,46 @@ const ChatView = ({ user }: { user: ResearchWireUser }) => {
                                         <p className="mt-1 text-sm text-[var(--terminal-muted)]">
                                             {selectedConversation.type === 'group'
                                                 ? `${selectedConversation.members.length} members`
-                                                : selectedConversation.status === 'pending'
-                                                  ? 'Chat request sent'
+                                                : isIncomingRequest
+                                                  ? 'Chat request received'
+                                                  : isOutgoingRequest
+                                                    ? 'Chat request sent'
                                                   : 'Direct chat'}
                                         </p>
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={handleLeaveConversation}
-                                        className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-3 py-2 text-xs font-black text-[var(--terminal-text)] transition hover:border-[var(--terminal-down)] hover:text-[var(--terminal-down)]"
-                                    >
-                                        {selectedConversation.type === 'group' ? 'Leave' : 'Close request'}
-                                    </button>
+                                    <div className="flex flex-wrap gap-2">
+                                        {isIncomingRequest ? (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRequestDecision('accept')}
+                                                    disabled={isPending}
+                                                    className="rounded-xl bg-[var(--terminal-accent)] px-3 py-2 text-xs font-black text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                    Accept
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRequestDecision('reject')}
+                                                    disabled={isPending}
+                                                    className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-3 py-2 text-xs font-black text-[var(--terminal-down)] transition hover:border-[var(--terminal-down)] disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                    Reject
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={handleLeaveConversation}
+                                                disabled={isPending}
+                                                className="rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-3 py-2 text-xs font-black text-[var(--terminal-text)] transition hover:border-[var(--terminal-down)] hover:text-[var(--terminal-down)] disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                {selectedConversation.type === 'group' ? 'Leave' : 'Close request'}
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
+                                {error ? <p className="mt-3 text-xs font-semibold text-[var(--terminal-down)]">{error}</p> : null}
 
                                 {isGroupAdmin ? (
                                     <div className="mt-4 rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] p-4">
@@ -761,9 +858,30 @@ const ChatView = ({ user }: { user: ResearchWireUser }) => {
                                         >
                                             <p className="text-xs font-black opacity-80">{chatMessage.senderName}</p>
                                             <p className="mt-1 text-sm leading-6">{chatMessage.body}</p>
-                                            <p className="mt-2 text-[10px] font-semibold opacity-70">{chatMessage.createdAt}</p>
+                                            <p className="mt-2 text-[10px] font-semibold opacity-70">
+                                                {new Date(chatMessage.createdAt).toLocaleString([], {
+                                                    month: 'short',
+                                                    day: 'numeric',
+                                                    hour: 'numeric',
+                                                    minute: '2-digit',
+                                                })}
+                                            </p>
                                         </div>
                                     ))
+                                ) : selectedConversation.status === 'pending' ? (
+                                    <div className="grid h-full min-h-56 place-items-center text-center">
+                                        <div>
+                                            <ShieldCheck className="mx-auto h-10 w-10 text-[var(--terminal-muted)]" />
+                                            <h3 className="mt-4 text-lg font-black text-[var(--terminal-text)]">
+                                                {isIncomingRequest ? 'Chat request waiting for you' : 'Waiting for acceptance'}
+                                            </h3>
+                                            <p className="mt-2 max-w-md text-sm leading-6 text-[var(--terminal-muted)]">
+                                                {isIncomingRequest
+                                                    ? 'Accept this request to open the private chat, or reject it to remove the request.'
+                                                    : 'Messages unlock after the other user accepts your request.'}
+                                            </p>
+                                        </div>
+                                    </div>
                                 ) : (
                                     <div className="grid h-full min-h-56 place-items-center text-center">
                                         <div>
@@ -785,13 +903,18 @@ const ChatView = ({ user }: { user: ResearchWireUser }) => {
                                         onKeyDown={(event) => {
                                             if (event.key === 'Enter') handleSendMessage();
                                         }}
-                                        placeholder="Write an encrypted message..."
+                                        disabled={selectedConversation.status !== 'active'}
+                                        placeholder={
+                                            selectedConversation.status === 'active'
+                                                ? 'Write an encrypted message...'
+                                                : 'Accept the chat request before messaging'
+                                        }
                                         className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 text-sm text-[var(--terminal-text)] outline-none placeholder:text-[var(--terminal-muted)]"
                                     />
                                     <button
                                         type="button"
                                         onClick={handleSendMessage}
-                                        disabled={!message.trim()}
+                                        disabled={!message.trim() || selectedConversation.status !== 'active' || isPending}
                                         className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--terminal-accent)] px-4 text-sm font-black text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                         <Send className="h-4 w-4" />
@@ -817,7 +940,6 @@ const ChatView = ({ user }: { user: ResearchWireUser }) => {
             {composerOpen ? (
                 <ChatComposerDialog
                     user={user}
-                    currentUserName={currentUserName}
                     initialMode={composerMode}
                     onClose={() => setComposerOpen(false)}
                     onCreate={handleCreateConversation}
@@ -829,61 +951,96 @@ const ChatView = ({ user }: { user: ResearchWireUser }) => {
 
 const ChatComposerDialog = ({
     user,
-    currentUserName,
     initialMode,
     onClose,
     onCreate,
 }: {
     user: ResearchWireUser;
-    currentUserName: string;
     initialMode: 'direct' | 'group';
     onClose: () => void;
-    onCreate: (conversation: WireChatConversation) => void;
+    onCreate: (payload: WireChatCreatePayload) => void;
 }) => {
     const [mode, setMode] = useState<'direct' | 'group'>(initialMode);
-    const [recipient, setRecipient] = useState('');
+    const [search, setSearch] = useState('');
+    const [results, setResults] = useState<ResearchWireSearchUser[]>([]);
+    const [selectedUsers, setSelectedUsers] = useState<ResearchWireSearchUser[]>([]);
     const [groupName, setGroupName] = useState('');
-    const [participants, setParticipants] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-    const participantNames = participants
-        .split(',')
-        .map((participant) => participant.trim())
-        .filter(Boolean);
-    const canCreate = mode === 'direct' ? Boolean(recipient.trim()) : Boolean(groupName.trim() && participantNames.length);
+    useEffect(() => {
+        const query = search.trim();
+        setError(null);
+
+        if (!query) {
+            setResults([]);
+            setLoading(false);
+            return;
+        }
+
+        const controller = new AbortController();
+        const timer = window.setTimeout(async () => {
+            setLoading(true);
+            try {
+                const response = await fetch(`/api/research-wire/users?q=${encodeURIComponent(query)}`, {
+                    signal: controller.signal,
+                });
+                const data = await response.json().catch(() => null);
+
+                if (!response.ok || !data?.success) {
+                    setError(data?.message ?? 'Could not search users.');
+                    setResults([]);
+                    return;
+                }
+
+                const selectedIds = new Set(selectedUsers.map((selectedUser) => selectedUser.id));
+                setResults(
+                    (Array.isArray(data.users) ? data.users : []).filter(
+                        (result: ResearchWireSearchUser) => result.id !== user.id && !selectedIds.has(result.id),
+                    ),
+                );
+            } catch (fetchError) {
+                if (fetchError instanceof DOMException && fetchError.name === 'AbortError') return;
+                setError(fetchError instanceof Error ? fetchError.message : 'Could not search users.');
+                setResults([]);
+            } finally {
+                if (!controller.signal.aborted) setLoading(false);
+            }
+        }, 220);
+
+        return () => {
+            controller.abort();
+            window.clearTimeout(timer);
+        };
+    }, [search, selectedUsers, user.id]);
+
+    const canCreate = mode === 'direct' ? Boolean(selectedUsers[0]) : Boolean(groupName.trim() && selectedUsers.length);
+
+    const handleSelectUser = (nextUser: ResearchWireSearchUser) => {
+        setSelectedUsers((current) => (mode === 'direct' ? [nextUser] : [...current, nextUser]));
+        setSearch('');
+        setResults([]);
+    };
+
+    const handleRemoveUser = (targetUserId: string) => {
+        setSelectedUsers((current) => current.filter((selectedUser) => selectedUser.id !== targetUserId));
+    };
 
     const handleCreate = () => {
         if (!canCreate) return;
-        const conversationId = `chat-${Date.now()}`;
 
         if (mode === 'direct') {
             onCreate({
-                id: conversationId,
                 type: 'direct',
-                name: recipient.trim(),
-                status: 'pending',
-                members: [
-                    { id: user.id, name: currentUserName, role: 'member' },
-                    { id: `member-${recipient.trim().toLowerCase().replace(/\s+/g, '-')}`, name: recipient.trim(), role: 'member' },
-                ],
-                messages: [],
+                targetUserId: selectedUsers[0].id,
             });
             return;
         }
 
         onCreate({
-            id: conversationId,
             type: 'group',
-            name: groupName.trim(),
-            status: 'active',
-            members: [
-                { id: user.id, name: currentUserName, role: 'admin' },
-                ...participantNames.map((participantName) => ({
-                    id: `member-${participantName.toLowerCase().replace(/\s+/g, '-')}-${conversationId}`,
-                    name: participantName,
-                    role: 'member' as const,
-                })),
-            ],
-            messages: [],
+            groupName: groupName.trim(),
+            targetUserIds: selectedUsers.map((selectedUser) => selectedUser.id),
         });
     };
 
@@ -905,7 +1062,12 @@ const ChatComposerDialog = ({
                     <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[var(--terminal-panel-soft)] p-1">
                         <button
                             type="button"
-                            onClick={() => setMode('direct')}
+                            onClick={() => {
+                                setMode('direct');
+                                setSelectedUsers([]);
+                                setSearch('');
+                                setResults([]);
+                            }}
                             className={cn(
                                 'h-10 rounded-xl text-sm font-black transition',
                                 mode === 'direct' ? 'bg-[var(--terminal-accent)] text-white' : 'text-[var(--terminal-muted)]',
@@ -915,7 +1077,12 @@ const ChatComposerDialog = ({
                         </button>
                         <button
                             type="button"
-                            onClick={() => setMode('group')}
+                            onClick={() => {
+                                setMode('group');
+                                setSelectedUsers([]);
+                                setSearch('');
+                                setResults([]);
+                            }}
                             className={cn(
                                 'h-10 rounded-xl text-sm font-black transition',
                                 mode === 'group' ? 'bg-[var(--terminal-accent)] text-white' : 'text-[var(--terminal-muted)]',
@@ -926,15 +1093,18 @@ const ChatComposerDialog = ({
                     </div>
 
                     {mode === 'direct' ? (
-                        <label className="block">
-                            <span className="text-xs font-black uppercase tracking-[0.14em] text-[var(--terminal-muted)]">Recipient</span>
-                            <input
-                                value={recipient}
-                                onChange={(event) => setRecipient(event.target.value)}
-                                placeholder="@username or full name"
-                                className="mt-2 h-11 w-full rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-3 text-sm font-semibold text-[var(--terminal-text)] outline-none focus:border-[var(--terminal-accent)]"
-                            />
-                        </label>
+                        <UserPicker
+                            label="Recipient"
+                            search={search}
+                            results={results}
+                            selectedUsers={selectedUsers}
+                            loading={loading}
+                            error={error}
+                            onSearchChange={setSearch}
+                            onSelectUser={handleSelectUser}
+                            onRemoveUser={handleRemoveUser}
+                            placeholder="@username or full name"
+                        />
                     ) : (
                         <>
                             <label className="block">
@@ -946,16 +1116,18 @@ const ChatComposerDialog = ({
                                     className="mt-2 h-11 w-full rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-3 text-sm font-semibold text-[var(--terminal-text)] outline-none focus:border-[var(--terminal-accent)]"
                                 />
                             </label>
-                            <label className="block">
-                                <span className="text-xs font-black uppercase tracking-[0.14em] text-[var(--terminal-muted)]">Members</span>
-                                <input
-                                    value={participants}
-                                    onChange={(event) => setParticipants(event.target.value)}
-                                    placeholder="Maya Chen, Daniel Brooks"
-                                    className="mt-2 h-11 w-full rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-3 text-sm font-semibold text-[var(--terminal-text)] outline-none focus:border-[var(--terminal-accent)]"
-                                />
-                                <span className="mt-2 block text-xs text-[var(--terminal-muted)]">Separate names with commas.</span>
-                            </label>
+                            <UserPicker
+                                label="Members"
+                                search={search}
+                                results={results}
+                                selectedUsers={selectedUsers}
+                                loading={loading}
+                                error={error}
+                                onSearchChange={setSearch}
+                                onSelectUser={handleSelectUser}
+                                onRemoveUser={handleRemoveUser}
+                                placeholder="Search people to add"
+                            />
                         </>
                     )}
 
@@ -972,6 +1144,91 @@ const ChatComposerDialog = ({
         </div>
     );
 };
+
+const UserPicker = ({
+    label,
+    search,
+    results,
+    selectedUsers,
+    loading,
+    error,
+    placeholder,
+    onSearchChange,
+    onSelectUser,
+    onRemoveUser,
+}: {
+    label: string;
+    search: string;
+    results: ResearchWireSearchUser[];
+    selectedUsers: ResearchWireSearchUser[];
+    loading: boolean;
+    error: string | null;
+    placeholder: string;
+    onSearchChange: (value: string) => void;
+    onSelectUser: (user: ResearchWireSearchUser) => void;
+    onRemoveUser: (userId: string) => void;
+}) => (
+    <div>
+        <label className="block">
+            <span className="text-xs font-black uppercase tracking-[0.14em] text-[var(--terminal-muted)]">{label}</span>
+            <input
+                value={search}
+                onChange={(event) => onSearchChange(event.target.value)}
+                placeholder={placeholder}
+                className="mt-2 h-11 w-full rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-3 text-sm font-semibold text-[var(--terminal-text)] outline-none focus:border-[var(--terminal-accent)]"
+            />
+        </label>
+
+        {selectedUsers.length ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+                {selectedUsers.map((selectedUser) => (
+                    <button
+                        key={selectedUser.id}
+                        type="button"
+                        onClick={() => onRemoveUser(selectedUser.id)}
+                        className="rounded-full border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)] px-3 py-1 text-xs font-bold text-[var(--terminal-text)] transition hover:border-[var(--terminal-down)] hover:text-[var(--terminal-down)]"
+                    >
+                        {selectedUser.username ?? selectedUser.name} x
+                    </button>
+                ))}
+            </div>
+        ) : null}
+
+        {search.trim() ? (
+            <div className="mt-3 max-h-52 overflow-y-auto rounded-xl border border-[var(--terminal-border)] bg-[var(--terminal-panel-soft)]">
+                {loading ? (
+                    <p className="px-3 py-4 text-sm text-[var(--terminal-muted)]">Searching users...</p>
+                ) : error ? (
+                    <p className="px-3 py-4 text-sm text-[var(--terminal-down)]">{error}</p>
+                ) : results.length ? (
+                    results.map((result) => (
+                        <button
+                            key={result.id}
+                            type="button"
+                            onClick={() => onSelectUser(result)}
+                            className="flex w-full items-center gap-3 border-b border-[var(--terminal-border)] px-3 py-3 text-left last:border-b-0 transition hover:bg-[color-mix(in_srgb,var(--terminal-accent)_10%,transparent)]"
+                        >
+                            <Avatar className="h-9 w-9 border border-[var(--terminal-border)]">
+                                <AvatarImage src={result.image || undefined} alt={`${result.name} profile`} />
+                                <AvatarFallback className="bg-[var(--terminal-panel)] text-xs font-black text-[var(--terminal-text)]">
+                                    {result.name.slice(0, 1).toUpperCase()}
+                                </AvatarFallback>
+                            </Avatar>
+                            <span className="min-w-0">
+                                <span className="block truncate text-sm font-black text-[var(--terminal-text)]">{result.name}</span>
+                                <span className="block truncate text-xs text-[var(--terminal-muted)]">
+                                    {result.username ?? 'No username set'}
+                                </span>
+                            </span>
+                        </button>
+                    ))
+                ) : (
+                    <p className="px-3 py-4 text-sm text-[var(--terminal-muted)]">No users found.</p>
+                )}
+            </div>
+        ) : null}
+    </div>
+);
 
 const SubscriptionsView = ({ creators }: { creators: WireCreator[] }) => {
     if (!creators.length) {
