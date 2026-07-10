@@ -27,6 +27,7 @@ type VolMomoHeatmapProps = {
     kind: "win" | "mean";
     onCellClick?: (i: number, j: number) => void;
     selectedCell?: { i: number; j: number } | null;
+    currentRegime?: { i: number; j: number } | null;
 };
 
 /**
@@ -45,6 +46,7 @@ export default function VolMomoHeatmap({
     kind,
     onCellClick,
     selectedCell,
+    currentRegime,
 }: VolMomoHeatmapProps) {
     if (loading) {
         return (
@@ -76,9 +78,11 @@ export default function VolMomoHeatmap({
     };
 
     const xLabels = buildLabels(xEdges, "pct");
+    const xCenters = xEdges.slice(0, -1).map((edge, index) => (edge + xEdges[index + 1]) / 2);
     const maxVolAbs = Math.max(...yEdges.map((edge) => Math.abs(edge)));
     const volKind = maxVolAbs < 0.005 ? "bps" : "pct";
     const yLabels = buildLabels(yEdges, volKind);
+    const yCenters = yEdges.slice(0, -1).map((edge, index) => (edge + yEdges[index + 1]) / 2);
     const flatValues = gridValues
         .flat()
         .filter((value): value is number => value !== null && Number.isFinite(value));
@@ -89,28 +93,35 @@ export default function VolMomoHeatmap({
         row.map((value) => (value == null ? "" : formatPct(value, 2)))
     );
     const customData = gridValues.map((row, j) =>
-        row.map((_, i) => [
-            xLabels[i] ?? "--",
-            yLabels[j] ?? "--",
-            countGrid?.[j]?.[i] ?? 0,
-        ])
+        row.map((_, i) => ({
+            i,
+            j,
+            momLo: xEdges[i],
+            momHi: xEdges[i + 1],
+            volLo: yEdges[j],
+            volHi: yEdges[j + 1],
+            momCenter: xCenters[i],
+            volCenter: yCenters[j],
+            count: countGrid?.[j]?.[i] ?? 0,
+            momLabel: xLabels[i] ?? "--",
+            volLabel: yLabels[j] ?? "--",
+        }))
     );
-    const highlightShape =
-        selectedCell && xLabels[selectedCell.i] && yLabels[selectedCell.j]
-            ? [
-                  {
-                      type: "rect",
-                      xref: "x",
-                      yref: "y",
-                      x0: selectedCell.i - 0.5,
-                      x1: selectedCell.i + 0.5,
-                      y0: selectedCell.j - 0.5,
-                      y1: selectedCell.j + 0.5,
-                      line: { color: "#f8fafc", width: 2 },
-                      fillcolor: "rgba(0,0,0,0)",
-                  },
-              ]
-            : [];
+    const buildHighlightShape = (cell: { i: number; j: number }, color: string, width: number) => ({
+        type: "rect" as const,
+        xref: "x",
+        yref: "y",
+        x0: xEdges[cell.i],
+        x1: xEdges[cell.i + 1],
+        y0: yEdges[cell.j],
+        y1: yEdges[cell.j + 1],
+        line: { color, width },
+        fillcolor: "rgba(0,0,0,0)",
+    });
+    const highlightShapes = [
+        ...(currentRegime ? [buildHighlightShape(currentRegime, "rgba(250, 204, 21, 0.9)", 2)] : []),
+        ...(selectedCell ? [buildHighlightShape(selectedCell, "#f8fafc", 2)] : []),
+    ];
 
     return (
         <div className="flex h-full flex-col gap-4 rounded-2xl border border-white/10 bg-[#0b0f14] p-4 shadow-2xl shadow-black/40">
@@ -125,8 +136,8 @@ export default function VolMomoHeatmap({
                     data={[
                         {
                             type: "heatmap",
-                            x: xLabels,
-                            y: yLabels,
+                            x: xCenters,
+                            y: yCenters,
                             z: gridValues,
                             zsmooth: false,
                             colorscale,
@@ -137,7 +148,9 @@ export default function VolMomoHeatmap({
                             texttemplate: "%{text}",
                             customdata: customData,
                             hovertemplate:
-                                "Momentum: %{customdata[0]}<br>Volatility: %{customdata[1]}<br>Samples: %{customdata[2]}<br>" +
+                                "Momentum: %{customdata.momLabel}<br>" +
+                                "Volatility: %{customdata.volLabel}<br>" +
+                                "Samples: %{customdata.count}<br>" +
                                 `${title}: %{z:.2%}<extra></extra>`,
                             colorbar: {
                                 tickformat: kind === "mean" ? ".2%" : ".0%",
@@ -152,17 +165,19 @@ export default function VolMomoHeatmap({
                         margin: { l: 40, r: 10, t: 10, b: 40 },
                         paper_bgcolor: "rgba(0,0,0,0)",
                         plot_bgcolor: "rgba(0,0,0,0)",
-                        shapes: highlightShape,
+                        shapes: highlightShapes,
                         xaxis: {
-                            type: "category",
                             title: "momentum",
+                            tickvals: xCenters,
+                            ticktext: xLabels,
                             gridcolor: "rgba(255,255,255,0.08)",
                             zerolinecolor: "rgba(255,255,255,0.12)",
                             color: "#cbd5f5",
                         },
                         yaxis: {
-                            type: "category",
                             title: "volatility",
+                            tickvals: yCenters,
+                            ticktext: yLabels,
                             gridcolor: "rgba(255,255,255,0.08)",
                             zerolinecolor: "rgba(255,255,255,0.12)",
                             color: "#cbd5f5",
@@ -176,10 +191,11 @@ export default function VolMomoHeatmap({
                         if (!point) {
                             return;
                         }
-                        const xIndex = xLabels.indexOf(String(point.x));
-                        const yIndex = yLabels.indexOf(String(point.y));
-                        if (xIndex < 0 || yIndex < 0) return;
-                        onCellClick?.(xIndex, yIndex);
+                        const cell = point.customdata as
+                            | { i: number; j: number }
+                            | undefined;
+                        if (cell?.i == null || cell?.j == null) return;
+                        onCellClick?.(cell.i, cell.j);
                     }}
                 />
             </div>

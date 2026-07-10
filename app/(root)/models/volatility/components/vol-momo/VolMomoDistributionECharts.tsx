@@ -1,16 +1,25 @@
 "use client";
 
-import { useMemo } from "react";
+import type { ComponentType } from "react";
+import dynamic from "next/dynamic";
+import type { PlotParams } from "react-plotly.js";
 
-import EChart from "@/components/charts/EChart";
-import { baseAxis, baseGrid, baseTextStyle, baseTooltip } from "@/lib/charts/zedxeEchartsTheme";
+const Plot = dynamic(() => import("react-plotly.js"), {
+    ssr: false,
+}) as ComponentType<PlotParams>;
 
 type VolMomoDistributionEChartsProps = {
     histogram: { binEdges: number[]; counts: number[] } | null;
-    mean?: number | null;
-    winRate?: number | null;
-    samples?: number | null;
+    stats: {
+        count: number;
+        winRate: number | null;
+        mean: number | null;
+        median: number | null;
+    } | null;
+    loading: boolean;
+    error?: string | null;
     selectedLabel?: string | null;
+    hasSelection: boolean;
 };
 
 const formatPercent = (value: number) => `${(value * 100).toFixed(2)}%`;
@@ -18,138 +27,177 @@ const formatPercent = (value: number) => `${(value * 100).toFixed(2)}%`;
 const buildCenters = (edges: number[]) =>
     edges.slice(0, -1).map((edge, index) => (edge + edges[index + 1]) / 2);
 
-const findNearestIndex = (values: number[], target: number) => {
-    if (!values.length) return -1;
-    let bestIndex = 0;
-    let bestDiff = Math.abs(values[0] - target);
-    for (let i = 1; i < values.length; i += 1) {
-        const diff = Math.abs(values[i] - target);
-        if (diff < bestDiff) {
-            bestDiff = diff;
-            bestIndex = i;
+const histogramQuantile = (edges: number[], counts: number[], q: number) => {
+    if (!edges.length || !counts.length) return null;
+    const total = counts.reduce((sum, value) => sum + value, 0);
+    if (total === 0) return null;
+    const target = total * q;
+    let cumulative = 0;
+    for (let i = 0; i < counts.length; i += 1) {
+        const count = counts[i];
+        const start = edges[i];
+        const end = edges[i + 1];
+        if (start == null || end == null) continue;
+        if (cumulative + count >= target) {
+            const within = count ? (target - cumulative) / count : 0;
+            return start + within * (end - start);
         }
+        cumulative += count;
     }
-    return bestIndex;
+    return edges[edges.length - 1] ?? null;
 };
 
 /**
- * Render forward return distribution using ECharts.
+ * Render forward return distribution using Plotly.
  * @param props - Histogram and stats data.
  * @returns Distribution panel element.
  */
 export default function VolMomoDistributionECharts({
     histogram,
-    mean,
-    winRate,
-    samples,
+    stats,
+    loading,
+    error,
     selectedLabel,
+    hasSelection,
 }: VolMomoDistributionEChartsProps) {
-    const centers = useMemo(
-        () => (histogram ? buildCenters(histogram.binEdges) : []),
-        [histogram]
-    );
-    const categories = useMemo(
-        () => centers.map((center) => formatPercent(center)),
-        [centers]
-    );
+    const centers = histogram ? buildCenters(histogram.binEdges) : [];
+    const binPairs = histogram
+        ? histogram.counts.map((_, index) => [histogram.binEdges[index], histogram.binEdges[index + 1]])
+        : [];
+    const p10 = histogram ? histogramQuantile(histogram.binEdges, histogram.counts, 0.1) : null;
+    const p25 = histogram ? histogramQuantile(histogram.binEdges, histogram.counts, 0.25) : null;
+    const p75 = histogram ? histogramQuantile(histogram.binEdges, histogram.counts, 0.75) : null;
+    const p90 = histogram ? histogramQuantile(histogram.binEdges, histogram.counts, 0.9) : null;
 
-    const meanIndex = mean != null ? findNearestIndex(centers, mean) : -1;
-
-    const option = useMemo(
-        () => ({
-            backgroundColor: "transparent",
-            textStyle: baseTextStyle,
-            grid: { ...baseGrid, bottom: 55 },
-            xAxis: {
-                type: "category",
-                data: categories,
-                ...baseAxis,
-                axisLabel: {
-                    ...(baseAxis.axisLabel ?? {}),
-                    rotate: 0,
-                    interval: Math.max(1, Math.floor(categories.length / 6)),
-                },
-            },
-            yAxis: {
-                type: "value",
-                name: "Frequency",
-                ...baseAxis,
-            },
-            tooltip: {
-                ...baseTooltip,
-                formatter: (params: { data: number; dataIndex: number }) => {
-                    const idx = params.dataIndex;
-                    const start = histogram?.binEdges[idx];
-                    const end = histogram?.binEdges[idx + 1];
-                    const range =
-                        start != null && end != null
-                            ? `${formatPercent(start)} → ${formatPercent(end)}`
-                            : "--";
-                    return `Range: ${range}<br/>Count: ${params.data}`;
-                },
-            },
-            series: [
-                {
-                    type: "bar",
-                    data: histogram?.counts ?? [],
-                    itemStyle: {
-                        color: "#38bdf8",
-                        borderRadius: [4, 4, 0, 0],
-                    },
-                    markLine: meanIndex >= 0 ? {
-                        symbol: ["none", "none"],
-                        label: {
-                            formatter: `Mean ${mean ? formatPercent(mean) : "--"}`,
-                            color: "#e2e8f0",
-                        },
-                        lineStyle: { color: "#f8fafc", type: "dashed" },
-                        data: [{ xAxis: categories[meanIndex] }],
-                    } : undefined,
-                },
-            ],
-        }),
-        [categories, histogram, mean, meanIndex]
-    );
-
-    if (!histogram || histogram.counts.length === 0) {
-        return (
-            <div className="flex h-[380px] w-full items-center justify-center rounded-2xl border border-white/10 bg-white/[0.02] text-sm text-slate-400">
-                No distribution data available.
-            </div>
-        );
-    }
+    const showChart = histogram && histogram.counts.length > 0;
+    const showPrompt = !hasSelection && !loading;
 
     return (
         <div className="flex h-full flex-col gap-4 rounded-2xl border border-white/10 bg-[#0b0f14] p-4 shadow-2xl shadow-black/40">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/60">
-                        Conditional density
+                        Cell Distribution
                     </p>
                     <h3 className="text-lg font-semibold text-white">Forward return distribution</h3>
                 </div>
                 <div className="text-xs text-slate-400">
-                    {selectedLabel ?? "Click a heatmap cell to inspect distributions."}
+                    {selectedLabel ?? "Click a cell to view distribution."}
                 </div>
             </div>
-            <div className="h-[260px] w-full">
-                <EChart option={option} style={{ width: "100%", height: "100%" }} />
+            {error ? <p className="text-xs text-rose-300">{error}</p> : null}
+            <div className="relative h-[260px] w-full">
+                {showChart ? (
+                    <Plot
+                        data={[
+                            {
+                                type: "bar",
+                                x: centers,
+                                y: histogram?.counts ?? [],
+                                customdata: binPairs,
+                                marker: {
+                                    color: "#38bdf8",
+                                    line: { color: "rgba(15, 23, 42, 0.7)", width: 1 },
+                                },
+                                hovertemplate:
+                                    "Range: %{customdata[0]:.2%} → %{customdata[1]:.2%}<br>" +
+                                    "Count: %{y}<extra></extra>",
+                            },
+                        ]}
+                        layout={{
+                            autosize: true,
+                            margin: { l: 50, r: 10, t: 10, b: 40 },
+                            paper_bgcolor: "rgba(0,0,0,0)",
+                            plot_bgcolor: "rgba(0,0,0,0)",
+                            xaxis: {
+                                title: "Forward return",
+                                tickformat: ".2%",
+                                gridcolor: "rgba(255,255,255,0.08)",
+                                zerolinecolor: "rgba(255,255,255,0.12)",
+                                color: "#cbd5f5",
+                            },
+                            yaxis: {
+                                title: "Frequency",
+                                gridcolor: "rgba(255,255,255,0.08)",
+                                zerolinecolor: "rgba(255,255,255,0.12)",
+                                color: "#cbd5f5",
+                            },
+                            shapes:
+                                stats?.mean != null
+                                    ? [
+                                          {
+                                              type: "line",
+                                              x0: stats.mean,
+                                              x1: stats.mean,
+                                              y0: 0,
+                                              y1: 1,
+                                              xref: "x",
+                                              yref: "paper",
+                                              line: { color: "#f8fafc", width: 1, dash: "dash" },
+                                          },
+                                      ]
+                                    : [],
+                        }}
+                        config={{ responsive: true, displayModeBar: false }}
+                        style={{ width: "100%", height: "100%" }}
+                        useResizeHandler
+                    />
+                ) : (
+                    <div className="flex h-full w-full items-center justify-center rounded-xl border border-white/10 bg-white/[0.02] text-sm text-slate-400">
+                        {showPrompt ? "Click a cell to view distribution." : "No distribution data available."}
+                    </div>
+                )}
+                {loading ? (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-[#0b0f14]/80 text-sm text-slate-300">
+                        Loading…
+                    </div>
+                ) : null}
             </div>
-            <div className="grid grid-cols-3 gap-3 text-xs text-slate-300">
+            <div className="grid grid-cols-2 gap-3 text-xs text-slate-300 md:grid-cols-4">
                 <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
                     <p className="text-[11px] uppercase tracking-wide text-slate-400">Samples</p>
-                    <p className="text-sm font-semibold text-white">{samples ?? "--"}</p>
+                    <p className="text-sm font-semibold text-white">{stats?.count ?? "--"}</p>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
                     <p className="text-[11px] uppercase tracking-wide text-slate-400">Win Rate</p>
                     <p className="text-sm font-semibold text-white">
-                        {winRate != null ? formatPercent(winRate) : "--"}
+                        {stats?.winRate != null ? formatPercent(stats.winRate) : "--"}
                     </p>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
                     <p className="text-[11px] uppercase tracking-wide text-slate-400">Mean</p>
                     <p className="text-sm font-semibold text-white">
-                        {mean != null ? formatPercent(mean) : "--"}
+                        {stats?.mean != null ? formatPercent(stats.mean) : "--"}
+                    </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400">Median</p>
+                    <p className="text-sm font-semibold text-white">
+                        {stats?.median != null ? formatPercent(stats.median) : "--"}
+                    </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400">p10</p>
+                    <p className="text-sm font-semibold text-white">
+                        {p10 != null ? formatPercent(p10) : "--"}
+                    </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400">p25</p>
+                    <p className="text-sm font-semibold text-white">
+                        {p25 != null ? formatPercent(p25) : "--"}
+                    </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400">p75</p>
+                    <p className="text-sm font-semibold text-white">
+                        {p75 != null ? formatPercent(p75) : "--"}
+                    </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400">p90</p>
+                    <p className="text-sm font-semibold text-white">
+                        {p90 != null ? formatPercent(p90) : "--"}
                     </p>
                 </div>
             </div>
